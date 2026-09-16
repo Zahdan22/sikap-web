@@ -27,6 +27,7 @@ export async function createCrewAccount(
   })
 
   if (profileError) {
+    console.log('PROFILE ERROR:', profileError)
     return { success: false, message: profileError.message }
   }
 
