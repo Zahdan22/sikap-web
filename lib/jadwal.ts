@@ -80,6 +80,7 @@ export async function getScheduleStateForDate(
 
   // Timpa dengan data yang beneran ada
   for (const sch of schedules || []) {
+     if (!sch.user_id) continue // baris freelance, bukan crew — skip dari grid manager
     const matchedOption = jamKerjaOptions.find(
       (opt) => opt.jam_mulai === sch.jam_mulai && opt.jam_selesai === sch.jam_selesai
     )
@@ -116,7 +117,7 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
   const { data, error } = await supabase
     .from('schedule')
     .select(`
-      id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam,
+      id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam, freelance_nama,
       users:user_id (nama),
       schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
     `)
@@ -132,7 +133,7 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
     jam_mulai: row.jam_mulai,
     jam_selesai: row.jam_selesai,
     durasi_jam: row.durasi_jam,
-    nama: row.users?.nama || '(tidak diketahui)',
+    nama: row.users?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
     jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
   }))
 }

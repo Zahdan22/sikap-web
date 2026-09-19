@@ -41,12 +41,57 @@ export async function respondLeaveRequest(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
 
+  const { data: leaveRequest, error: fetchError } = await supabase
+    .from('leave_request')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (fetchError || !leaveRequest) {
+    return { success: false, message: 'Pengajuan izin tidak ditemukan' }
+  }
+
   const { error } = await supabase
     .from('leave_request')
     .update({ status, approved_by: user.id, catatan_manajer: catatanManajer })
     .eq('id', id)
 
   if (error) return { success: false, message: error.message }
+
+  // Kalau disetujui, jadwal di rentang tanggal izin otomatis dialihkan ke pengganti
+  const conflicts: string[] = []
+
+  if (status === 'disetujui') {
+    const { data: schedules } = await supabase
+      .from('schedule')
+      .select('id, tanggal')
+      .eq('user_id', leaveRequest.user_id)
+      .gte('tanggal', leaveRequest.tanggal_mulai)
+      .lte('tanggal', leaveRequest.tanggal_selesai)
+
+    for (const sch of schedules || []) {
+      if (leaveRequest.pengganti_type === 'crew' && leaveRequest.pengganti_user_id) {
+        const { error: updateError } = await supabase
+          .from('schedule')
+          .update({ user_id: leaveRequest.pengganti_user_id, freelance_nama: null })
+          .eq('id', sch.id)
+        if (updateError) conflicts.push(`Tanggal ${sch.tanggal}: ${updateError.message}`)
+      } else if (leaveRequest.pengganti_type === 'freelance') {
+        const { error: updateError } = await supabase
+          .from('schedule')
+          .update({ user_id: null, freelance_nama: leaveRequest.pengganti_nama_manual })
+          .eq('id', sch.id)
+        if (updateError) conflicts.push(`Tanggal ${sch.tanggal}: ${updateError.message}`)
+      }
+    }
+  }
+
   revalidatePath('/manager/izin')
+  revalidatePath('/manager/jadwal')
+  revalidatePath('/jadwal-saya')
+
+  if (conflicts.length > 0) {
+    return { success: true, message: 'Izin disetujui, tapi ada konflik jadwal: ' + conflicts.join('; ') }
+  }
   return { success: true }
 }
