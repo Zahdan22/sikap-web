@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import CameraCapture from '@/components/CameraCapture'
 import { checkIn, checkOut, getTodayStatus } from '@/lib/attendance'
 import { createClient } from '@/lib/supabase/client'
+import { getPhotoSignedUrl } from '@/lib/storage'
 
 type ViewState = 'loading' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
 
@@ -14,6 +15,7 @@ export default function CheckInOutPage() {
   const [statusMessage, setStatusMessage] = useState('')
   const [showCamera, setShowCamera] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
 
   async function loadStatus() {
     const supabase = createClient()
@@ -43,7 +45,7 @@ export default function CheckInOutPage() {
     loadStatus()
   }, [])
 
-  async function handleCapture(photo: string) {
+   async function handleCapture(photo: string) {
     if (!userId) return
     setProcessing(true)
     setShowCamera(false)
@@ -55,9 +57,13 @@ export default function CheckInOutPage() {
             result.menitTelat > 0 ? ` (telat ${result.menitTelat} menit)` : ''
           }`
         )
+        const url = await getPhotoSignedUrl(result.photoPath)
+        setPhotoUrl(url)
       } else if (viewState === 'ready-checkout') {
         const result = await checkOut(userId, photo)
         setStatusMessage(`Check-out berhasil. Status: ${result.status}`)
+        const url = await getPhotoSignedUrl(result.photoPath)
+        setPhotoUrl(url)
       }
       await loadStatus()
     } catch (err) {
@@ -80,6 +86,7 @@ export default function CheckInOutPage() {
       )}
 
       {statusMessage && <p>{statusMessage}</p>}
+      {photoUrl && <img src={photoUrl} alt="Foto absen" style={{ width: 300, marginTop: 12 }} />}
 
       {viewState === 'done' && <p>Kamu sudah check-in dan check-out hari ini.</p>}
 

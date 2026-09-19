@@ -32,11 +32,14 @@ export default async function DashboardPage() {
           <>
             <hr />
             <p><strong>Menu Manager</strong></p>
+            <Link href="/manager/karyawan">Manajemen Karyawan</Link>
             <Link href="/manager/jadwal">Kelola Jadwal</Link>
             <Link href="/manager/jam-kerja">Kelola Jam Kerja</Link>
             <Link href="/manager/jobdesk">Kelola Jobdesk</Link>
             <Link href="/manager/izin">Kelola Izin</Link>
             <Link href="/manager/tukar-shift">Kelola Tukar Shift</Link>
+            <Link href="/manager/periode">Kelola Periode Kerja</Link>
+            <Link href="/manager/laporan">Laporan & Rekap</Link>
           </>
         )}
       </nav>
