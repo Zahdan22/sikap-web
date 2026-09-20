@@ -19,6 +19,12 @@ type LeaveRequest = {
 
 type CrewOption = { id: string; nama: string }
 
+const statusStyle: Record<string, string> = {
+  pending: 'bg-warning/10 text-warning',
+  disetujui: 'bg-success/10 text-success',
+  ditolak: 'bg-brand/10 text-brand',
+}
+
 export default function IzinPage() {
   const [list, setList] = useState<LeaveRequest[]>([])
   const [crewOptions, setCrewOptions] = useState<CrewOption[]>([])
@@ -29,14 +35,14 @@ export default function IzinPage() {
   const [penggantiType, setPenggantiType] = useState<'crew' | 'freelance'>('crew')
   const [penggantiUserId, setPenggantiUserId] = useState('')
   const [penggantiNamaManual, setPenggantiNamaManual] = useState('')
+  const [buktiFile, setBuktiFile] = useState<File | null>(null)
   const [message, setMessage] = useState('')
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   async function loadData() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    setCurrentUserId(user.id)
 
     const { data: leaveData } = await supabase
       .from('leave_request')
@@ -50,7 +56,7 @@ export default function IzinPage() {
       .select('id, nama')
       .eq('role', 'crew')
       .eq('status_aktif', true)
-      .neq('id', user.id) // exclude diri sendiri dari daftar pengganti
+      .neq('id', user.id)
       .order('nama')
     setCrewOptions(crewData || [])
   }
@@ -59,10 +65,10 @@ export default function IzinPage() {
     loadData()
   }, [])
 
-  const [buktiFile, setBuktiFile] = useState<File | null>(null)
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setSubmitting(true)
+    setMessage('')
 
     let buktiPath: string | null = null
 
@@ -72,12 +78,10 @@ export default function IzinPage() {
       if (!user) return
 
       const fileName = `${user.id}/${Date.now()}-${buktiFile.name}`
-      const { error: uploadError } = await supabase.storage
-        .from('leave-attachments')
-        .upload(fileName, buktiFile)
-
+      const { error: uploadError } = await supabase.storage.from('leave-attachments').upload(fileName, buktiFile)
       if (uploadError) {
         setMessage('Error upload bukti: ' + uploadError.message)
+        setSubmitting(false)
         return
       }
       buktiPath = fileName
@@ -93,6 +97,8 @@ export default function IzinPage() {
       penggantiType === 'freelance' ? penggantiNamaManual : null,
       buktiPath
     )
+
+    setSubmitting(false)
     if (!result.success) {
       setMessage('Error: ' + result.message)
       return
@@ -107,86 +113,174 @@ export default function IzinPage() {
     loadData()
   }
 
-  const statusColor: Record<string, string> = {
-    pending: 'orange',
-    disetujui: 'green',
-    ditolak: 'red',
-  }
-
   function formatPengganti(item: LeaveRequest) {
     if (item.pengganti_type === 'crew') {
       const crew = crewOptions.find((c) => c.id === item.pengganti_user_id)
       return crew?.nama || '(crew)'
     }
-    if (item.pengganti_type === 'freelance') {
-      return `Freelance, ${item.pengganti_nama_manual}`
-    }
+    if (item.pengganti_type === 'freelance') return `Freelance, ${item.pengganti_nama_manual}`
     return '-'
   }
 
+  const lastRequest = list[0]
+
   return (
-    <div>
-      <h1>Ajukan Izin</h1>
+    <div className="flex min-h-full flex-col bg-cream pb-6">
+      <div className="flex items-center gap-3 px-5 pt-6">
+        <a href="/dashboard" className="text-brand text-lg">←</a>
+        <h1 className="text-lg font-semibold text-ink">Pengajuan Izin</h1>
+      </div>
 
-      <form onSubmit={handleSubmit}>
-        <select value={jenis} onChange={(e) => setJenis(e.target.value as 'sakit' | 'keperluan_pribadi')}>
-          <option value="sakit">Sakit</option>
-          <option value="keperluan_pribadi">Keperluan Pribadi</option>
-        </select>
-        <input type="date" value={tanggalMulai} onChange={(e) => setTanggalMulai(e.target.value)} required />
-        <input type="date" value={tanggalSelesai} onChange={(e) => setTanggalSelesai(e.target.value)} required />
-        <textarea placeholder="Alasan (opsional)" value={alasan} onChange={(e) => setAlasan(e.target.value)} />
+      {lastRequest && (
+        <div className="mt-4 px-5">
+          <div className="rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-wide text-muted">Pengajuan Terakhir</p>
+              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize ${statusStyle[lastRequest.status]}`}>
+                {lastRequest.status}
+              </span>
+            </div>
+            <p className="mt-1 text-sm font-semibold capitalize text-ink">{lastRequest.jenis.replace('_', ' ')}</p>
+            <p className="text-xs text-muted">{lastRequest.tanggal_mulai} - {lastRequest.tanggal_selesai}</p>
+          </div>
+        </div>
+      )}
 
-        <div>
-          <label>Digantikan dengan:</label>
-          <select value={penggantiType} onChange={(e) => setPenggantiType(e.target.value as 'crew' | 'freelance')}>
-            <option value="crew">Crew Lain</option>
-            <option value="freelance">Freelance</option>
-          </select>
+      <form onSubmit={handleSubmit} className="mt-4 px-5">
+        <div className="rounded-2xl border border-cream-dim bg-cream-card p-5">
+          <p className="text-sm font-semibold text-ink">Ajukan Izin Baru</p>
 
-          {penggantiType === 'crew' ? (
-            <select value={penggantiUserId} onChange={(e) => setPenggantiUserId(e.target.value)} required>
-              <option value="">-- Pilih Crew --</option>
-              {crewOptions.map((c) => (
-                <option key={c.id} value={c.id}>{c.nama}</option>
-              ))}
+          <div className="mt-4">
+            <label className="mb-1 block text-xs font-medium text-muted">Jenis Izin</label>
+            <select
+              value={jenis}
+              onChange={(e) => setJenis(e.target.value as any)}
+              className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
+            >
+              <option value="sakit">Sakit</option>
+              <option value="keperluan_pribadi">Keperluan Pribadi</option>
             </select>
-          ) : (
-            <input
-              placeholder="Nama freelance (ketik manual)"
-              value={penggantiNamaManual}
-              onChange={(e) => setPenggantiNamaManual(e.target.value)}
-              required
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">Tanggal Mulai</label>
+              <input
+                type="date"
+                value={tanggalMulai}
+                onChange={(e) => setTanggalMulai(e.target.value)}
+                required
+                className="w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">Tanggal Selesai</label>
+              <input
+                type="date"
+                value={tanggalSelesai}
+                onChange={(e) => setTanggalSelesai(e.target.value)}
+                required
+                className="w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-muted">Alasan / Keterangan</label>
+            <textarea
+              placeholder="Tuliskan alasan izin Anda secara singkat..."
+              value={alasan}
+              onChange={(e) => setAlasan(e.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
             />
-          )}
-        </div>
+          </div>
 
-                <div>
-          <label>Bukti Izin (opsional, foto/PDF surat dokter dll):</label>
-          <input
-            type="file"
-            accept="image/*,.pdf"
-            onChange={(e) => setBuktiFile(e.target.files?.[0] || null)}
-          />
-        </div>
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-muted">Digantikan Dengan</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPenggantiType('crew')}
+                className={`flex-1 rounded-xl border py-2 text-xs font-semibold ${
+                  penggantiType === 'crew' ? 'border-brand bg-brand text-white' : 'border-cream-dim bg-white text-ink'
+                }`}
+              >
+                Crew Lain
+              </button>
+              <button
+                type="button"
+                onClick={() => setPenggantiType('freelance')}
+                className={`flex-1 rounded-xl border py-2 text-xs font-semibold ${
+                  penggantiType === 'freelance' ? 'border-brand bg-brand text-white' : 'border-cream-dim bg-white text-ink'
+                }`}
+              >
+                Freelance
+              </button>
+            </div>
 
-        <button type="submit">Ajukan</button>
+            {penggantiType === 'crew' ? (
+              <select
+                value={penggantiUserId}
+                onChange={(e) => setPenggantiUserId(e.target.value)}
+                required
+                className="mt-2 w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">-- Pilih Crew --</option>
+                {crewOptions.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nama}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                placeholder="Nama freelance (ketik manual)"
+                value={penggantiNamaManual}
+                onChange={(e) => setPenggantiNamaManual(e.target.value)}
+                required
+                className="mt-2 w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              />
+            )}
+          </div>
+
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-muted">Bukti Izin (opsional)</label>
+            <input
+              type="file"
+              accept="image/*,.pdf"
+              onChange={(e) => setBuktiFile(e.target.files?.[0] || null)}
+              className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-brand/10 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand"
+            />
+          </div>
+
+          {message && <p className="mt-3 text-sm text-brand">{message}</p>}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {submitting ? 'Mengirim...' : 'Ajukan Sekarang'}
+          </button>
+        </div>
       </form>
 
-      {message && <p>{message}</p>}
-
-      <h2>Riwayat Pengajuan</h2>
-      <ul>
-        {list.map((item) => (
-          <li key={item.id}>
-            <span style={{ color: statusColor[item.status] }}>[{item.status.toUpperCase()}]</span>{' '}
-            {item.jenis} — {item.tanggal_mulai} s.d. {item.tanggal_selesai}
-            {item.alasan && ` — "${item.alasan}"`}
-            <div>Digantikan dengan: {formatPengganti(item)}</div>
-            {item.catatan_manajer && <div>Catatan manajer: {item.catatan_manajer}</div>}
-          </li>
-        ))}
-      </ul>
+      <div className="mt-5 px-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat Pengajuan</p>
+        <div className="mt-2 space-y-2">
+          {list.map((item) => (
+            <div key={item.id} className="rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium capitalize text-ink">{item.jenis.replace('_', ' ')}</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${statusStyle[item.status]}`}>
+                  {item.status}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted">{item.tanggal_mulai} s.d. {item.tanggal_selesai}</p>
+              <p className="mt-0.5 text-xs text-muted">Digantikan: {formatPengganti(item)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

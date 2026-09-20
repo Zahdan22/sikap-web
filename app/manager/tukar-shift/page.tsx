@@ -9,6 +9,8 @@ type SwapRequest = {
   tanggal: string
   alasan: string | null
   status: string
+  target_type: string
+  target_nama_freelance: string | null
   requester: { nama: string } | null
   target: { nama: string } | null
 }
@@ -34,13 +36,18 @@ export default function ManagerTukarShiftPage() {
     loadList()
   }
 
+  function formatTarget(item: SwapRequest) {
+    if (item.target_type === 'freelance') return `Freelance, ${item.target_nama_freelance}`
+    return item.target?.nama || '-'
+  }
+
   return (
     <div>
       <h1>Kelola Tukar Shift</h1>
       <ul>
         {list.map((item) => (
           <li key={item.id} style={{ marginBottom: 16, borderBottom: '1px solid gray', paddingBottom: 8 }}>
-            <strong>{item.requester?.nama}</strong> ↔ <strong>{item.target?.nama}</strong> — {item.tanggal}
+            <strong>{item.requester?.nama}</strong> ↔ <strong>{formatTarget(item)}</strong> — {item.tanggal}
             {item.alasan && <div>Alasan: {item.alasan}</div>}
             <div>Status: {item.status}</div>
             {item.status === 'pending' && (

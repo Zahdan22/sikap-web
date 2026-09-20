@@ -102,7 +102,7 @@ export default function DashboardClient({ nama, role }: Props) {
         </Link>
       </div>
 
-      <div className="mt-4 px-5">
+            <div className="mt-4 space-y-3 px-5">
         <Link
           href="/izin"
           className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4"
@@ -110,6 +110,17 @@ export default function DashboardClient({ nama, role }: Props) {
           <div>
             <p className="text-sm font-semibold text-ink">Pengajuan Izin</p>
             <p className="text-xs text-muted">Leave / Permission</p>
+          </div>
+          <span className="text-brand">→</span>
+        </Link>
+
+        <Link
+          href="/tukar-shift"
+          className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4"
+        >
+          <div>
+            <p className="text-sm font-semibold text-ink">Tukar Shift</p>
+            <p className="text-xs text-muted">Shift Swap</p>
           </div>
           <span className="text-brand">→</span>
         </Link>
@@ -123,22 +134,6 @@ export default function DashboardClient({ nama, role }: Props) {
           <StatRow label="Late Arrivals" value={String(monthStats.lateCount)} warn={monthStats.lateCount > 0} />
         </div>
       </div>
-
-      {role === 'manager' && (
-        <div className="mt-6 px-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Menu Manager</p>
-          <div className="mt-2 space-y-2">
-            <ManagerLink href="/manager/karyawan" label="Manajemen Karyawan" />
-            <ManagerLink href="/manager/jadwal" label="Kelola Jadwal" />
-            <ManagerLink href="/manager/jam-kerja" label="Kelola Jam Kerja" />
-            <ManagerLink href="/manager/jobdesk" label="Kelola Jobdesk" />
-            <ManagerLink href="/manager/izin" label="Kelola Izin" />
-            <ManagerLink href="/manager/tukar-shift" label="Kelola Tukar Shift" />
-            <ManagerLink href="/manager/periode" label="Kelola Periode Kerja" />
-            <ManagerLink href="/manager/laporan" label="Laporan & Rekap" />
-          </div>
-        </div>
-      )}
 
       <BottomNav />
     </div>
