@@ -23,9 +23,9 @@ export default function LaporanPage() {
   const [periodeList, setPeriodeList] = useState<Periode[]>([])
   const [selectedPeriodeId, setSelectedPeriodeId] = useState<number | null>(null)
   const [summaries, setSummaries] = useState<EmployeeSummary[]>([])
+  const [generatedRange, setGeneratedRange] = useState<{ start: string; end: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [generatedRange, setGeneratedRange] = useState<{ start: string; end: string } | null>(null)
 
   useEffect(() => {
     async function loadPeriode() {
@@ -45,10 +45,7 @@ export default function LaporanPage() {
 
   async function handleGenerate() {
     const range = getDateRange()
-    if (!range) {
-      alert('Pilih periode kerja dulu')
-      return
-    }
+    if (!range) { alert('Pilih periode kerja dulu'); return }
     setLoading(true)
     const data = await getEmployeeSummaries(range.start, range.end)
     setSummaries(data)
@@ -61,13 +58,11 @@ export default function LaporanPage() {
     setExporting(true)
 
     const allRows: any[] = []
-
     for (const summary of summaries) {
       const details = await getEmployeeDetail(summary.userId, generatedRange.start, generatedRange.end)
       for (const d of details) {
         const fotoMasukUrl = d.fotoMasuk ? await getPhotoSignedUrl(d.fotoMasuk).catch(() => '') : ''
         const fotoPulangUrl = d.fotoPulang ? await getPhotoSignedUrl(d.fotoPulang).catch(() => '') : ''
-
         allRows.push({
           Nama: summary.nama,
           Tanggal: d.tanggal,
@@ -88,81 +83,131 @@ export default function LaporanPage() {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan Absensi')
     XLSX.writeFile(workbook, `Laporan_Absensi_${generatedRange.start}_${generatedRange.end}.xlsx`)
-
     setExporting(false)
   }
 
   return (
-    <div>
-      <h1>Laporan & Rekap</h1>
-
-      <div>
-        <label>
-          <input type="radio" checked={mode === 'bulan'} onChange={() => setMode('bulan')} /> Bulan Kalender
-        </label>
-        <label>
-          <input type="radio" checked={mode === 'periode'} onChange={() => setMode('periode')} /> Periode Kerja
-        </label>
+    <div className="flex min-h-full flex-col bg-cream pb-10">
+      <div className="flex items-center gap-3 px-5 pt-6">
+        <a href="/manager" className="text-brand text-lg">←</a>
+        <h1 className="text-lg font-semibold text-ink">Laporan & Rekap</h1>
       </div>
 
-      {mode === 'bulan' ? (
-        <div>
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} />
-        </div>
-      ) : (
-        <div>
-          <select value={selectedPeriodeId ?? ''} onChange={(e) => setSelectedPeriodeId(Number(e.target.value))}>
-            <option value="">-- Pilih Periode --</option>
-            {periodeList.map((p) => (
-              <option key={p.id} value={p.id}>{p.nama} ({p.tanggal_mulai} s.d. {p.tanggal_selesai})</option>
-            ))}
-          </select>
-          {periodeList.length === 0 && <Link href="/manager/periode"> Belum ada periode, buat dulu</Link>}
-        </div>
-      )}
+      <div className="mt-4 px-5">
+        <div className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMode('bulan')}
+              className={`flex-1 rounded-xl border py-2 text-xs font-semibold ${
+                mode === 'bulan' ? 'border-brand bg-brand text-white' : 'border-cream-dim bg-white text-ink'
+              }`}
+            >
+              Bulan Kalender
+            </button>
+            <button
+              onClick={() => setMode('periode')}
+              className={`flex-1 rounded-xl border py-2 text-xs font-semibold ${
+                mode === 'periode' ? 'border-brand bg-brand text-white' : 'border-cream-dim bg-white text-ink'
+              }`}
+            >
+              Periode Kerja
+            </button>
+          </div>
 
-      <button onClick={handleGenerate} disabled={loading}>{loading ? 'Memuat...' : 'Tampilkan Laporan'}</button>
+          {mode === 'bulan' ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <select
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+                className="rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>Bulan {m}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+                className="rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              />
+            </div>
+          ) : (
+            <div className="mt-3">
+              <select
+                value={selectedPeriodeId ?? ''}
+                onChange={(e) => setSelectedPeriodeId(Number(e.target.value))}
+                className="w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+              >
+                <option value="">-- Pilih Periode --</option>
+                {periodeList.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nama} ({p.tanggal_mulai} s.d. {p.tanggal_selesai})</option>
+                ))}
+              </select>
+              {periodeList.length === 0 && (
+                <Link href="/manager/periode" className="mt-2 block text-xs text-brand">
+                  Belum ada periode, buat dulu →
+                </Link>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleGenerate}
+            disabled={loading}
+            className="mt-3 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {loading ? 'Memuat...' : 'Tampilkan Laporan'}
+          </button>
+        </div>
+      </div>
 
       {summaries.length > 0 && (
-        <>
-          <button onClick={handleExport} disabled={exporting}>
-            {exporting ? 'Mengekspor...' : 'Export ke Excel'}
-          </button>
+        <div className="mt-5 px-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Ringkasan</p>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-lg bg-success/10 px-3 py-1.5 text-xs font-semibold text-success disabled:opacity-60"
+            >
+              {exporting ? 'Mengekspor...' : '⬇ Export Excel'}
+            </button>
+          </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>Nama</th>
-                <th>Hari Hadir</th>
-                <th>Hari Telat</th>
-                <th>Total Menit Telat</th>
-                <th>Lupa Absen Pulang</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summaries.map((s) => (
-                <tr key={s.userId}>
-                  <td>
-                    {generatedRange && (
-                      <Link href={`/manager/laporan/${s.userId}?start=${generatedRange.start}&end=${generatedRange.end}&nama=${encodeURIComponent(s.nama)}`}>
-                        {s.nama}
-                      </Link>
-                    )}
-                  </td>
-                  <td>{s.totalHariHadir}</td>
-                  <td>{s.totalHariTelat}</td>
-                  <td>{s.totalMenitTelat}</td>
-                  <td>{s.totalLupaAbsenPulang}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+          <div className="mt-2 space-y-2">
+            {summaries.map((s) => (
+              <Link
+                key={s.userId}
+                href={`/manager/laporan/${s.userId}?start=${generatedRange!.start}&end=${generatedRange!.end}&nama=${encodeURIComponent(s.nama)}`}
+                className="block rounded-xl border border-cream-dim bg-cream-card px-4 py-3"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-ink">{s.nama}</p>
+                  <span className="text-brand">→</span>
+                </div>
+                <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{s.totalHariHadir}</p>
+                    <p className="text-[9px] text-muted">Hadir</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-brand">{s.totalHariTelat}</p>
+                    <p className="text-[9px] text-muted">Telat</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{s.totalMenitTelat}</p>
+                    <p className="text-[9px] text-muted">Menit</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-warning">{s.totalLupaAbsenPulang}</p>
+                    <p className="text-[9px] text-muted">Lupa Out</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

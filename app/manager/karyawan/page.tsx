@@ -54,11 +54,31 @@ export default function KaryawanPage() {
     loadList()
   }
 
-    async function handleDelete(id: string, nama: string) {
+  async function handleDelete(id: string, nama: string) {
     const confirmed = confirm(
       `Yakin ingin hapus karyawan "${nama}" secara PERMANEN?\n\nSemua riwayat absensi dan jadwal karyawan ini juga akan ikut terhapus dan TIDAK BISA dikembalikan. Kalau cuma ingin nonaktifkan sementara, gunakan tombol "Nonaktifkan" saja.`
     )
     if (!confirmed) return
+
+    const inputPassword = window.prompt('Untuk konfirmasi, masukkan password akun manager kamu:')
+    if (!inputPassword) return
+
+    const supabase = createClient()
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    if (!currentUser?.email) {
+      alert('Gagal verifikasi sesi, coba login ulang.')
+      return
+    }
+
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: currentUser.email,
+      password: inputPassword,
+    })
+
+    if (verifyError) {
+      alert('Password salah. Penghapusan dibatalkan.')
+      return
+    }
 
     const result = await deleteCrewAccount(id)
     if (!result.success) { alert('Error: ' + result.message); return }
@@ -119,15 +139,19 @@ export default function KaryawanPage() {
                 <p className="text-xs text-muted">@{k.username}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${k.status_aktif ? 'bg-success/10 text-success' : 'bg-muted/10 text-muted'}`}>
                 {k.status_aktif ? 'Aktif' : 'Nonaktif'}
               </span>
               <button onClick={() => handleToggleActive(k.id, k.status_aktif)} className="text-xs font-semibold text-brand">
                 {k.status_aktif ? 'Nonaktifkan' : 'Aktifkan'}
               </button>
-              <button onClick={() => handleDelete(k.id, k.nama)} className="text-xs font-semibold text-muted">
-                Hapus
+              <button
+                onClick={() => handleDelete(k.id, k.nama)}
+                aria-label="Hapus karyawan"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-brand/10 hover:text-brand"
+              >
+                🗑
               </button>
             </div>
           </div>

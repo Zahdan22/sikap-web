@@ -5,6 +5,14 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
 
+const statusStyle: Record<string, string> = {
+  tepat_waktu: 'bg-success/10 text-success',
+  telat: 'bg-brand/10 text-brand',
+  lebih_awal: 'bg-warning/10 text-warning',
+  lewat_batas: 'bg-brand/10 text-brand',
+  belum_absen: 'bg-muted/10 text-muted',
+}
+
 export default function DetailKaryawanPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -38,65 +46,67 @@ export default function DetailKaryawanPage() {
   }, [userId, start, end])
 
   return (
-    <div>
-      <h1>Detail Absensi: {nama}</h1>
-      <p>{start} s.d. {end}</p>
+    <div className="flex min-h-full flex-col bg-cream pb-10">
+      <div className="flex items-center gap-3 px-5 pt-6">
+        <a href="/manager/laporan" className="text-brand text-lg">←</a>
+        <div>
+          <h1 className="text-lg font-semibold text-ink">{nama}</h1>
+          <p className="text-xs text-muted">{start} s.d. {end}</p>
+        </div>
+      </div>
 
-      {loading && <p>Memuat...</p>}
+      <div className="mt-4 space-y-2 px-5">
+        {loading && <p className="text-sm text-muted">Memuat...</p>}
 
-      {!loading && (
-        <table>
-          <thead>
-            <tr>
-              <th>Tanggal</th>
-              <th>Jadwal</th>
-              <th>Jam Aktual</th>
-              <th>Status</th>
-              <th>Telat</th>
-              <th>Foto Masuk</th>
-              <th>Foto Pulang</th>
-            </tr>
-          </thead>
-          <tbody>
-            {details.map((d) => (
-              <tr key={d.id}>
-                <td>{d.tanggal}</td>
-                <td>{d.jamMulaiJadwal} - {d.jamSelesaiJadwal}</td>
-                <td>{d.jamMasukAktual?.slice(11, 19) || '-'} / {d.jamPulangAktual?.slice(11, 19) || '-'}</td>
-                <td>{d.statusMasuk} / {d.statusPulang}</td>
-                <td>{d.menitTelat} menit</td>
-                <td>
-                  {photoUrls[d.id]?.masuk && (
-                    <img
-                      src={photoUrls[d.id].masuk}
-                      alt="masuk"
-                      style={{ width: 60, cursor: 'pointer' }}
-                      onClick={() => setFullPhoto(photoUrls[d.id].masuk!)}
-                    />
-                  )}
-                </td>
-                <td>
-                  {photoUrls[d.id]?.pulang && (
-                    <img
-                      src={photoUrls[d.id].pulang}
-                      alt="pulang"
-                      style={{ width: 60, cursor: 'pointer' }}
-                      onClick={() => setFullPhoto(photoUrls[d.id].pulang!)}
-                    />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        {details.map((d) => (
+          <div key={d.id} className="rounded-xl border border-cream-dim bg-cream-card p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-ink">{d.tanggal}</p>
+              <div className="flex gap-1">
+                <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${statusStyle[d.statusMasuk]}`}>
+                  {d.statusMasuk.replace('_', ' ')}
+                </span>
+                <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${statusStyle[d.statusPulang]}`}>
+                  {d.statusPulang.replace('_', ' ')}
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-1 text-xs text-muted">
+              Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal} · Aktual: {d.jamMasukAktual?.slice(11, 19) || '-'} / {d.jamPulangAktual?.slice(11, 19) || '-'}
+            </p>
+            {d.menitTelat > 0 && <p className="mt-0.5 text-xs text-brand">Telat {d.menitTelat} menit</p>}
+
+            <div className="mt-2 flex gap-2">
+              {photoUrls[d.id]?.masuk && (
+                <img
+                  src={photoUrls[d.id].masuk}
+                  alt="masuk"
+                  onClick={() => setFullPhoto(photoUrls[d.id].masuk!)}
+                  className="h-16 w-16 rounded-lg border border-cream-dim object-cover"
+                />
+              )}
+              {photoUrls[d.id]?.pulang && (
+                <img
+                  src={photoUrls[d.id].pulang}
+                  alt="pulang"
+                  onClick={() => setFullPhoto(photoUrls[d.id].pulang!)}
+                  className="h-16 w-16 rounded-lg border border-cream-dim object-cover"
+                />
+              )}
+            </div>
+          </div>
+        ))}
+
+        {!loading && details.length === 0 && <p className="text-sm text-muted">Tidak ada data di rentang ini.</p>}
+      </div>
 
       {fullPhoto && (
         <div
           onClick={() => setFullPhoto(null)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-6"
         >
-          <img src={fullPhoto} alt="full" style={{ maxWidth: '90%', maxHeight: '90%' }} />
+          <img src={fullPhoto} alt="full" className="max-h-full max-w-full rounded-xl" />
         </div>
       )}
     </div>

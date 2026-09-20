@@ -15,9 +15,16 @@ type SwapRequest = {
   target: { nama: string } | null
 }
 
+const statusStyle: Record<string, string> = {
+  pending: 'bg-warning/10 text-warning',
+  disetujui: 'bg-success/10 text-success',
+  ditolak: 'bg-brand/10 text-brand',
+}
+
 export default function ManagerTukarShiftPage() {
   const [list, setList] = useState<SwapRequest[]>([])
   const [catatan, setCatatan] = useState<Record<number, string>>({})
+  const [openCatatanFor, setOpenCatatanFor] = useState<number | null>(null)
 
   async function loadList() {
     const supabase = createClient()
@@ -33,6 +40,7 @@ export default function ManagerTukarShiftPage() {
   async function handleRespond(id: number, status: 'disetujui' | 'ditolak') {
     const result = await respondSwapRequest(id, status, catatan[id] || '')
     if (!result.success) { alert('Error: ' + result.message); return }
+    setOpenCatatanFor(null)
     loadList()
   }
 
@@ -41,29 +49,90 @@ export default function ManagerTukarShiftPage() {
     return item.target?.nama || '-'
   }
 
+  const pendingList = list.filter((i) => i.status === 'pending')
+  const historyList = list.filter((i) => i.status !== 'pending')
+
   return (
-    <div>
-      <h1>Kelola Tukar Shift</h1>
-      <ul>
-        {list.map((item) => (
-          <li key={item.id} style={{ marginBottom: 16, borderBottom: '1px solid gray', paddingBottom: 8 }}>
-            <strong>{item.requester?.nama}</strong> ↔ <strong>{formatTarget(item)}</strong> — {item.tanggal}
-            {item.alasan && <div>Alasan: {item.alasan}</div>}
-            <div>Status: {item.status}</div>
-            {item.status === 'pending' && (
-              <div>
-                <input
-                  placeholder="Catatan (opsional)"
-                  value={catatan[item.id] || ''}
-                  onChange={(e) => setCatatan((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                />
-                <button onClick={() => handleRespond(item.id, 'disetujui')}>Setujui</button>
-                <button onClick={() => handleRespond(item.id, 'ditolak')}>Tolak</button>
+    <div className="flex min-h-full flex-col bg-cream pb-10">
+      <div className="flex items-center gap-3 px-5 pt-6">
+        <a href="/manager" className="text-brand text-lg">←</a>
+        <h1 className="text-lg font-semibold text-ink">Kelola Tukar Shift</h1>
+      </div>
+
+      <div className="mt-4 px-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+          Menunggu Persetujuan ({pendingList.length})
+        </p>
+        <div className="mt-2 space-y-2">
+          {pendingList.map((item) => (
+            <div key={item.id} className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-ink">
+                  {item.requester?.nama} ↔ {formatTarget(item)}
+                </p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${statusStyle[item.status]}`}>
+                  {item.status}
+                </span>
               </div>
-            )}
-          </li>
-        ))}
-      </ul>
+              <p className="mt-1 text-xs text-muted">{item.tanggal}</p>
+              {item.alasan && <p className="mt-1 text-xs text-muted">"{item.alasan}"</p>}
+
+              {openCatatanFor === item.id ? (
+                <div className="mt-3">
+                  <input
+                    placeholder="Catatan (opsional)"
+                    value={catatan[item.id] || ''}
+                    onChange={(e) => setCatatan((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                    className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2 text-sm text-ink outline-none focus:border-brand"
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => handleRespond(item.id, 'disetujui')}
+                      className="flex-1 rounded-xl bg-success py-2 text-xs font-semibold text-white"
+                    >
+                      Setujui
+                    </button>
+                    <button
+                      onClick={() => handleRespond(item.id, 'ditolak')}
+                      className="flex-1 rounded-xl bg-brand py-2 text-xs font-semibold text-white"
+                    >
+                      Tolak
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setOpenCatatanFor(item.id)}
+                  className="mt-3 w-full rounded-xl border border-brand py-2 text-xs font-semibold text-brand"
+                >
+                  Proses Pengajuan
+                </button>
+              )}
+            </div>
+          ))}
+          {pendingList.length === 0 && <p className="text-sm text-muted">Tidak ada pengajuan menunggu.</p>}
+        </div>
+      </div>
+
+      <div className="mt-6 px-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat</p>
+        <div className="mt-2 space-y-2">
+          {historyList.map((item) => (
+            <div key={item.id} className="rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-ink">
+                  {item.requester?.nama} ↔ {formatTarget(item)}
+                </p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${statusStyle[item.status]}`}>
+                  {item.status}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted">{item.tanggal}</p>
+            </div>
+          ))}
+          {historyList.length === 0 && <p className="text-sm text-muted">Belum ada riwayat.</p>}
+        </div>
+      </div>
     </div>
   )
 }

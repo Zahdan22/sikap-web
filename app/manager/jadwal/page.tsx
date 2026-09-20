@@ -72,10 +72,7 @@ export default function JadwalPage() {
   function updateJamKerja(crewId: string, value: string) {
     setScheduleState((prev) => ({
       ...prev,
-      [crewId]: {
-        ...prev[crewId],
-        jamKerjaOpsiId: value === 'libur' ? 'libur' : Number(value),
-      },
+      [crewId]: { ...prev[crewId], jamKerjaOpsiId: value === 'libur' ? 'libur' : Number(value) },
     }))
   }
 
@@ -83,23 +80,14 @@ export default function JadwalPage() {
     setScheduleState((prev) => {
       const current = prev[crewId].jobdeskIds
       const alreadySelected = current.includes(jobdeskId)
-
       if (alreadySelected) {
-        return {
-          ...prev,
-          [crewId]: { ...prev[crewId], jobdeskIds: current.filter((id) => id !== jobdeskId) },
-        }
+        return { ...prev, [crewId]: { ...prev[crewId], jobdeskIds: current.filter((id) => id !== jobdeskId) } }
       }
-
       if (current.length >= 5) {
         alert('Maksimal 5 jobdesk per shift')
         return prev
       }
-
-      return {
-        ...prev,
-        [crewId]: { ...prev[crewId], jobdeskIds: [...current, jobdeskId] },
-      }
+      return { ...prev, [crewId]: { ...prev[crewId], jobdeskIds: [...current, jobdeskId] } }
     })
   }
 
@@ -115,121 +103,147 @@ export default function JadwalPage() {
     }))
 
     const result = await simpanJadwalHariIni(toDateString(selectedDate), payload)
-
     setSaving(false)
-    if (!result.success) {
-      setMessage('Error: ' + result.message)
-      return
-    }
+    if (!result.success) { setMessage('Error: ' + result.message); return }
     setMessage('Berhasil disimpan')
 
-    // Reload data biar existingScheduleId ke-update
     const state = await getScheduleStateForDate(toDateString(selectedDate), crewList, jamKerjaOptions)
     setScheduleState(state)
   }
 
   return (
-    <div>
-      <h1>Kelola Jadwal</h1>
-
-      <div>
-        <button onClick={goToPreviousWeek}>&lt; Minggu Sebelumnya</button>
-        <span> {formatDateId(weekDates[0])} - {formatDateId(weekDates[6])} </span>
-        <button onClick={goToNextWeek}>Minggu Berikutnya &gt;</button>
+    <div className="flex min-h-full flex-col bg-cream pb-10">
+      <div className="flex items-center gap-3 px-5 pt-6">
+        <a href="/manager" className="text-brand text-lg">←</a>
+        <h1 className="text-lg font-semibold text-ink">Kelola Jadwal</h1>
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        {weekDates.map((date) => (
-          <button
-            key={date.toISOString()}
-            onClick={() => setSelectedDate(date)}
-            style={{
-              fontWeight: selectedDate && isSameDate(date, selectedDate) ? 'bold' : 'normal',
-              border: selectedDate && isSameDate(date, selectedDate) ? '2px solid blue' : '1px solid gray',
-            }}
-          >
-            {formatDateId(date)}
-          </button>
-        ))}
+      <div className="mt-4 px-5">
+        <div className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-4 py-3">
+          <button onClick={goToPreviousWeek} className="text-brand">‹</button>
+          <p className="text-xs font-medium text-ink">
+            {formatDateId(weekDates[0])} - {formatDateId(weekDates[6])}
+          </p>
+          <button onClick={goToNextWeek} className="text-brand">›</button>
+        </div>
+
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {weekDates.map((date) => {
+            const isSelected = selectedDate && isSameDate(date, selectedDate)
+            return (
+              <button
+                key={date.toISOString()}
+                onClick={() => setSelectedDate(date)}
+                className={`flex shrink-0 flex-col items-center rounded-xl px-3 py-2 text-xs ${
+                  isSelected ? 'bg-brand text-white' : 'border border-cream-dim bg-cream-card text-ink'
+                }`}
+              >
+                <span className="font-semibold">{formatDateId(date)}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {selectedDate && (
-        <div style={{ marginTop: 20 }}>
-          <h2>Jadwal untuk: {formatDateId(selectedDate)}</h2>
+        <div className="mt-5 px-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Jadwal untuk {formatDateId(selectedDate)}
+          </p>
 
-          {loading && <p>Memuat...</p>}
-
-          {!loading && (
+          {loading ? (
+            <p className="mt-3 text-sm text-muted">Memuat...</p>
+          ) : (
             <>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Nama</th>
-                    <th>Jam Kerja</th>
-                    <th>Jobdesk</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {crewList.map((crew) => {
-                    const state = scheduleState[crew.id]
-                    if (!state) return null
+              <div className="mt-2 space-y-2">
+                {crewList.map((crew) => {
+                  const state = scheduleState[crew.id]
+                  if (!state) return null
+                  const isLibur = state.jamKerjaOpsiId === 'libur'
 
-                    return (
-                      <tr key={crew.id}>
-                        <td>{crew.nama}</td>
-                        <td>
-                          <select
-                            value={state.jamKerjaOpsiId === 'libur' ? 'libur' : state.jamKerjaOpsiId}
-                            onChange={(e) => updateJamKerja(crew.id, e.target.value)}
-                          >
-                            <option value="libur">Libur</option>
-                            {jamKerjaOptions.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.label} ({opt.jam_mulai}-{opt.jam_selesai})
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          {state.jamKerjaOpsiId !== 'libur' && (
-                            <button onClick={() => setOpenJobdeskFor(crew.id)}>
-                              {state.jobdeskIds.length > 0
-                                ? state.jobdeskIds
-                                    .map((id) => jobdeskOptions.find((j) => j.id === id)?.singkatan)
-                                    .join(', ')
-                                : 'Pilih Jobdesk'}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                  return (
+                    <div key={crew.id} className="rounded-xl border border-cream-dim bg-cream-card p-4">
+                      <p className="text-sm font-semibold text-ink">{crew.nama}</p>
 
-              <button onClick={handleSave} disabled={saving}>
+                      <select
+                        value={isLibur ? 'libur' : state.jamKerjaOpsiId}
+                        onChange={(e) => updateJamKerja(crew.id, e.target.value)}
+                        className="mt-2 w-full rounded-lg border border-cream-dim bg-white px-3 py-2 text-xs text-ink outline-none focus:border-brand"
+                      >
+                        <option value="libur">Libur</option>
+                        {jamKerjaOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label} ({opt.jam_mulai}-{opt.jam_selesai})
+                          </option>
+                        ))}
+                      </select>
+
+                      {!isLibur && (
+                        <button
+                          onClick={() => setOpenJobdeskFor(crew.id)}
+                          className="mt-2 w-full rounded-lg border border-cream-dim bg-white px-3 py-2 text-left text-xs text-ink"
+                        >
+                          {state.jobdeskIds.length > 0
+                            ? state.jobdeskIds.map((id) => jobdeskOptions.find((j) => j.id === id)?.singkatan).join(', ')
+                            : 'Pilih Jobdesk →'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-60"
+              >
                 {saving ? 'Menyimpan...' : 'Simpan Jadwal Hari Ini'}
               </button>
-              {message && <p>{message}</p>}
+              {message && <p className="mt-2 text-center text-sm text-brand">{message}</p>}
             </>
           )}
+        </div>
+      )}
 
-          {openJobdeskFor && (
-            <div style={{ border: '1px solid gray', padding: 16, marginTop: 16 }}>
-              <h3>Pilih Jobdesk untuk {crewList.find((c) => c.id === openJobdeskFor)?.nama}</h3>
-              {jobdeskOptions.map((jd) => (
-                <label key={jd.id} style={{ display: 'block' }}>
-                  <input
-                    type="checkbox"
-                    checked={scheduleState[openJobdeskFor]?.jobdeskIds.includes(jd.id) || false}
-                    onChange={() => toggleJobdesk(openJobdeskFor, jd.id)}
-                  />
-                  {jd.nama} ({jd.singkatan})
-                </label>
-              ))}
-              <button onClick={() => setOpenJobdeskFor(null)}>Selesai</button>
+      {openJobdeskFor && (
+        <div
+          onClick={() => setOpenJobdeskFor(null)}
+          className="fixed inset-0 z-50 flex items-end bg-ink/40"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full rounded-t-3xl bg-cream-card p-5"
+          >
+            <p className="text-sm font-semibold text-ink">
+              Pilih Jobdesk — {crewList.find((c) => c.id === openJobdeskFor)?.nama}
+            </p>
+            <div className="mt-3 space-y-1">
+              {jobdeskOptions.map((jd) => {
+                const checked = scheduleState[openJobdeskFor]?.jobdeskIds.includes(jd.id) || false
+                return (
+                  <label
+                    key={jd.id}
+                    className="flex items-center justify-between rounded-xl border border-cream-dim bg-white px-4 py-3"
+                  >
+                    <span className="text-sm text-ink">{jd.nama} ({jd.singkatan})</span>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleJobdesk(openJobdeskFor, jd.id)}
+                      className="h-4 w-4 accent-brand"
+                    />
+                  </label>
+                )
+              })}
             </div>
-          )}
+            <button
+              onClick={() => setOpenJobdeskFor(null)}
+              className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white"
+            >
+              Selesai
+            </button>
+          </div>
         </div>
       )}
     </div>
