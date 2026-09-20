@@ -17,7 +17,7 @@ export default function CameraCapture({ onCapture }: CameraCaptureProps) {
     setError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' }, // 'user' = kamera depan, buat selfie
+        video: { facingMode: 'user' },
         audio: false,
       })
       streamRef.current = stream
@@ -56,26 +56,35 @@ export default function CameraCapture({ onCapture }: CameraCaptureProps) {
   }, [onCapture, stopCamera])
 
   return (
-    <div>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+    <div className="flex flex-col items-center justify-center gap-4 p-4">
+      {error && <p className="text-sm text-warning">{error}</p>}
 
       {!isReady && (
-        <button onClick={startCamera}>Buka Kamera</button>
+        <button
+          onClick={startCamera}
+          className="rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white"
+        >
+          Buka Kamera
+        </button>
       )}
 
       <video
         ref={videoRef}
-        style={{ display: isReady ? 'block' : 'none', width: '100%', maxWidth: 400 }}
+        className={isReady ? 'w-full max-w-sm rounded-xl' : 'hidden'}
         muted
         playsInline
       />
 
       {isReady && (
-        <button onClick={takePhoto}>Ambil Foto</button>
+        <button
+          onClick={takePhoto}
+          className="rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white"
+        >
+          Ambil Foto
+        </button>
       )}
 
-      {/* canvas ini disembunyikan, cuma dipakai buat proses capture */}
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      <canvas ref={canvasRef} className="hidden" />
     </div>
   )
 }

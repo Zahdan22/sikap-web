@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import CameraCapture from '@/components/CameraCapture'
-import BottomNav from '@/components/BottomNav'
 import { checkIn, checkOut, getTodayStatus } from '@/lib/attendance'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { createClient } from '@/lib/supabase/client'
@@ -69,7 +68,7 @@ export default function CheckInOutPage() {
   const title = isCheckout ? 'Absen Pulang' : 'Absen Masuk'
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-24">
+    <div className="flex min-h-full flex-col bg-cream pb-6">
       <div className="flex items-center gap-3 px-5 pt-6">
         <a href="/dashboard" className="text-brand text-lg">←</a>
         <h1 className="text-lg font-semibold text-ink">{title}</h1>
@@ -142,8 +141,6 @@ export default function CheckInOutPage() {
           <img src={photoUrl} alt="Foto absen" className="mt-4 w-full rounded-2xl border border-cream-dim" />
         )}
       </div>
-
-      <BottomNav />
     </div>
   )
 }
