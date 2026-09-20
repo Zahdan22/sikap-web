@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import CameraCapture from '@/components/CameraCapture'
+import BottomNav from '@/components/BottomNav'
 import { checkIn, checkOut, getTodayStatus } from '@/lib/attendance'
-import { createClient } from '@/lib/supabase/client'
 import { getPhotoSignedUrl } from '@/lib/storage'
+import { createClient } from '@/lib/supabase/client'
 
 type ViewState = 'loading' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
 
@@ -29,23 +30,18 @@ export default function CheckInOutPage() {
       setViewState('no-schedule')
       return
     }
-
     setScheduleInfo({ jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })
 
-    if (!attendance) {
-      setViewState('ready-checkin')
-    } else if (!attendance.jam_pulang_aktual) {
-      setViewState('ready-checkout')
-    } else {
-      setViewState('done')
-    }
+    if (!attendance) setViewState('ready-checkin')
+    else if (!attendance.jam_pulang_aktual) setViewState('ready-checkout')
+    else setViewState('done')
   }
 
   useEffect(() => {
     loadStatus()
   }, [])
 
-   async function handleCapture(photo: string) {
+  async function handleCapture(photo: string) {
     if (!userId) return
     setProcessing(true)
     setShowCamera(false)
@@ -53,17 +49,13 @@ export default function CheckInOutPage() {
       if (viewState === 'ready-checkin') {
         const result = await checkIn(userId, photo)
         setStatusMessage(
-          `Check-in berhasil. Status: ${result.status}${
-            result.menitTelat > 0 ? ` (telat ${result.menitTelat} menit)` : ''
-          }`
+          `Check-in berhasil. ${result.status === 'telat' ? `Telat ${result.menitTelat} menit` : 'Tepat waktu'}`
         )
-        const url = await getPhotoSignedUrl(result.photoPath)
-        setPhotoUrl(url)
+        setPhotoUrl(await getPhotoSignedUrl(result.photoPath))
       } else if (viewState === 'ready-checkout') {
         const result = await checkOut(userId, photo)
-        setStatusMessage(`Check-out berhasil. Status: ${result.status}`)
-        const url = await getPhotoSignedUrl(result.photoPath)
-        setPhotoUrl(url)
+        setStatusMessage(`Check-out berhasil. Status: ${result.status.replace('_', ' ')}`)
+        setPhotoUrl(await getPhotoSignedUrl(result.photoPath))
       }
       await loadStatus()
     } catch (err) {
@@ -73,34 +65,85 @@ export default function CheckInOutPage() {
     }
   }
 
-  if (viewState === 'loading') return <p>Memuat...</p>
-  if (viewState === 'no-schedule') return <p>Tidak ada jadwal kerja untuk hari ini.</p>
+  const isCheckout = viewState === 'ready-checkout'
+  const title = isCheckout ? 'Absen Pulang' : 'Absen Masuk'
 
   return (
-    <div>
-      <h1>Absensi Hari Ini</h1>
-      {scheduleInfo && (
-        <p>
-          Jadwal: {scheduleInfo.jamMulai} - {scheduleInfo.jamSelesai}
-        </p>
-      )}
+    <div className="flex min-h-full flex-col bg-cream pb-24">
+      <div className="flex items-center gap-3 px-5 pt-6">
+        <a href="/dashboard" className="text-brand text-lg">←</a>
+        <h1 className="text-lg font-semibold text-ink">{title}</h1>
+      </div>
 
-      {statusMessage && <p>{statusMessage}</p>}
-      {photoUrl && <img src={photoUrl} alt="Foto absen" style={{ width: 300, marginTop: 12 }} />}
+      <div className="px-5">
+        {viewState === 'loading' && <p className="mt-6 text-sm text-muted">Memuat...</p>}
 
-      {viewState === 'done' && <p>Kamu sudah check-in dan check-out hari ini.</p>}
-
-      {(viewState === 'ready-checkin' || viewState === 'ready-checkout') &&
-        !showCamera &&
-        !processing && (
-          <button onClick={() => setShowCamera(true)}>
-            {viewState === 'ready-checkin' ? 'Check-In Sekarang' : 'Check-Out Sekarang'}
-          </button>
+        {viewState === 'no-schedule' && (
+          <div className="mt-6 rounded-2xl border border-cream-dim bg-cream-card px-5 py-6 text-center">
+            <p className="text-sm text-muted">Tidak ada jadwal kerja untuk hari ini.</p>
+          </div>
         )}
 
-      {processing && <p>Memproses...</p>}
+        {(viewState === 'ready-checkin' || viewState === 'ready-checkout') && (
+          <>
+            <div className="mt-4 flex items-center gap-3 rounded-2xl border border-cream-dim bg-cream-card px-4 py-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand/10 text-brand">📍</span>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted">Status Lokasi</p>
+                <p className="text-sm font-semibold text-ink">GPS Aktif</p>
+              </div>
+            </div>
 
-      {showCamera && <CameraCapture onCapture={handleCapture} />}
+            {scheduleInfo && (
+              <p className="mt-3 text-xs text-muted">
+                Jadwal: {scheduleInfo.jamMulai} - {scheduleInfo.jamSelesai}
+              </p>
+            )}
+
+            <div className="mt-4 overflow-hidden rounded-2xl border border-cream-dim bg-ink">
+              {!showCamera && !processing && (
+                <div className="flex aspect-[3/4] flex-col items-center justify-center gap-3 text-cream/70">
+                  <span className="text-3xl">📷</span>
+                  <p className="text-xs">
+                    {isCheckout ? 'Selfie wajib untuk absen pulang' : 'Ambil selfie untuk absen masuk'}
+                  </p>
+                </div>
+              )}
+              {showCamera && <CameraCapture onCapture={handleCapture} />}
+              {processing && (
+                <div className="flex aspect-[3/4] items-center justify-center text-cream/70 text-sm">
+                  Memproses...
+                </div>
+              )}
+            </div>
+
+            {!showCamera && !processing && (
+              <button
+                onClick={() => setShowCamera(true)}
+                className="mt-4 w-full rounded-xl bg-brand py-3.5 text-sm font-semibold text-white"
+              >
+                {isCheckout ? 'Absen Pulang Sekarang' : 'Absen Masuk Sekarang'}
+              </button>
+            )}
+          </>
+        )}
+
+        {viewState === 'done' && (
+          <div className="mt-6 rounded-2xl border border-cream-dim bg-cream-card px-5 py-6 text-center">
+            <p className="text-sm font-semibold text-ink">Kamu sudah check-in dan check-out hari ini.</p>
+          </div>
+        )}
+
+        {statusMessage && (
+          <p className="mt-4 rounded-xl bg-brand/10 px-4 py-3 text-sm text-brand">{statusMessage}</p>
+        )}
+
+        {photoUrl && (
+          <img src={photoUrl} alt="Foto absen" className="mt-4 w-full rounded-2xl border border-cream-dim" />
+        )}
+      </div>
+
+      <BottomNav />
     </div>
   )
 }

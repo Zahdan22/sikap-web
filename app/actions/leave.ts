@@ -10,7 +10,8 @@ export async function createLeaveRequest(
   alasan: string,
   penggantiType: 'crew' | 'freelance',
   penggantiUserId: string | null,
-  penggantiNamaManual: string | null
+  penggantiNamaManual: string | null,
+  buktiPath: string | null
 ) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -25,6 +26,7 @@ export async function createLeaveRequest(
     pengganti_type: penggantiType,
     pengganti_user_id: penggantiType === 'crew' ? penggantiUserId : null,
     pengganti_nama_manual: penggantiType === 'freelance' ? penggantiNamaManual : null,
+    bukti_path: buktiPath,
   })
 
   if (error) return { success: false, message: error.message }
@@ -58,7 +60,6 @@ export async function respondLeaveRequest(
 
   if (error) return { success: false, message: error.message }
 
-  // Kalau disetujui, jadwal di rentang tanggal izin otomatis dialihkan ke pengganti
   const conflicts: string[] = []
 
   if (status === 'disetujui') {

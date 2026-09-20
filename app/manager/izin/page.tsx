@@ -15,6 +15,7 @@ type LeaveRequestWithUser = {
   pengganti_type: string | null
   pengganti_nama_manual: string | null
   pengganti_user_id: string | null
+  bukti_path: string | null
 }
 
 type CrewOption = { id: string; nama: string }
@@ -30,12 +31,12 @@ export default function ManagerIzinPage() {
     const { data: leaveData } = await supabase
       .from('leave_request')
       .select(
-        'id, jenis, tanggal_mulai, tanggal_selesai, alasan, status, users:user_id (nama), pengganti_type, pengganti_nama_manual, pengganti_user_id'
+        'id, jenis, tanggal_mulai, tanggal_selesai, alasan, status, users:user_id (nama), pengganti_type, pengganti_nama_manual, pengganti_user_id, bukti_path'
       )
       .order('created_at', { ascending: false })
     setList((leaveData as any) || [])
 
-    const { data: crewData } = await supabase.from('users').select('id, nama').eq('role', 'crew')
+    const { data: crewData } = await supabase.from('users').select('id, nama')
     setCrewOptions(crewData || [])
   }
 
@@ -50,6 +51,16 @@ export default function ManagerIzinPage() {
       return
     }
     loadData()
+  }
+
+  async function handleLihatBukti(buktiPath: string) {
+    const supabase = createClient()
+    const { data, error } = await supabase.storage.from('leave-attachments').createSignedUrl(buktiPath, 3600)
+    if (error || !data) {
+      alert('Gagal buka bukti: ' + error?.message)
+      return
+    }
+    window.open(data.signedUrl, '_blank')
   }
 
   function formatPengganti(item: LeaveRequestWithUser) {
@@ -72,6 +83,13 @@ export default function ManagerIzinPage() {
             <strong>{item.users?.nama}</strong> — {item.jenis} — {item.tanggal_mulai} s.d. {item.tanggal_selesai}
             {item.alasan && <div>Alasan: {item.alasan}</div>}
             <div>Digantikan dengan: {formatPengganti(item)}</div>
+
+            {item.bukti_path && (
+              <div>
+                <button onClick={() => handleLihatBukti(item.bukti_path!)}>Lihat Bukti Izin</button>
+              </div>
+            )}
+
             <div>Status: {item.status}</div>
 
             {item.status === 'pending' && (

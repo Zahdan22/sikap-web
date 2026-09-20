@@ -59,8 +59,30 @@ export default function IzinPage() {
     loadData()
   }, [])
 
+  const [buktiFile, setBuktiFile] = useState<File | null>(null)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    let buktiPath: string | null = null
+
+    if (buktiFile) {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const fileName = `${user.id}/${Date.now()}-${buktiFile.name}`
+      const { error: uploadError } = await supabase.storage
+        .from('leave-attachments')
+        .upload(fileName, buktiFile)
+
+      if (uploadError) {
+        setMessage('Error upload bukti: ' + uploadError.message)
+        return
+      }
+      buktiPath = fileName
+    }
+
     const result = await createLeaveRequest(
       jenis,
       tanggalMulai,
@@ -68,7 +90,8 @@ export default function IzinPage() {
       alasan,
       penggantiType,
       penggantiType === 'crew' ? penggantiUserId : null,
-      penggantiType === 'freelance' ? penggantiNamaManual : null
+      penggantiType === 'freelance' ? penggantiNamaManual : null,
+      buktiPath
     )
     if (!result.success) {
       setMessage('Error: ' + result.message)
@@ -80,6 +103,7 @@ export default function IzinPage() {
     setAlasan('')
     setPenggantiUserId('')
     setPenggantiNamaManual('')
+    setBuktiFile(null)
     loadData()
   }
 
@@ -135,6 +159,15 @@ export default function IzinPage() {
               required
             />
           )}
+        </div>
+
+                <div>
+          <label>Bukti Izin (opsional, foto/PDF surat dokter dll):</label>
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            onChange={(e) => setBuktiFile(e.target.files?.[0] || null)}
+          />
         </div>
 
         <button type="submit">Ajukan</button>

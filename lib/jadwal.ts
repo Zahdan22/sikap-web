@@ -34,7 +34,6 @@ export async function getCrewList(): Promise<Crew[]> {
   const { data, error } = await supabase
     .from('users')
     .select('id, nama, username')
-    .eq('role', 'crew')
     .eq('status_aktif', true)
     .order('nama')
 
