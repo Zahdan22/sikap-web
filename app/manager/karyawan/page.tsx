@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createCrewAccount, deleteCrewAccount } from '@/app/actions/create-user'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type Karyawan = {
   id: string
@@ -12,11 +13,11 @@ type Karyawan = {
 }
 
 export default function KaryawanPage() {
+  const { toast, confirm, promptPassword } = useDialog()
   const [list, setList] = useState<Karyawan[]>([])
   const [nama, setNama] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
 
@@ -35,53 +36,58 @@ export default function KaryawanPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    setMessage('')
 
     const result = await createCrewAccount(username, password, nama, 'crew')
 
     setLoading(false)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
-    setMessage('Karyawan berhasil ditambahkan')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Karyawan berhasil ditambahkan', 'success')
     setNama(''); setUsername(''); setPassword(''); setShowForm(false)
     loadList()
   }
 
   async function handleToggleActive(id: string, currentStatus: boolean) {
-    if (!confirm(currentStatus ? 'Nonaktifkan karyawan ini?' : 'Aktifkan kembali karyawan ini?')) return
+    const ok = await confirm({
+      title: currentStatus ? 'Nonaktifkan karyawan ini?' : 'Aktifkan kembali karyawan ini?',
+    })
+    if (!ok) return
+
     const supabase = createClient()
     const { error } = await supabase.from('users').update({ status_aktif: !currentStatus }).eq('id', id)
-    if (error) { alert('Error: ' + error.message); return }
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast(currentStatus ? 'Karyawan dinonaktifkan' : 'Karyawan diaktifkan kembali', 'success')
     loadList()
   }
 
   async function handleDelete(id: string, nama: string) {
-    const confirmed = confirm(
-      `Yakin ingin hapus karyawan "${nama}" secara PERMANEN?\n\nSemua riwayat absensi dan jadwal karyawan ini juga akan ikut terhapus dan TIDAK BISA dikembalikan. Kalau cuma ingin nonaktifkan sementara, gunakan tombol "Nonaktifkan" saja.`
-    )
-    if (!confirmed) return
+    const ok = await confirm({
+      title: `Hapus "${nama}" secara permanen?`,
+      description: 'Semua riwayat absensi dan jadwal karyawan ini juga akan ikut terhapus dan tidak bisa dikembalikan. Kalau cuma ingin nonaktifkan sementara, gunakan tombol "Nonaktifkan" saja.',
+      confirmLabel: 'Hapus',
+      danger: true,
+    })
+    if (!ok) return
 
-    const inputPassword = window.prompt('Untuk konfirmasi, masukkan password akun manager kamu:')
+    const inputPassword = await promptPassword({
+      title: 'Konfirmasi Password',
+      description: 'Masukkan password akun manager kamu untuk melanjutkan.',
+    })
     if (!inputPassword) return
 
     const supabase = createClient()
     const { data: { user: currentUser } } = await supabase.auth.getUser()
-    if (!currentUser?.email) {
-      alert('Gagal verifikasi sesi, coba login ulang.')
-      return
-    }
+    if (!currentUser?.email) { toast('Gagal verifikasi sesi, coba login ulang.', 'error'); return }
 
     const { error: verifyError } = await supabase.auth.signInWithPassword({
       email: currentUser.email,
       password: inputPassword,
     })
 
-    if (verifyError) {
-      alert('Password salah. Penghapusan dibatalkan.')
-      return
-    }
+    if (verifyError) { toast('Password salah. Penghapusan dibatalkan.', 'error'); return }
 
     const result = await deleteCrewAccount(id)
-    if (!result.success) { alert('Error: ' + result.message); return }
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Karyawan berhasil dihapus', 'success')
     loadList()
   }
 
@@ -119,7 +125,6 @@ export default function KaryawanPage() {
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6}
                 className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand" />
             </div>
-            {message && <p className="mt-3 text-sm text-brand">{message}</p>}
             <button type="submit" disabled={loading} className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-60">
               {loading ? 'Menambahkan...' : 'Tambah Karyawan'}
             </button>
@@ -151,7 +156,13 @@ export default function KaryawanPage() {
                 aria-label="Hapus karyawan"
                 className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-brand/10 hover:text-brand"
               >
-                🗑
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
               </button>
             </div>
           </div>

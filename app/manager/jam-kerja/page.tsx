@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createJamKerja, updateJamKerja, deleteJamKerja } from '@/app/actions/jam-kerja'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type JamKerjaOpsi = {
   id: number
@@ -13,13 +14,13 @@ type JamKerjaOpsi = {
 }
 
 export default function JamKerjaPage() {
+  const { toast, confirm } = useDialog()
   const [list, setList] = useState<JamKerjaOpsi[]>([])
   const [label, setLabel] = useState('')
   const [jamMulai, setJamMulai] = useState('')
   const [jamSelesai, setJamSelesai] = useState('')
   const [durasi, setDurasi] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [message, setMessage] = useState('')
   const [showForm, setShowForm] = useState(false)
 
   async function loadList() {
@@ -42,8 +43,8 @@ export default function JamKerjaPage() {
       ? await updateJamKerja(editingId, label, jamMulai, jamSelesai, durasiNum)
       : await createJamKerja(label, jamMulai, jamSelesai, durasiNum)
 
-    if (!result.success) { setMessage('Error: ' + result.message); return }
-    setMessage(editingId ? 'Berhasil diupdate' : 'Berhasil ditambahkan')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast(editingId ? 'Berhasil diupdate' : 'Berhasil ditambahkan', 'success')
     resetForm()
     loadList()
   }
@@ -55,9 +56,11 @@ export default function JamKerjaPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('Yakin hapus preset ini?')) return
+    const ok = await confirm({ title: 'Hapus preset ini?', danger: true, confirmLabel: 'Hapus' })
+    if (!ok) return
     const result = await deleteJamKerja(id)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Preset dihapus', 'success')
     loadList()
   }
 
@@ -107,7 +110,6 @@ export default function JamKerjaPage() {
               <input type="number" step="0.5" value={durasi} onChange={(e) => setDurasi(e.target.value)} required
                 className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand" />
             </div>
-            {message && <p className="mt-3 text-sm text-brand">{message}</p>}
             <button type="submit" className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white">
               {editingId ? 'Update' : 'Tambah'}
             </button>

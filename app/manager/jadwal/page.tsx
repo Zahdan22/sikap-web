@@ -13,8 +13,10 @@ import {
   CrewScheduleState,
 } from '@/lib/jadwal'
 import { simpanJadwalHariIni } from '@/app/actions/jadwal'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 export default function JadwalPage() {
+  const { toast } = useDialog()
   const [referenceDate, setReferenceDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
 
@@ -24,7 +26,6 @@ export default function JadwalPage() {
   const [scheduleState, setScheduleState] = useState<Record<string, CrewScheduleState>>({})
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
   const [openJobdeskFor, setOpenJobdeskFor] = useState<string | null>(null)
 
   const weekDates = getWeekDates(referenceDate)
@@ -47,7 +48,6 @@ export default function JadwalPage() {
     if (!selectedDate || crewList.length === 0) return
     async function loadSchedule() {
       setLoading(true)
-      setMessage('')
       const state = await getScheduleStateForDate(toDateString(selectedDate!), crewList, jamKerjaOptions)
       setScheduleState(state)
       setLoading(false)
@@ -84,7 +84,7 @@ export default function JadwalPage() {
         return { ...prev, [crewId]: { ...prev[crewId], jobdeskIds: current.filter((id) => id !== jobdeskId) } }
       }
       if (current.length >= 5) {
-        alert('Maksimal 5 jobdesk per shift')
+        toast('Maksimal 5 jobdesk per shift', 'error')
         return prev
       }
       return { ...prev, [crewId]: { ...prev[crewId], jobdeskIds: [...current, jobdeskId] } }
@@ -94,7 +94,6 @@ export default function JadwalPage() {
   async function handleSave() {
     if (!selectedDate) return
     setSaving(true)
-    setMessage('')
 
     const payload = crewList.map((crew) => ({
       userId: crew.id,
@@ -104,8 +103,8 @@ export default function JadwalPage() {
 
     const result = await simpanJadwalHariIni(toDateString(selectedDate), payload)
     setSaving(false)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
-    setMessage('Berhasil disimpan')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Jadwal berhasil disimpan', 'success')
 
     const state = await getScheduleStateForDate(toDateString(selectedDate), crewList, jamKerjaOptions)
     setScheduleState(state)
@@ -200,7 +199,6 @@ export default function JadwalPage() {
               >
                 {saving ? 'Menyimpan...' : 'Simpan Jadwal Hari Ini'}
               </button>
-              {message && <p className="mt-2 text-center text-sm text-brand">{message}</p>}
             </>
           )}
         </div>
@@ -209,7 +207,7 @@ export default function JadwalPage() {
       {openJobdeskFor && (
         <div
           onClick={() => setOpenJobdeskFor(null)}
-          className="fixed inset-0 z-50 flex items-end bg-ink/40"
+          className="fixed inset-0 z-50 flex items-end bg-ink/40 backdrop-blur-sm"
         >
           <div
             onClick={(e) => e.stopPropagation()}

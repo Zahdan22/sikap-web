@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createSwapRequest } from '@/app/actions/shift-swap'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type SwapRequest = {
   id: number
@@ -26,6 +27,7 @@ const statusStyle: Record<string, string> = {
 }
 
 export default function TukarShiftPage() {
+  const { toast } = useDialog()
   const [list, setList] = useState<SwapRequest[]>([])
   const [crewOptions, setCrewOptions] = useState<CrewOption[]>([])
   const [tanggal, setTanggal] = useState('')
@@ -33,7 +35,6 @@ export default function TukarShiftPage() {
   const [targetId, setTargetId] = useState('')
   const [targetNamaFreelance, setTargetNamaFreelance] = useState('')
   const [alasan, setAlasan] = useState('')
-  const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
 
@@ -60,7 +61,6 @@ export default function TukarShiftPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
-    setMessage('')
     const result = await createSwapRequest(
       tanggal,
       targetType,
@@ -69,8 +69,8 @@ export default function TukarShiftPage() {
       alasan
     )
     setSubmitting(false)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
-    setMessage('Pengajuan tukar shift berhasil dikirim')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Pengajuan tukar shift berhasil dikirim', 'success')
     setTanggal(''); setTargetId(''); setTargetNamaFreelance(''); setAlasan('')
     loadData()
   }
@@ -159,8 +159,6 @@ export default function TukarShiftPage() {
             />
           </div>
 
-          {message && <p className="mt-3 text-sm text-brand">{message}</p>}
-
           <button
             type="submit"
             disabled={submitting}
@@ -192,7 +190,6 @@ export default function TukarShiftPage() {
           ))}
         </div>
       </div>
-
     </div>
   )
-}
+} 

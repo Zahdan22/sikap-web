@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createLeaveRequest } from '@/app/actions/leave'
+import { useDialog } from '@/components/ui/DialogProvider'
+import BottomNav from '@/components/BottomNav'
 
 type LeaveRequest = {
   id: number
@@ -26,6 +28,7 @@ const statusStyle: Record<string, string> = {
 }
 
 export default function IzinPage() {
+  const { toast } = useDialog()
   const [list, setList] = useState<LeaveRequest[]>([])
   const [crewOptions, setCrewOptions] = useState<CrewOption[]>([])
   const [jenis, setJenis] = useState<'sakit' | 'keperluan_pribadi'>('sakit')
@@ -36,7 +39,6 @@ export default function IzinPage() {
   const [penggantiUserId, setPenggantiUserId] = useState('')
   const [penggantiNamaManual, setPenggantiNamaManual] = useState('')
   const [buktiFile, setBuktiFile] = useState<File | null>(null)
-  const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   async function loadData() {
@@ -61,14 +63,11 @@ export default function IzinPage() {
     setCrewOptions(crewData || [])
   }
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
-    setMessage('')
 
     let buktiPath: string | null = null
 
@@ -80,7 +79,7 @@ export default function IzinPage() {
       const fileName = `${user.id}/${Date.now()}-${buktiFile.name}`
       const { error: uploadError } = await supabase.storage.from('leave-attachments').upload(fileName, buktiFile)
       if (uploadError) {
-        setMessage('Error upload bukti: ' + uploadError.message)
+        toast('Error upload bukti: ' + uploadError.message, 'error')
         setSubmitting(false)
         return
       }
@@ -99,11 +98,8 @@ export default function IzinPage() {
     )
 
     setSubmitting(false)
-    if (!result.success) {
-      setMessage('Error: ' + result.message)
-      return
-    }
-    setMessage('Pengajuan berhasil dikirim')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Pengajuan berhasil dikirim', 'success')
     setTanggalMulai('')
     setTanggalSelesai('')
     setAlasan('')
@@ -251,8 +247,6 @@ export default function IzinPage() {
               className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-brand/10 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand"
             />
           </div>
-
-          {message && <p className="mt-3 text-sm text-brand">{message}</p>}
 
           <button
             type="submit"

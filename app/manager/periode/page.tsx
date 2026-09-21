@@ -3,15 +3,16 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createPeriode, deletePeriode } from '@/app/actions/periode'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 
 export default function PeriodePage() {
+  const { toast, confirm } = useDialog()
   const [list, setList] = useState<Periode[]>([])
   const [nama, setNama] = useState('')
   const [tanggalMulai, setTanggalMulai] = useState('')
   const [tanggalSelesai, setTanggalSelesai] = useState('')
-  const [message, setMessage] = useState('')
   const [showForm, setShowForm] = useState(false)
 
   async function loadList() {
@@ -25,16 +26,23 @@ export default function PeriodePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const result = await createPeriode(nama, tanggalMulai, tanggalSelesai)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
-    setMessage('Periode berhasil ditambahkan')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Periode berhasil ditambahkan', 'success')
     setNama(''); setTanggalMulai(''); setTanggalSelesai(''); setShowForm(false)
     loadList()
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('Yakin hapus periode ini? Laporan yang pernah pakai periode ini tidak akan bisa diakses lagi lewat periode tersebut.')) return
+    const ok = await confirm({
+      title: 'Hapus periode ini?',
+      description: 'Laporan yang pernah pakai periode ini tidak akan bisa diakses lagi lewat periode tersebut.',
+      danger: true,
+      confirmLabel: 'Hapus',
+    })
+    if (!ok) return
     const result = await deletePeriode(id)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Periode dihapus', 'success')
     loadList()
   }
 
@@ -79,7 +87,6 @@ export default function PeriodePage() {
                   className="w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" />
               </div>
             </div>
-            {message && <p className="mt-3 text-sm text-brand">{message}</p>}
             <button type="submit" className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white">
               Tambah
             </button>

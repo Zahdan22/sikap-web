@@ -3,15 +3,16 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createJobdesk, updateJobdesk, deleteJobdesk } from '@/app/actions/jobdesk'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type Jobdesk = { id: number; nama: string; singkatan: string }
 
 export default function JobdeskPage() {
+  const { toast, confirm } = useDialog()
   const [list, setList] = useState<Jobdesk[]>([])
   const [nama, setNama] = useState('')
   const [singkatan, setSingkatan] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [message, setMessage] = useState('')
   const [showForm, setShowForm] = useState(false)
 
   async function loadList() {
@@ -31,8 +32,8 @@ export default function JobdeskPage() {
     const result = editingId
       ? await updateJobdesk(editingId, nama, singkatan)
       : await createJobdesk(nama, singkatan)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
-    setMessage(editingId ? 'Berhasil diupdate' : 'Berhasil ditambahkan')
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast(editingId ? 'Berhasil diupdate' : 'Berhasil ditambahkan', 'success')
     resetForm()
     loadList()
   }
@@ -42,9 +43,11 @@ export default function JobdeskPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('Yakin hapus jobdesk ini?')) return
+    const ok = await confirm({ title: 'Hapus jobdesk ini?', danger: true, confirmLabel: 'Hapus' })
+    if (!ok) return
     const result = await deleteJobdesk(id)
-    if (!result.success) { setMessage('Error: ' + result.message); return }
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast('Jobdesk dihapus', 'success')
     loadList()
   }
 
@@ -88,7 +91,6 @@ export default function JobdeskPage() {
                 className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
               />
             </div>
-            {message && <p className="mt-3 text-sm text-brand">{message}</p>}
             <button type="submit" className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white">
               {editingId ? 'Update' : 'Tambah'}
             </button>

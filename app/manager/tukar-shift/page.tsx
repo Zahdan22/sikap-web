@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { respondSwapRequest } from '@/app/actions/shift-swap'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type SwapRequest = {
   id: number
@@ -22,6 +23,7 @@ const statusStyle: Record<string, string> = {
 }
 
 export default function ManagerTukarShiftPage() {
+  const { toast } = useDialog()
   const [list, setList] = useState<SwapRequest[]>([])
   const [catatan, setCatatan] = useState<Record<number, string>>({})
   const [openCatatanFor, setOpenCatatanFor] = useState<number | null>(null)
@@ -39,7 +41,8 @@ export default function ManagerTukarShiftPage() {
 
   async function handleRespond(id: number, status: 'disetujui' | 'ditolak') {
     const result = await respondSwapRequest(id, status, catatan[id] || '')
-    if (!result.success) { alert('Error: ' + result.message); return }
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast(status === 'disetujui' ? 'Tukar shift disetujui' : 'Tukar shift ditolak', 'success')
     setOpenCatatanFor(null)
     loadList()
   }

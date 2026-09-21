@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { respondLeaveRequest } from '@/app/actions/leave'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 type LeaveRequestWithUser = {
   id: number
@@ -27,6 +28,7 @@ const statusStyle: Record<string, string> = {
 }
 
 export default function ManagerIzinPage() {
+  const { toast } = useDialog()
   const [list, setList] = useState<LeaveRequestWithUser[]>([])
   const [crewOptions, setCrewOptions] = useState<CrewOption[]>([])
   const [catatan, setCatatan] = useState<Record<number, string>>({})
@@ -51,7 +53,8 @@ export default function ManagerIzinPage() {
 
   async function handleRespond(id: number, status: 'disetujui' | 'ditolak') {
     const result = await respondLeaveRequest(id, status, catatan[id] || '')
-    if (!result.success) { alert('Error: ' + result.message); return }
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    toast(status === 'disetujui' ? 'Izin disetujui' : 'Izin ditolak', 'success')
     setOpenCatatanFor(null)
     loadData()
   }
@@ -59,7 +62,7 @@ export default function ManagerIzinPage() {
   async function handleLihatBukti(buktiPath: string) {
     const supabase = createClient()
     const { data, error } = await supabase.storage.from('leave-attachments').createSignedUrl(buktiPath, 3600)
-    if (error || !data) { alert('Gagal buka bukti: ' + error?.message); return }
+    if (error || !data) { toast('Gagal buka bukti: ' + error?.message, 'error'); return }
     window.open(data.signedUrl, '_blank')
   }
 
