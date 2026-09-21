@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
+import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 
 const statusStyle: Record<string, string> = {
   tepat_waktu: 'bg-success/10 text-success',
@@ -61,7 +62,7 @@ export default function DetailKaryawanPage() {
         {details.map((d) => (
           <div key={d.id} className="rounded-xl border border-cream-dim bg-cream-card p-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-ink">{d.tanggal}</p>
+              <p className="text-sm font-semibold text-ink">{formatDateWithDay(d.tanggal)}</p>
               <div className="flex gap-1">
                 <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${statusStyle[d.statusMasuk]}`}>
                   {d.statusMasuk.replace('_', ' ')}
@@ -73,7 +74,7 @@ export default function DetailKaryawanPage() {
             </div>
 
             <p className="mt-1 text-xs text-muted">
-              Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal} · Aktual: {d.jamMasukAktual?.slice(11, 19) || '-'} / {d.jamPulangAktual?.slice(11, 19) || '-'}
+              Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal} · Aktual: {formatTimeLocal(d.jamMasukAktual)} / {formatTimeLocal(d.jamPulangAktual)}
             </p>
             {d.menitTelat > 0 && <p className="mt-0.5 text-xs text-brand">Telat {d.menitTelat} menit</p>}
 

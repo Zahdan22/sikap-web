@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getEmployeeSummaries, getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import BottomNav from '@/components/BottomNav'
+import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 
 function getMonthRange(year: number, month: number) {
   const start = `${year}-${String(month).padStart(2, '0')}-01`
@@ -122,9 +123,9 @@ export default function RiwayatPage() {
               <p className="mt-1 text-xs text-muted">
                 Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal}
               </p>
-              <p className="text-xs text-muted">
-                Aktual: {d.jamMasukAktual?.slice(11, 19) || '-'} / {d.jamPulangAktual?.slice(11, 19) || '-'}
-              </p>
+            <p className="mt-1 text-xs text-muted">
+              Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal} · Aktual: {formatTimeLocal(d.jamMasukAktual)} / {formatTimeLocal(d.jamPulangAktual)}
+            </p>
             </div>
           ))}
           {!loading && details.length === 0 && (

@@ -109,7 +109,7 @@ export default function LoginPage() {
         </form>
 
         <p className="pb-4 text-center text-[10px] tracking-wide text-muted/60">
-          SIKAP · Tjap Djajakarta
+           Sistem Informasi Karyawan dan Absensi Pegawai
         </p>
       </div>
     </div>

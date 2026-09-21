@@ -10,6 +10,66 @@ import BottomNav from '@/components/BottomNav'
 type Props = { nama: string; role: string }
 
 export default function DashboardClient({ nama, role }: Props) {
+  if (role === 'manager') {
+    return <ManagerDashboard nama={nama} />
+  }
+  return <CrewDashboard nama={nama} />
+}
+
+function ManagerDashboard({ nama }: { nama: string }) {
+  const initial = nama.charAt(0).toUpperCase()
+
+  const tools = [
+    { href: '/manager/karyawan', label: 'Manajemen Karyawan', desc: 'Tambah & kelola akun crew' },
+    { href: '/manager/jadwal', label: 'Kelola Jadwal', desc: 'Grid jadwal mingguan' },
+    { href: '/manager/jam-kerja', label: 'Kelola Jam Kerja', desc: 'Preset opsi shift' },
+    { href: '/manager/jobdesk', label: 'Kelola Jobdesk', desc: 'Master daftar tugas' },
+    { href: '/manager/izin', label: 'Kelola Izin', desc: 'Setujui/tolak pengajuan izin' },
+    { href: '/manager/tukar-shift', label: 'Kelola Tukar Shift', desc: 'Setujui/tolak tukar shift' },
+    { href: '/manager/periode', label: 'Kelola Periode Kerja', desc: 'Siklus gajian custom' },
+    { href: '/manager/laporan', label: 'Laporan & Rekap', desc: 'Rekap kehadiran + export Excel' },
+  ]
+
+  return (
+    <div className="flex min-h-full flex-col bg-cream pb-24">
+      <div className="flex items-center justify-between px-5 pt-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brand/10 text-lg font-semibold text-brand">
+            {initial}
+          </div>
+          <div>
+            <p className="text-sm text-muted">Halo,</p>
+            <p className="text-lg font-semibold text-ink">{nama}</p>
+          </div>
+        </div>
+        <LogoutButton />
+      </div>
+
+      <div className="mt-6 px-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Menu Manager</p>
+        <div className="mt-2 space-y-2">
+          {tools.map((tool) => (
+            <Link
+              key={tool.href}
+              href={tool.href}
+              className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4"
+            >
+              <div>
+                <p className="text-sm font-semibold text-ink">{tool.label}</p>
+                <p className="text-xs text-muted">{tool.desc}</p>
+              </div>
+              <span className="text-brand">→</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <BottomNav />
+    </div>
+  )
+}
+
+function CrewDashboard({ nama }: { nama: string }) {
   const [statusLabel, setStatusLabel] = useState('Memuat...')
   const [statusTone, setStatusTone] = useState<'default' | 'action'>('default')
   const [monthStats, setMonthStats] = useState({ totalHours: 0, daysPresent: 0, lateCount: 0 })
@@ -22,19 +82,10 @@ export default function DashboardClient({ nama, role }: Props) {
 
       const { schedule, attendance } = await getTodayStatus(user.id)
 
-      if (!schedule) {
-        setStatusLabel('Tidak Ada Jadwal')
-        setStatusTone('default')
-      } else if (!attendance) {
-        setStatusLabel('Belum Absen')
-        setStatusTone('action')
-      } else if (!attendance.jam_pulang_aktual) {
-        setStatusLabel('Sudah Absen Masuk')
-        setStatusTone('action')
-      } else {
-        setStatusLabel('Selesai Bekerja')
-        setStatusTone('default')
-      }
+      if (!schedule) { setStatusLabel('Tidak Ada Jadwal'); setStatusTone('default') }
+      else if (!attendance) { setStatusLabel('Belum Absen'); setStatusTone('action') }
+      else if (!attendance.jam_pulang_aktual) { setStatusLabel('Sudah Absen Masuk'); setStatusTone('action') }
+      else { setStatusLabel('Selesai Bekerja'); setStatusTone('default') }
 
       const now = new Date()
       const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
@@ -78,35 +129,24 @@ export default function DashboardClient({ nama, role }: Props) {
             <p className="mt-1 text-lg font-semibold text-ink">{statusLabel}</p>
           </div>
           {statusTone === 'action' && (
-            <span className="rounded-full bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
-              Action Required
-            </span>
+            <span className="rounded-full bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">Action Required</span>
           )}
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 px-5">
-        <Link
-          href="/checkin"
-          className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-brand py-5 text-white shadow-sm"
-        >
+        <Link href="/checkin" className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-brand py-5 text-white shadow-sm">
           <span className="text-xl">→</span>
           <span className="text-sm font-semibold">Check-In</span>
         </Link>
-        <Link
-          href="/checkin"
-          className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-cream-dim bg-cream-card py-5 text-ink"
-        >
+        <Link href="/checkin" className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-cream-dim bg-cream-card py-5 text-ink">
           <span className="text-xl">←</span>
           <span className="text-sm font-semibold">Check-Out</span>
         </Link>
       </div>
 
-            <div className="mt-4 space-y-3 px-5">
-        <Link
-          href="/izin"
-          className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4"
-        >
+      <div className="mt-4 space-y-3 px-5">
+        <Link href="/izin" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div>
             <p className="text-sm font-semibold text-ink">Pengajuan Izin</p>
             <p className="text-xs text-muted">Leave / Permission</p>
@@ -114,10 +154,7 @@ export default function DashboardClient({ nama, role }: Props) {
           <span className="text-brand">→</span>
         </Link>
 
-        <Link
-          href="/tukar-shift"
-          className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4"
-        >
+        <Link href="/tukar-shift" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div>
             <p className="text-sm font-semibold text-ink">Tukar Shift</p>
             <p className="text-xs text-muted">Shift Swap</p>
@@ -146,16 +183,5 @@ function StatRow({ label, value, warn }: { label: string; value: string; warn?: 
       <span className="text-sm text-ink">{label}</span>
       <span className={`text-sm font-semibold ${warn ? 'text-warning' : 'text-ink'}`}>{value}</span>
     </div>
-  )
-}
-
-function ManagerLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center justify-between rounded-xl border border-cream-dim bg-cream-card px-4 py-3 text-sm text-ink"
-    >
-      {label} <span className="text-brand">→</span>
-    </Link>
   )
 }

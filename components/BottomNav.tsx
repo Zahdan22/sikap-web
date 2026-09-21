@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 export default function BottomNav() {
   const pathname = usePathname()
   const [isManager, setIsManager] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     async function checkRole() {
@@ -16,16 +17,23 @@ export default function BottomNav() {
       if (!user) return
       const { data } = await supabase.from('users').select('role').eq('id', user.id).single()
       setIsManager(data?.role === 'manager')
+      setLoaded(true)
     }
     checkRole()
   }, [])
 
-  const items = [
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/riwayat', label: 'History' },
-    { href: '/jadwal-saya', label: 'Jadwal' },
-    ...(isManager ? [{ href: '/manager', label: 'Kelola' }] : []),
-  ]
+  if (!loaded) return null
+
+  const items = isManager
+    ? [
+        { href: '/dashboard', label: 'Dashboard' },
+        { href: '/manager', label: 'Kelola' },
+      ]
+    : [
+        { href: '/dashboard', label: 'Dashboard' },
+        { href: '/riwayat', label: 'History' },
+        { href: '/jadwal-saya', label: 'Jadwal' },
+      ]
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-cream-dim bg-cream-card py-3">
@@ -34,9 +42,7 @@ export default function BottomNav() {
         return (
           <Link key={item.href} href={item.href} className="flex flex-col items-center gap-1">
             <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-brand' : 'bg-transparent'}`} />
-            <span className={`text-[11px] ${active ? 'font-semibold text-brand' : 'text-muted'}`}>
-              {item.label}
-            </span>
+            <span className={`text-[11px] ${active ? 'font-semibold text-brand' : 'text-muted'}`}>{item.label}</span>
           </Link>
         )
       })}

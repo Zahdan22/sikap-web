@@ -34,6 +34,7 @@ export async function getCrewList(): Promise<Crew[]> {
   const { data, error } = await supabase
     .from('users')
     .select('id, nama, username')
+    .eq('role', 'crew')
     .eq('status_aktif', true)
     .order('nama')
 
@@ -133,6 +134,37 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
     jam_selesai: row.jam_selesai,
     durasi_jam: row.durasi_jam,
     nama: row.users?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
+    jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
+  }))
+}
+
+export async function getMySchedulesInRange(
+  userId: string,
+  startDate: string,
+  endDate: string
+): Promise<ScheduleWithJobdesk[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('schedule')
+    .select(`
+      id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam,
+      users:user_id (nama),
+      schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+    `)
+    .eq('user_id', userId)
+    .gte('tanggal', startDate)
+    .lte('tanggal', endDate)
+
+  if (error) throw new Error('Gagal ambil jadwal minggu ini: ' + error.message)
+
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    user_id: row.user_id,
+    tanggal: row.tanggal,
+    jam_mulai: row.jam_mulai,
+    jam_selesai: row.jam_selesai,
+    durasi_jam: row.durasi_jam,
+    nama: row.users?.nama || '',
     jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
   }))
 }

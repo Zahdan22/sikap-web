@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'SIKAP - Solusi Absensi Karyawan Digital',
     short_name: 'SIKAP',
-    description: 'Aplikasi absensi karyawan Tjap Djajakarta',
+    description: 'Aplikasi absensi karyawan berbasis web',
     start_url: '/',
     display: 'standalone',
     background_color: '#ffffff',

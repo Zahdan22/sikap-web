@@ -38,3 +38,25 @@ export function toDateString(date: Date): string {
 export function isSameDate(a: Date, b: Date): boolean {
   return toDateString(a) === toDateString(b)
 }
+
+export function formatTimeLocal(isoString: string | null): string {
+  if (!isoString) return '-'
+  const date = new Date(isoString)
+  return date.toLocaleTimeString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+export function formatDateWithDay(dateString: string): string {
+  const date = new Date(dateString + 'T00:00:00')
+  return date.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+

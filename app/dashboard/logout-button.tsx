@@ -2,11 +2,20 @@
 
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useDialog } from '@/components/ui/DialogProvider'
 
 export default function LogoutButton() {
   const router = useRouter()
+  const { confirm } = useDialog()
 
   async function handleLogout() {
+    const ok = await confirm({
+      title: 'Yakin ingin logout?',
+      confirmLabel: 'Logout',
+      danger: true,
+    })
+    if (!ok) return
+
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login')

@@ -12,7 +12,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "SIKAP - Solusi Absensi Karyawan Digital",
-  description: "Aplikasi absensi karyawan Tjap Djajakarta",
+  description: "Aplikasi absensi karyawan berbasis web",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

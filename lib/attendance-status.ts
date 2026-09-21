@@ -41,10 +41,12 @@ export function evaluateCheckOut(
   checkOutTime: Date
 ): CheckOutStatus {
   const shiftEnd = combineDateTime(shift.tanggal, shift.jamSelesai)
-  const graceDeadline = new Date(shiftEnd.getTime() + 45 * 60 * 1000) // toleransi 45 menit
+  const graceDeadline = new Date(shiftEnd.getTime() + 45 * 60 * 1000)
 
   if (checkOutTime < shiftEnd) {
-    return 'lebih_awal'
+    throw new Error(
+      `Belum bisa check-out. Check-out dibuka mulai ${shiftEnd.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })}`
+    )
   }
 
   if (checkOutTime <= graceDeadline) {
