@@ -14,6 +14,9 @@ import {
 } from '@/lib/jadwal'
 import { simpanJadwalHariIni } from '@/app/actions/jadwal'
 import { useDialog } from '@/components/ui/DialogProvider'
+import PageHeader from '@/components/PageHeader'
+import JamKerjaModal from '@/components/JamKerjaModal'
+import JobdeskModal from '@/components/JobdeskModal'  
 
 export default function JadwalPage() {
   const { toast } = useDialog()
@@ -27,6 +30,9 @@ export default function JadwalPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [openJobdeskFor, setOpenJobdeskFor] = useState<string | null>(null)
+  const [showMenu, setShowMenu] = useState(false)
+  const [showJamKerjaModal, setShowJamKerjaModal] = useState(false)
+  const [showJobdeskModal, setShowJobdeskModal] = useState(false)
 
   const weekDates = getWeekDates(referenceDate)
 
@@ -112,9 +118,30 @@ export default function JadwalPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Kelola Jadwal</h1>
+      <div className="relative">
+        <PageHeader
+          title="Kelola Jadwal"
+          backHref="/dashboard"
+          rightSlot={
+            <button onClick={() => setShowMenu((v) => !v)} className="text-xl text-white">⋮</button>
+          }
+        />
+        {showMenu && (
+          <div className="absolute right-5 top-16 z-10 w-48 rounded-xl border border-cream-dim bg-cream-card p-2 shadow-md">
+            <button
+              onClick={() => { setShowJamKerjaModal(true); setShowMenu(false) }}
+              className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-cream-dim"
+            >
+              Kelola Jam Kerja
+            </button>
+            <button
+              onClick={() => { setShowJobdeskModal(true); setShowMenu(false) }}
+              className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-cream-dim"
+            >
+              Kelola Jobdesk
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 px-5">
@@ -244,6 +271,8 @@ export default function JadwalPage() {
           </div>
         </div>
       )}
+      {showJamKerjaModal && <JamKerjaModal onClose={() => setShowJamKerjaModal(false)} />}
+      {showJobdeskModal && <JobdeskModal onClose={() => setShowJobdeskModal(false)} />}
     </div>
   )
 }

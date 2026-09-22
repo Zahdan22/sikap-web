@@ -5,6 +5,7 @@ import CameraCapture from '@/components/CameraCapture'
 import { checkIn, checkOut, getTodayStatus } from '@/lib/attendance'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { createClient } from '@/lib/supabase/client'
+import PageHeader from '@/components/PageHeader'
 
 type ViewState = 'loading' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
 
@@ -69,10 +70,7 @@ export default function CheckInOutPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-6">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/dashboard" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">{title}</h1>
-      </div>
+      <PageHeader title={title} backHref="/dashboard" />
 
       <div className="px-5">
         {viewState === 'loading' && <p className="mt-6 text-sm text-muted">Memuat...</p>}

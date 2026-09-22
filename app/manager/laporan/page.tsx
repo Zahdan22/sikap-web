@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 import { getEmployeeSummaries, getEmployeeDetail, EmployeeSummary } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import * as XLSX from 'xlsx'
+import PageHeader from '@/components/PageHeader'
+import PeriodeModal from '@/components/PeriodeModal'
 
 type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 
@@ -26,15 +28,16 @@ export default function LaporanPage() {
   const [generatedRange, setGeneratedRange] = useState<{ start: string; end: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
+  const [showPeriodeModal, setShowPeriodeModal] = useState(false)
 
-  useEffect(() => {
-    async function loadPeriode() {
-      const supabase = createClient()
-      const { data } = await supabase.from('periode_kerja').select('*').order('tanggal_mulai', { ascending: false })
-      setPeriodeList(data || [])
-    }
-    loadPeriode()
-  }, [])
+  async function loadPeriode() {
+    const supabase = createClient()
+    const { data } = await supabase.from('periode_kerja').select('*').order('tanggal_mulai', { ascending: false })
+    setPeriodeList(data || [])
+  }
+
+  useEffect(() => { loadPeriode() }, [])
 
   function getDateRange(): { start: string; end: string } | null {
     if (mode === 'bulan') return getMonthRange(year, month)
@@ -88,9 +91,24 @@ export default function LaporanPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Laporan & Rekap</h1>
+      <div className="relative">
+        <PageHeader
+          title="Laporan & Rekap"
+          backHref="/dashboard"
+          rightSlot={
+            <button onClick={() => setShowMenu((v) => !v)} className="text-xl text-white">⋮</button>
+          }
+        />
+        {showMenu && (
+          <div className="absolute right-5 top-16 z-10 w-48 rounded-xl border border-cream-dim bg-cream-card p-2 shadow-md">
+            <button
+              onClick={() => { setShowPeriodeModal(true); setShowMenu(false) }}
+              className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink hover:bg-cream-dim"
+            >
+              Kelola Periode Kerja
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 px-5">
@@ -145,9 +163,12 @@ export default function LaporanPage() {
                 ))}
               </select>
               {periodeList.length === 0 && (
-                <Link href="/manager/periode" className="mt-2 block text-xs text-brand">
+                <button
+                  onClick={() => setShowPeriodeModal(true)}
+                  className="mt-2 text-xs text-brand"
+                >
                   Belum ada periode, buat dulu →
-                </Link>
+                </button>
               )}
             </div>
           )}
@@ -208,6 +229,9 @@ export default function LaporanPage() {
             ))}
           </div>
         </div>
+      )}
+        {showPeriodeModal && (
+        <PeriodeModal onClose={() => setShowPeriodeModal(false)} onChanged={loadPeriode} />
       )}
     </div>
   )
