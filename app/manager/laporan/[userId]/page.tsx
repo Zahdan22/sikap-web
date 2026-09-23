@@ -6,6 +6,7 @@ import { getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
+import Spinner from '@/components/Spinner'
 
 const statusStyle: Record<string, string> = {
   tepat_waktu: 'bg-success/10 text-success',
@@ -53,7 +54,7 @@ export default function DetailKaryawanPage() {
       <p className="px-5 pt-2 text-xs text-muted">{start} s.d. {end}</p>
 
       <div className="mt-4 space-y-2 px-5">
-        {loading && <p className="text-sm text-muted">Memuat...</p>}
+        {loading && <Spinner />}
 
         {details.map((d) => (
           <div key={d.id} className="rounded-xl border border-cream-dim bg-cream-card p-4">

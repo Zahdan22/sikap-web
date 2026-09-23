@@ -10,6 +10,7 @@ import { getTodayCrewStatus, TodayCrewStatus } from '@/lib/jadwal'
 import { getHoliday } from '@/lib/holidays'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountMenu from '@/components/AccountMenu'
+import Spinner from '@/components/Spinner'
 
 type Props = { nama: string; role: string }
 
@@ -101,7 +102,7 @@ function ManagerDashboard({ nama }: { nama: string }) {
       <div className="mt-6 px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">Shift Hari Ini</p>
         <div className="mt-2 space-y-2">
-          {loadingCrew && <p className="text-sm text-muted">Memuat...</p>}
+          {loadingCrew && <Spinner />}
           {!loadingCrew && crewToday.length === 0 && (
             <p className="text-sm text-muted">Tidak ada crew yang shift hari ini.</p>
           )}

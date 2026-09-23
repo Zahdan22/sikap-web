@@ -6,6 +6,7 @@ import { checkIn, checkOut, getTodayStatus } from '@/lib/attendance'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { createClient } from '@/lib/supabase/client'
 import PageHeader from '@/components/PageHeader'
+import Spinner from '@/components/Spinner'
 
 type ViewState = 'loading' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
 
@@ -73,7 +74,7 @@ export default function CheckInOutPage() {
       <PageHeader title={title} backHref="/dashboard" />
 
       <div className="px-5">
-        {viewState === 'loading' && <p className="mt-6 text-sm text-muted">Memuat...</p>}
+        {viewState === 'loading' && <Spinner />}
 
         {viewState === 'no-schedule' && (
           <div className="mt-6 rounded-2xl border border-cream-dim bg-cream-card px-5 py-6 text-center">
@@ -108,8 +109,8 @@ export default function CheckInOutPage() {
               )}
               {showCamera && <CameraCapture onCapture={handleCapture} />}
               {processing && (
-                <div className="flex aspect-[3/4] items-center justify-center text-cream/70 text-sm">
-                  Memproses...
+                <div className="flex aspect-[3/4] items-center justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-cream/20 border-t-cream" />
                 </div>
               )}
             </div>

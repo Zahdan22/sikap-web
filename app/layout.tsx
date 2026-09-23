@@ -4,6 +4,7 @@ import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import SplashScreen from "@/components/SplashScreen";
 import DialogProvider from '@/components/ui/DialogProvider'
+import NavigationOverlay from '@/components/NavigationOverlay'
 
 const inter = Inter({
   variable: "--font-inter",
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col bg-cream text-ink font-sans">
         <SplashScreen />
         <DialogProvider>{children}</DialogProvider>
+        <NavigationOverlay />
         <ServiceWorkerRegister />
       </body>
     </html>

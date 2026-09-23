@@ -18,6 +18,7 @@ import PageHeader from '@/components/PageHeader'
 import JamKerjaModal from '@/components/JamKerjaModal'
 import JobdeskModal from '@/components/JobdeskModal'  
 import BottomNav from '@/components/BottomNav'
+import Spinner from '@/components/Spinner'
 
 export default function JadwalPage() {
   const { toast } = useDialog()
@@ -179,7 +180,7 @@ export default function JadwalPage() {
           </p>
 
           {loading ? (
-            <p className="mt-3 text-sm text-muted">Memuat...</p>
+            <Spinner />
           ) : (
             <>
               <div className="mt-2 space-y-2">

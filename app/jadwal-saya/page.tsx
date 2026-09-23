@@ -6,6 +6,7 @@ import { getMonthSchedules, getMySchedulesInRange, ScheduleWithJobdesk } from '@
 import { toDateString, getWeekDates, formatDateWithDay } from '@/lib/date-utils'
 import BottomNav from '@/components/BottomNav'
 import PageHeader from '@/components/PageHeader'
+import Spinner from '@/components/Spinner'
 
 export default function JadwalPage() {
   const [view, setView] = useState<'kalender' | 'minggu'>('kalender')
@@ -115,9 +116,9 @@ export default function JadwalPage() {
                 <button onClick={goToNextMonth} className="text-brand">›</button>
               </div>
 
-              {loadingCalendar ? (
-                <p className="mt-4 text-center text-sm text-muted">Memuat...</p>
-              ) : (
+                {loadingCalendar ? (
+                  <Spinner />
+                ) : (
                 <div className="mt-3 grid grid-cols-7 gap-y-2 text-center">
                   {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((d) => (
                     <span key={d} className="text-[10px] font-medium text-muted">{d}</span>
@@ -199,7 +200,7 @@ export default function JadwalPage() {
       {view === 'minggu' && (
         <div className="mt-4 space-y-2 px-5">
           {loadingWeek ? (
-            <p className="text-sm text-muted">Memuat...</p>
+            <Spinner />
           ) : (
             weekDates.map((date) => {
               const dateStr = toDateString(date)

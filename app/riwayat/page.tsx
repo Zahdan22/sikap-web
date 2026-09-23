@@ -7,6 +7,7 @@ import { getPhotoSignedUrl } from '@/lib/storage'
 import BottomNav from '@/components/BottomNav'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
+import Spinner from '@/components/Spinner'
 
 function getMonthRange(year: number, month: number) {
   const start = `${year}-${String(month).padStart(2, '0')}-01`
@@ -104,7 +105,7 @@ export default function RiwayatPage() {
       </div>
 
       <div className="mt-4 px-5">
-        {loading && <p className="text-sm text-muted">Memuat...</p>}
+        {loading && <Spinner />}
         <div className="space-y-2">
           {details.map((d) => (
             <div key={d.id} className="rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
