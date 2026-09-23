@@ -17,7 +17,6 @@ import { useDialog } from '@/components/ui/DialogProvider'
 import PageHeader from '@/components/PageHeader'
 import JamKerjaModal from '@/components/JamKerjaModal'
 import JobdeskModal from '@/components/JobdeskModal'  
-import BottomNav from '@/components/BottomNav'
 import Spinner from '@/components/Spinner'
 
 export default function JadwalPage() {
@@ -275,7 +274,6 @@ export default function JadwalPage() {
       )}
       {showJamKerjaModal && <JamKerjaModal onClose={() => setShowJamKerjaModal(false)} />}
       {showJobdeskModal && <JobdeskModal onClose={() => setShowJobdeskModal(false)} />}
-        <BottomNav />
     </div>
   )
 }

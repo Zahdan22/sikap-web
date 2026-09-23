@@ -58,6 +58,8 @@ function getIcon(label: string, className: string): ReactNode {
 
 export default function BottomNav() {
   const pathname = usePathname()
+  const hiddenPaths = ['/checkin', '/izin', '/tukar-shift', '/settings', '/login']
+  if (hiddenPaths.some((p) => pathname.startsWith(p))) return null
   const [isManager, setIsManager] = useState(false)
   const [loaded, setLoaded] = useState(false)
 

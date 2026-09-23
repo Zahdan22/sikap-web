@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getMonthSchedules, getMySchedulesInRange, ScheduleWithJobdesk } from '@/lib/jadwal'
 import { toDateString, getWeekDates, formatDateWithDay } from '@/lib/date-utils'
-import BottomNav from '@/components/BottomNav'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
 
@@ -229,8 +228,6 @@ export default function JadwalPage() {
           )}
         </div>
       )}
-
-      <BottomNav />
     </div>
   )
 }

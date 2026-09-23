@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getEmployeeSummaries, getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
-import BottomNav from '@/components/BottomNav'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
@@ -133,8 +132,6 @@ export default function RiwayatPage() {
           )}
         </div>
       </div>
-
-      <BottomNav />
     </div>
   )
 }

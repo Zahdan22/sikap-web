@@ -5,6 +5,7 @@ import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import SplashScreen from "@/components/SplashScreen";
 import DialogProvider from '@/components/ui/DialogProvider'
 import NavigationOverlay from '@/components/NavigationOverlay'
+import BottomNav from '@/components/BottomNav'
 
 const inter = Inter({
   variable: "--font-inter",
@@ -26,7 +27,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-cream text-ink font-sans">
         <SplashScreen />
-        <DialogProvider>{children}</DialogProvider>
+        <DialogProvider>
+          {children}
+          <BottomNav />
+        </DialogProvider>
         <NavigationOverlay />
         <ServiceWorkerRegister />
       </body>

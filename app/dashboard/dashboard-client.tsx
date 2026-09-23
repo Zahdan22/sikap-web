@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getTodayStatus } from '@/lib/attendance'
 import LogoutButton from './logout-button'
-import BottomNav from '@/components/BottomNav'
 import { getTodayCrewStatus, TodayCrewStatus } from '@/lib/jadwal'
 import { getHoliday } from '@/lib/holidays'
 import DashboardHeader from '@/components/DashboardHeader'
@@ -183,8 +182,6 @@ function ManagerDashboard({ nama }: { nama: string }) {
           </Link>
         </div>
       </div>
-
-      <BottomNav />
     </div>
   )
 }
@@ -303,8 +300,6 @@ function CrewDashboard({ nama }: { nama: string }) {
           <StatRow label="Late Arrivals" value={String(monthStats.lateCount)} warn={monthStats.lateCount > 0} />
         </div>
       </div>
-
-      <BottomNav />
     </div>
   )
 }

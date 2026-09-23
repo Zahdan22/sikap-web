@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createLeaveRequest } from '@/app/actions/leave'
 import { useDialog } from '@/components/ui/DialogProvider'
-import BottomNav from '@/components/BottomNav'
 import BackArrow from '@/components/BackArrow'
 import PageHeader from '@/components/PageHeader'
 

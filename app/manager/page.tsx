@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import BottomNav from '@/components/BottomNav'
 
 const tools = [
   { href: '/manager/karyawan', label: 'Manajemen Karyawan', desc: 'Tambah & kelola akun crew' },
@@ -35,8 +34,6 @@ export default function ManagerHubPage() {
           </Link>
         ))}
       </div>
-
-      <BottomNav />
     </div>
   )
 }
