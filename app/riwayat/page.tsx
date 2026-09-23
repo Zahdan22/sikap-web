@@ -6,6 +6,7 @@ import { getEmployeeSummaries, getEmployeeDetail, AttendanceDetail } from '@/lib
 import { getPhotoSignedUrl } from '@/lib/storage'
 import BottomNav from '@/components/BottomNav'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
+import PageHeader from '@/components/PageHeader'
 
 function getMonthRange(year: number, month: number) {
   const start = `${year}-${String(month).padStart(2, '0')}-01`
@@ -70,9 +71,7 @@ export default function RiwayatPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-24">
-      <div className="px-5 pt-6">
-        <h1 className="text-lg font-semibold text-ink">Riwayat Kehadiran</h1>
-      </div>
+      <PageHeader title="Riwayat Kehadiran" />
 
       <div className="mt-4 px-5">
         <div className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-3">

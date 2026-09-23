@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { createLeaveRequest } from '@/app/actions/leave'
 import { useDialog } from '@/components/ui/DialogProvider'
 import BottomNav from '@/components/BottomNav'
+import BackArrow from '@/components/BackArrow'
+import PageHeader from '@/components/PageHeader'
 
 type LeaveRequest = {
   id: number
@@ -122,10 +124,7 @@ export default function IzinPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-6">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/dashboard" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Pengajuan Izin</h1>
-      </div>
+      <PageHeader title="Pengajuan Izin" backHref="/dashboard" />
 
       {lastRequest && (
         <div className="mt-4 px-5">

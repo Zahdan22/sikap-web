@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { respondSwapRequest } from '@/app/actions/shift-swap'
 import { useDialog } from '@/components/ui/DialogProvider'
+import PageHeader from '@/components/PageHeader'
 
 type SwapRequest = {
   id: number
@@ -57,10 +58,7 @@ export default function ManagerTukarShiftPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Kelola Tukar Shift</h1>
-      </div>
+      <PageHeader title="Kelola Tukar Shift" backHref="/dashboard" />
 
       <div className="mt-4 px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">

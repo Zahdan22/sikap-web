@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createCrewAccount, deleteCrewAccount } from '@/app/actions/create-user'
 import { useDialog } from '@/components/ui/DialogProvider'
+import PageHeader from '@/components/PageHeader'
 
 type Karyawan = {
   id: string
@@ -93,10 +94,7 @@ export default function KaryawanPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Manajemen Karyawan</h1>
-      </div>
+      <PageHeader title="Manajemen Karyawan" backHref="/dashboard" />
 
       <div className="mt-4 px-5">
         <button

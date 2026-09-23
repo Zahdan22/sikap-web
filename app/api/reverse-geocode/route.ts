@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       {
         headers: {
           // Nominatim usage policy WAJIB custom User-Agent, bukan default
-          'User-Agent': 'SIKAP-TjapDjajakarta/1.0',
+          'User-Agent': 'SIKAP-Sistem Informasi Karyawan dan Absensi Pegawai/1.0',
         },
       }
     )

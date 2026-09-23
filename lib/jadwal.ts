@@ -168,3 +168,49 @@ export async function getMySchedulesInRange(
     jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
   }))
 }
+
+export type TodayCrewStatus = {
+  scheduleId: number
+  userId: string
+  nama: string
+  jamMulai: string
+  jamSelesai: string
+  jobdeskLabels: string[]
+  jamMasukAktual: string | null
+  statusMasuk: string | null
+  jamPulangAktual: string | null
+}
+
+export async function getTodayCrewStatus(): Promise<TodayCrewStatus[]> {
+  const supabase = createClient()
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  const { data, error } = await supabase
+    .from('schedule')
+    .select(`
+      id, user_id, jam_mulai, jam_selesai,
+      users:user_id (nama),
+      schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
+      attendance (jam_masuk_aktual, status_masuk, jam_pulang_aktual)
+    `)
+    .eq('tanggal', todayStr)
+    .order('jam_mulai')
+
+  if (error) throw new Error('Gagal ambil status crew hari ini: ' + error.message)
+
+  return (data || []).map((row: any) => {
+    const att = Array.isArray(row.attendance) ? row.attendance[0] : row.attendance
+    return {
+      scheduleId: row.id,
+      userId: row.user_id,
+      nama: row.users?.nama || '',
+      jamMulai: row.jam_mulai,
+      jamSelesai: row.jam_selesai,
+      jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
+      jamMasukAktual: att?.jam_masuk_aktual || null,
+      statusMasuk: att?.status_masuk || null,
+      jamPulangAktual: att?.jam_pulang_aktual || null,
+    }
+  })
+}

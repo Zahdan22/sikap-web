@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getMonthSchedules, getMySchedulesInRange, ScheduleWithJobdesk } from '@/lib/jadwal'
 import { toDateString, getWeekDates, formatDateWithDay } from '@/lib/date-utils'
 import BottomNav from '@/components/BottomNav'
+import PageHeader from '@/components/PageHeader'
 
 export default function JadwalPage() {
   const [view, setView] = useState<'kalender' | 'minggu'>('kalender')
@@ -79,9 +80,7 @@ export default function JadwalPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-24">
-      <div className="px-5 pt-6">
-        <h1 className="text-lg font-semibold text-ink">Jadwal</h1>
-      </div>
+      <PageHeader title="Jadwal" />
 
       <div className="mt-4 px-5">
         <div className="flex gap-2">

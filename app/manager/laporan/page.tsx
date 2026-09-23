@@ -8,6 +8,7 @@ import { getPhotoSignedUrl } from '@/lib/storage'
 import * as XLSX from 'xlsx'
 import PageHeader from '@/components/PageHeader'
 import PeriodeModal from '@/components/PeriodeModal'
+import BottomNav from '@/components/BottomNav'
 
 type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 
@@ -90,7 +91,7 @@ export default function LaporanPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-10">
+    <div className="flex min-h-full flex-col bg-cream pb-24">
       <div className="relative">
         <PageHeader
           title="Laporan & Rekap"
@@ -233,6 +234,7 @@ export default function LaporanPage() {
         {showPeriodeModal && (
         <PeriodeModal onClose={() => setShowPeriodeModal(false)} onChanged={loadPeriode} />
       )}
+      <BottomNav />
     </div>
   )
 }

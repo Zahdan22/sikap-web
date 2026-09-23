@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
+import PageHeader from '@/components/PageHeader'
 
 const statusStyle: Record<string, string> = {
   tepat_waktu: 'bg-success/10 text-success',
@@ -48,13 +49,8 @@ export default function DetailKaryawanPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager/laporan" className="text-brand text-lg">←</a>
-        <div>
-          <h1 className="text-lg font-semibold text-ink">{nama}</h1>
-          <p className="text-xs text-muted">{start} s.d. {end}</p>
-        </div>
-      </div>
+      <PageHeader title={nama} backHref="/manager/laporan" />
+      <p className="px-5 pt-2 text-xs text-muted">{start} s.d. {end}</p>
 
       <div className="mt-4 space-y-2 px-5">
         {loading && <p className="text-sm text-muted">Memuat...</p>}

@@ -17,6 +17,7 @@ import { useDialog } from '@/components/ui/DialogProvider'
 import PageHeader from '@/components/PageHeader'
 import JamKerjaModal from '@/components/JamKerjaModal'
 import JobdeskModal from '@/components/JobdeskModal'  
+import BottomNav from '@/components/BottomNav'
 
 export default function JadwalPage() {
   const { toast } = useDialog()
@@ -117,7 +118,7 @@ export default function JadwalPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-10">
+    <div className="flex min-h-full flex-col bg-cream pb-24">
       <div className="relative">
         <PageHeader
           title="Kelola Jadwal"
@@ -273,6 +274,7 @@ export default function JadwalPage() {
       )}
       {showJamKerjaModal && <JamKerjaModal onClose={() => setShowJamKerjaModal(false)} />}
       {showJobdeskModal && <JobdeskModal onClose={() => setShowJobdeskModal(false)} />}
+        <BottomNav />
     </div>
   )
 }

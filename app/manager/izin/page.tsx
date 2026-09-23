@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { respondLeaveRequest } from '@/app/actions/leave'
 import { useDialog } from '@/components/ui/DialogProvider'
+import PageHeader from '@/components/PageHeader'
 
 type LeaveRequestWithUser = {
   id: number
@@ -80,10 +81,7 @@ export default function ManagerIzinPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Kelola Izin</h1>
-      </div>
+      <PageHeader title="Kelola Izin" backHref="/dashboard" />
 
       <div className="mt-4 px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">
