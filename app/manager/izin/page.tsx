@@ -80,7 +80,7 @@ export default function ManagerIzinPage() {
   const historyList = list.filter((i) => i.status !== 'pending')
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-10">
+    <div className="flex min-h-full flex-col bg-cream pb-24">
       <PageHeader title="Kelola Izin" backHref="/dashboard" />
 
       <div className="mt-4 px-5">

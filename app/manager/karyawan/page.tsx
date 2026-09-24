@@ -93,7 +93,7 @@ export default function KaryawanPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-10">
+    <div className="flex min-h-full flex-col bg-cream pb-24">
       <PageHeader title="Manajemen Karyawan" backHref="/dashboard" />
 
       <div className="mt-4 px-5">
