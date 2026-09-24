@@ -42,12 +42,26 @@ export async function getCrewList(): Promise<Crew[]> {
   return data || []
 }
 
-export async function getJamKerjaOptions(): Promise<JamKerjaOpsi[]> {
+export type JamKerjaPreset = { id: number; nama: string }
+
+export async function getPresets(): Promise<JamKerjaPreset[]> {
   const supabase = createClient()
-  const { data, error } = await supabase.from('jam_kerja_opsi').select('*').order('jam_mulai')
-  if (error) throw new Error('Gagal ambil opsi jam kerja: ' + error.message)
+  const { data, error } = await supabase.from('jam_kerja_preset').select('id, nama').order('id')
+  if (error) throw new Error('Gagal ambil preset: ' + error.message)
   return data || []
 }
+
+export async function getJamKerjaOptions(presetId: number | null): Promise<JamKerjaOpsi[]> {
+  if (!presetId) return []
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('jam_kerja_opsi')
+    .select('*')
+    .eq('preset_id', presetId)
+    .order('jam_mulai')
+  if (error) throw new Error('Gagal ambil opsi jam kerja: ' + error.message)
+  return data || []
+} 
 
 export async function getJobdeskOptions(): Promise<JobdeskOption[]> {
   const supabase = createClient()

@@ -18,6 +18,7 @@ import PageHeader from '@/components/PageHeader'
 import JamKerjaModal from '@/components/JamKerjaModal'
 import JobdeskModal from '@/components/JobdeskModal'  
 import Spinner from '@/components/Spinner'
+import { getPresets, JamKerjaPreset } from '@/lib/jadwal'
 
 export default function JadwalPage() {
   const { toast } = useDialog()
@@ -34,22 +35,33 @@ export default function JadwalPage() {
   const [showMenu, setShowMenu] = useState(false)
   const [showJamKerjaModal, setShowJamKerjaModal] = useState(false)
   const [showJobdeskModal, setShowJobdeskModal] = useState(false)
+  const [presets, setPresets] = useState<JamKerjaPreset[]>([])
+  const [activePresetId, setActivePresetId] = useState<number | null>(null)
 
   const weekDates = getWeekDates(referenceDate)
 
   useEffect(() => {
     async function loadMasterData() {
-      const [crew, jamKerja, jobdesk] = await Promise.all([
+      const [crew, jobdesk, presetList] = await Promise.all([
         getCrewList(),
-        getJamKerjaOptions(),
         getJobdeskOptions(),
+        getPresets(),
       ])
       setCrewList(crew)
-      setJamKerjaOptions(jamKerja)
       setJobdeskOptions(jobdesk)
+      setPresets(presetList)
+      if (presetList.length > 0) setActivePresetId(presetList[0].id)
     }
     loadMasterData()
   }, [])
+
+  useEffect(() => {
+    async function loadJamKerja() {
+      const data = await getJamKerjaOptions(activePresetId)
+      setJamKerjaOptions(data)
+    }
+    loadJamKerja()
+  }, [activePresetId])
 
   useEffect(() => {
     if (!selectedDate || crewList.length === 0) return
@@ -127,6 +139,19 @@ export default function JadwalPage() {
             <button onClick={() => setShowMenu((v) => !v)} className="text-xl text-white">⋮</button>
           }
         />
+        <div className="mt-4 px-5">
+        <label className="mb-1 block text-xs font-medium text-muted">Preset Jam Kerja Aktif</label>
+        <select
+          value={activePresetId ?? ''}
+          onChange={(e) => setActivePresetId(Number(e.target.value))}
+          className="w-full rounded-xl border border-cream-dim bg-cream-card px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
+        >
+          {presets.length === 0 && <option value="">-- Belum ada preset --</option>}
+          {presets.map((p) => (
+            <option key={p.id} value={p.id}>{p.nama}</option>
+          ))}
+        </select>
+      </div>
         {showMenu && (
           <div className="absolute right-5 top-16 z-10 w-48 rounded-xl border border-cream-dim bg-cream-card p-2 shadow-md">
             <button
@@ -272,7 +297,15 @@ export default function JadwalPage() {
           </div>
         </div>
       )}
-      {showJamKerjaModal && <JamKerjaModal onClose={() => setShowJamKerjaModal(false)} />}
+            {showJamKerjaModal && (
+        <JamKerjaModal
+          onClose={() => setShowJamKerjaModal(false)}
+          onChanged={async () => {
+            const presetList = await getPresets()
+            setPresets(presetList)
+          }}
+        />
+      )}
       {showJobdeskModal && <JobdeskModal onClose={() => setShowJobdeskModal(false)} />}
     </div>
   )
