@@ -90,8 +90,46 @@ export async function checkIn(userId: string, rawPhoto: string) {
   return { status, menitTelat, photoPath }
 }
 
+function isOvernightShift(jamMulai: string, jamSelesai: string): boolean {
+  return jamSelesai <= jamMulai
+}
+
+async function getYesterdaySchedule(userId: string): Promise<Schedule | null> {
+  const supabase = createClient()
+  const yesterday = getLocalDateString(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+  const { data } = await supabase
+    .from('schedule')
+    .select('id, user_id, tanggal, jam_mulai, jam_selesai')
+    .eq('user_id', userId)
+    .eq('tanggal', yesterday)
+    .maybeSingle()
+
+  return data || null
+}
+
+async function getOpenOvernightSchedule(userId: string): Promise<Schedule | null> {
+  const yesterdaySchedule = await getYesterdaySchedule(userId)
+  if (!yesterdaySchedule || !isOvernightShift(yesterdaySchedule.jam_mulai, yesterdaySchedule.jam_selesai)) {
+    return null
+  }
+
+  const supabase = createClient()
+  const { data: att } = await supabase
+    .from('attendance')
+    .select('jam_masuk_aktual, jam_pulang_aktual')
+    .eq('schedule_id', yesterdaySchedule.id)
+    .maybeSingle()
+
+  if (att && att.jam_masuk_aktual && !att.jam_pulang_aktual) {
+    return yesterdaySchedule
+  }
+  return null
+}
+
 export async function checkOut(userId: string, rawPhoto: string) {
-  const schedule = await getTodaySchedule(userId)
+  const overnightSchedule = await getOpenOvernightSchedule(userId)
+  const schedule = overnightSchedule || await getTodaySchedule(userId)
 
   const locationResult = await checkLocationWithinRadius()
   if (!locationResult.isValid) {
@@ -141,7 +179,8 @@ export async function checkOut(userId: string, rawPhoto: string) {
 }
 
 export async function getTodayStatus(userId: string) {
-  const schedule = await getTodaySchedule(userId).catch(() => null)
+  const overnightSchedule = await getOpenOvernightSchedule(userId)
+  const schedule = overnightSchedule || await getTodaySchedule(userId).catch(() => null)
   if (!schedule) return { schedule: null, attendance: null }
 
   const supabase = createClient()

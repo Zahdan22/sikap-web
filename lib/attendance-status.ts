@@ -40,7 +40,14 @@ export function evaluateCheckOut(
   shift: ShiftTime,
   checkOutTime: Date
 ): CheckOutStatus {
-  const shiftEnd = combineDateTime(shift.tanggal, shift.jamSelesai)
+  const shiftStart = combineDateTime(shift.tanggal, shift.jamMulai)
+  let shiftEnd = combineDateTime(shift.tanggal, shift.jamSelesai)
+
+  // Kalau jam selesai <= jam mulai, berarti shift lintas hari (misal 18:00 - 01:00)
+  if (shiftEnd <= shiftStart) {
+    shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000)
+  }
+
   const graceDeadline = new Date(shiftEnd.getTime() + 45 * 60 * 1000)
 
   if (checkOutTime < shiftEnd) {
