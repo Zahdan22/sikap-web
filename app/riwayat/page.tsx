@@ -18,8 +18,9 @@ function getMonthRange(year: number, month: number) {
 export default function RiwayatPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [details, setDetails] = useState<AttendanceDetail[]>([])
-  const [summary, setSummary] = useState({ hariHadir: 0, hariTelat: 0, totalJam: 0 })
-  const [photoUrls, setPhotoUrls] = useState<Record<number, string>>({})
+  const [summary, setSummary] = useState({ hariHadir: 0, hariTelat: 0, totalIkhlas: 0, totalJam: 0 })
+  const [photoUrls, setPhotoUrls] = useState<Record<number, { masuk?: string; pulang?: string }>>({})
+  const [fullPhoto, setFullPhoto] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -39,13 +40,15 @@ export default function RiwayatPage() {
       setSummary({
         hariHadir: data.filter((d) => d.jamMasukAktual).length,
         hariTelat: data.filter((d) => d.statusMasuk === 'telat').length,
+        totalIkhlas: data.filter((d) => d.menitTelat >= 30).length,
         totalJam: data.filter((d) => d.jamMasukAktual).length * 7,
       })
 
-      const urls: Record<number, string> = {}
+      const urls: Record<number, { masuk?: string; pulang?: string }> = {}
       for (const d of data) {
-        if (d.fotoMasuk) {
-          urls[d.id] = await getPhotoSignedUrl(d.fotoMasuk).catch(() => '')
+        urls[d.id] = {
+          masuk: d.fotoMasuk ? await getPhotoSignedUrl(d.fotoMasuk).catch(() => undefined) : undefined,
+          pulang: d.fotoPulang ? await getPhotoSignedUrl(d.fotoPulang).catch(() => undefined) : undefined,
         }
       }
       setPhotoUrls(urls)
@@ -86,7 +89,7 @@ export default function RiwayatPage() {
       <div className="mt-3 px-5">
         <div className="rounded-2xl border border-cream-dim bg-cream-card p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Ringkasan Bulan Ini</p>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+          <div className="mt-3 grid grid-cols-2 gap-x-2 gap-y-4 text-center sm:grid-cols-4">
             <div>
               <p className="text-lg font-semibold text-ink">{summary.totalJam}</p>
               <p className="text-[10px] text-muted">Total Jam</p>
@@ -99,6 +102,10 @@ export default function RiwayatPage() {
               <p className="text-lg font-semibold text-brand">{summary.hariTelat}</p>
               <p className="text-[10px] text-muted">Kali Telat</p>
             </div>
+            <div>
+              <p className="text-lg font-semibold text-brand">{summary.totalIkhlas}</p>
+              <p className="text-[10px] text-muted">Total Ikhlas</p>
+            </div>
           </div>
         </div>
       </div>
@@ -109,7 +116,7 @@ export default function RiwayatPage() {
           {details.map((d) => (
             <div key={d.id} className="rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-ink">{d.tanggal}</p>
+                <p className="text-sm font-medium text-ink">{formatDateWithDay(d.tanggal)}</p>
                 <div className="flex gap-1">
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusStyle[d.statusMasuk]}`}>
                     {d.statusMasuk.replace('_', ' ')}
@@ -119,12 +126,22 @@ export default function RiwayatPage() {
                   </span>
                 </div>
               </div>
-              <p className="mt-1 text-xs text-muted">
-                Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal}
-              </p>
-            <p className="mt-1 text-xs text-muted">
-              Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal} · Aktual: {formatTimeLocal(d.jamMasukAktual)} / {formatTimeLocal(d.jamPulangAktual)}
-            </p>
+                <p className="mt-1 text-xs text-muted">
+                  Jadwal: {d.jamMulaiJadwal} - {d.jamSelesaiJadwal} · Aktual: {formatTimeLocal(d.jamMasukAktual)} / {formatTimeLocal(d.jamPulangAktual)}
+                </p>
+                {d.menitTelat > 0 && (
+                  <p className="mt-0.5 text-xs text-brand">
+                    Telat {d.menitTelat} menit{d.menitTelat >= 30 ? ' · Ikhlas' : ''}
+                  </p>
+                )}
+                <div className="mt-2 flex gap-2">
+                  {photoUrls[d.id]?.masuk && (
+                    <img src={photoUrls[d.id].masuk} alt="Foto absen masuk" onClick={() => setFullPhoto(photoUrls[d.id].masuk!)} className="h-16 w-16 cursor-pointer rounded-lg border border-cream-dim object-cover" />
+                  )}
+                  {photoUrls[d.id]?.pulang && (
+                    <img src={photoUrls[d.id].pulang} alt="Foto absen pulang" onClick={() => setFullPhoto(photoUrls[d.id].pulang!)} className="h-16 w-16 cursor-pointer rounded-lg border border-cream-dim object-cover" />
+                  )}
+                </div>
             </div>
           ))}
           {!loading && details.length === 0 && (
@@ -132,6 +149,11 @@ export default function RiwayatPage() {
           )}
         </div>
       </div>
+      {fullPhoto && (
+        <div onClick={() => setFullPhoto(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-6">
+          <img src={fullPhoto} alt="Foto absensi" className="max-h-full max-w-full rounded-xl" />
+        </div>
+      )}
     </div>
   )
 }
