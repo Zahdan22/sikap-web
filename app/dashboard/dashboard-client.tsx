@@ -5,11 +5,13 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getTodayStatus } from '@/lib/attendance'
 import LogoutButton from './logout-button'
-import { getTodayCrewStatus, TodayCrewStatus } from '@/lib/jadwal'
+import { getDailySchedules, getTodayCrewStatus, TodayCrewStatus, DailySchedule } from '@/lib/jadwal'
 import { getHoliday } from '@/lib/holidays'
+import { toDateString, formatDateWithDay } from '@/lib/date-utils'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountMenu from '@/components/AccountMenu'
 import Spinner from '@/components/Spinner'
+import DailyScheduleTimeline from '@/components/DailyScheduleTimeline'
 
 type Props = { nama: string; role: string }
 
@@ -190,6 +192,8 @@ function CrewDashboard({ nama }: { nama: string }) {
   const [statusLabel, setStatusLabel] = useState('Memuat...')
   const [statusTone, setStatusTone] = useState<'default' | 'action'>('default')
   const [monthStats, setMonthStats] = useState({ totalHours: 0, daysPresent: 0, lateCount: 0 })
+  const [todaySchedules, setTodaySchedules] = useState<DailySchedule[]>([])
+  const [loadingTimeline, setLoadingTimeline] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -220,6 +224,22 @@ function CrewDashboard({ nama }: { nama: string }) {
       })
     }
     load()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadTodaySchedules() {
+      try {
+        const schedules = await getDailySchedules(toDateString(new Date()))
+        if (!cancelled) setTodaySchedules(schedules)
+      } catch {
+        if (!cancelled) setTodaySchedules([])
+      } finally {
+        if (!cancelled) setLoadingTimeline(false)
+      }
+    }
+    loadTodaySchedules()
+    return () => { cancelled = true }
   }, [])
 
   return (
@@ -290,6 +310,20 @@ function CrewDashboard({ nama }: { nama: string }) {
           </div>
           <span className="text-brand">→</span>
         </Link>
+      </div>
+
+      <div className="px-5">
+        <DailyScheduleTimeline
+          dateLabel={formatDateWithDay(toDateString(new Date()))}
+          schedules={todaySchedules.map((schedule) => ({
+            id: schedule.id,
+            nama: schedule.nama,
+            jam_mulai: schedule.jamMulai,
+            jam_selesai: schedule.jamSelesai,
+            jobdeskLabels: schedule.jobdeskLabels,
+          }))}
+          loading={loadingTimeline}
+        />
       </div>
 
       <div className="mt-6 px-5">

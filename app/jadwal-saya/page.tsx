@@ -6,7 +6,6 @@ import { getMonthSchedules, getMySchedulesInRange, ScheduleWithJobdesk } from '@
 import { toDateString, getWeekDates, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
-import DailyScheduleTimeline from '@/components/DailyScheduleTimeline'
 
 export default function JadwalPage() {
   const [view, setView] = useState<'kalender' | 'minggu'>('kalender')
@@ -72,8 +71,6 @@ export default function JadwalPage() {
   const firstDayOfWeek = new Date(year, month, 1).getDay()
   const datesWithSchedule = new Set(schedules.map((s) => s.tanggal))
   const today = toDateString(new Date())
-  const coverageDate = selectedDate ?? today
-  const coverageSchedules = schedules.filter((schedule) => schedule.tanggal === coverageDate)
 
   const selectedSchedules = selectedDate ? schedules.filter((s) => s.tanggal === selectedDate) : []
   const mySchedule = selectedSchedules.find((s) => s.user_id === userId)
@@ -146,14 +143,6 @@ export default function JadwalPage() {
                 </div>
               )}
             </div>
-          </div>
-
-          <div className="px-5">
-            <DailyScheduleTimeline
-              dateLabel={formatDateWithDay(coverageDate)}
-              schedules={coverageSchedules}
-              loading={loadingCalendar}
-            />
           </div>
 
           {selectedDate && (
