@@ -5,7 +5,7 @@ export type EmployeeSummary = {
   nama: string
   totalHariHadir: number
   totalHariTelat: number
-  totalMenitTelat: number
+  totalIkhlas: number
   totalLupaAbsenPulang: number
 }
 
@@ -54,7 +54,7 @@ export async function getEmployeeSummaries(startDate: string, endDate: string): 
         nama: row.users?.nama || '(tidak diketahui)',
         totalHariHadir: 0,
         totalHariTelat: 0,
-        totalMenitTelat: 0,
+        totalIkhlas: 0,
         totalLupaAbsenPulang: 0,
       }
     }
@@ -62,7 +62,7 @@ export async function getEmployeeSummaries(startDate: string, endDate: string): 
     const s = summaryMap[userId]
     if (row.jam_masuk_aktual) s.totalHariHadir += 1
     if (row.status_masuk === 'telat') s.totalHariTelat += 1
-    s.totalMenitTelat += row.menit_telat || 0
+    if ((row.menit_telat || 0) >= 30) s.totalIkhlas += 1
     if (row.jam_masuk_aktual && !row.jam_pulang_aktual) s.totalLupaAbsenPulang += 1
   }
 

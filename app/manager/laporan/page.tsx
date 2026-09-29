@@ -10,6 +10,8 @@ import PageHeader from '@/components/PageHeader'
 import PeriodeModal from '@/components/PeriodeModal'
 
 type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
+type SortMode = 'nama' | 'telat-terbanyak' | 'telat-paling-sedikit'
+type SummaryFilter = 'semua' | 'ikhlas' | 'lupa-out' | 'keduanya'
 
 function getMonthRange(year: number, month: number) {
   const start = `${year}-${String(month).padStart(2, '0')}-01`
@@ -25,11 +27,38 @@ export default function LaporanPage() {
   const [periodeList, setPeriodeList] = useState<Periode[]>([])
   const [selectedPeriodeId, setSelectedPeriodeId] = useState<number | null>(null)
   const [summaries, setSummaries] = useState<EmployeeSummary[]>([])
+  const [sortMode, setSortMode] = useState<SortMode>('nama')
+  const [summaryFilter, setSummaryFilter] = useState<SummaryFilter>('semua')
+  const [searchCrew, setSearchCrew] = useState('')
   const [generatedRange, setGeneratedRange] = useState<{ start: string; end: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showPeriodeModal, setShowPeriodeModal] = useState(false)
+
+  const visibleSummaries = summaries
+    .filter((summary) => {
+      const matchesSearch = summary.nama.toLowerCase().includes(searchCrew.trim().toLowerCase())
+      const hasIkhlas = summary.totalIkhlas > 0
+      const hasLupaOut = summary.totalLupaAbsenPulang > 0
+      const matchesFilter = summaryFilter === 'semua'
+        || (summaryFilter === 'ikhlas' && hasIkhlas)
+        || (summaryFilter === 'lupa-out' && hasLupaOut)
+        || (summaryFilter === 'keduanya' && hasIkhlas && hasLupaOut)
+      return matchesSearch && matchesFilter
+    })
+    .sort((a, b) => {
+    if (sortMode === 'telat-terbanyak') return b.totalHariTelat - a.totalHariTelat || a.nama.localeCompare(b.nama)
+    if (sortMode === 'telat-paling-sedikit') return a.totalHariTelat - b.totalHariTelat || a.nama.localeCompare(b.nama)
+    return a.nama.localeCompare(b.nama)
+  })
+
+  const teamTotals = summaries.reduce((totals, summary) => ({
+    hadir: totals.hadir + summary.totalHariHadir,
+    telat: totals.telat + summary.totalHariTelat,
+    ikhlas: totals.ikhlas + summary.totalIkhlas,
+    lupaOut: totals.lupaOut + summary.totalLupaAbsenPulang,
+  }), { hadir: 0, telat: 0, ikhlas: 0, lupaOut: 0 })
 
   async function loadPeriode() {
     const supabase = createClient()
@@ -56,14 +85,20 @@ export default function LaporanPage() {
     setLoading(false)
   }
 
-  async function handleExport() {
+  async function handleExport(exportAll: boolean) {
     if (!generatedRange) return
     setExporting(true)
 
     const allRows: any[] = []
-    for (const summary of summaries) {
+    const summariesToExport = exportAll ? summaries : visibleSummaries
+    for (const summary of summariesToExport) {
       const details = await getEmployeeDetail(summary.userId, generatedRange.start, generatedRange.end)
       for (const d of details) {
+        const isIkhlas = d.menitTelat >= 30
+        const isLupaOut = Boolean(d.jamMasukAktual && !d.jamPulangAktual)
+        if (!exportAll && summaryFilter === 'ikhlas' && !isIkhlas) continue
+        if (!exportAll && summaryFilter === 'lupa-out' && !isLupaOut) continue
+        if (!exportAll && summaryFilter === 'keduanya' && !isIkhlas && !isLupaOut) continue
         const fotoMasukUrl = d.fotoMasuk ? await getPhotoSignedUrl(d.fotoMasuk).catch(() => '') : ''
         const fotoPulangUrl = d.fotoPulang ? await getPhotoSignedUrl(d.fotoPulang).catch(() => '') : ''
         allRows.push({
@@ -76,6 +111,8 @@ export default function LaporanPage() {
           'Status Masuk': d.statusMasuk,
           'Status Pulang': d.statusPulang,
           'Menit Telat': d.menitTelat,
+          Ikhlas: isIkhlas ? 'Ya' : 'Tidak',
+          'Lupa Check-Out': isLupaOut ? 'Ya' : 'Tidak',
           'Link Foto Masuk': fotoMasukUrl,
           'Link Foto Pulang': fotoPulangUrl,
         })
@@ -85,7 +122,7 @@ export default function LaporanPage() {
     const worksheet = XLSX.utils.json_to_sheet(allRows)
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan Absensi')
-    XLSX.writeFile(workbook, `Laporan_Absensi_${generatedRange.start}_${generatedRange.end}.xlsx`)
+    XLSX.writeFile(workbook, `Laporan_Absensi_${exportAll ? 'Semua' : 'Terfilter'}_${generatedRange.start}_${generatedRange.end}.xlsx`)
     setExporting(false)
   }
 
@@ -187,17 +224,73 @@ export default function LaporanPage() {
         <div className="mt-5 px-5">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Ringkasan</p>
-            <button
-              onClick={handleExport}
-              disabled={exporting}
-              className="rounded-lg bg-success/10 px-3 py-1.5 text-xs font-semibold text-success disabled:opacity-60"
+          </div>
+
+          <div className="mt-2 rounded-2xl border border-cream-dim bg-cream-card p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Ringkasan seluruh tim</p>
+            <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+              <div><p className="text-sm font-semibold text-ink">{teamTotals.hadir}</p><p className="text-[9px] text-muted">Total Hari</p></div>
+              <div><p className="text-sm font-semibold text-brand">{teamTotals.telat}</p><p className="text-[9px] text-muted">Telat</p></div>
+              <div><p className="text-sm font-semibold text-brand">{teamTotals.ikhlas}</p><p className="text-[9px] text-muted">Ikhlas</p></div>
+              <div><p className="text-sm font-semibold text-warning">{teamTotals.lupaOut}</p><p className="text-[9px] text-muted">Lupa Out</p></div>
+            </div>
+          </div>
+
+          <input
+            type="search"
+            value={searchCrew}
+            onChange={(e) => setSearchCrew(e.target.value)}
+            placeholder="Cari nama crew..."
+            aria-label="Cari nama crew"
+            className="mt-3 w-full rounded-xl border border-cream-dim bg-cream-card px-3 py-2.5 text-sm text-ink outline-none placeholder:text-muted focus:border-brand"
+          />
+
+          <label className="mt-2 flex items-center gap-2 text-xs text-muted">
+            Filter crew:
+            <select
+              value={summaryFilter}
+              onChange={(e) => setSummaryFilter(e.target.value as SummaryFilter)}
+              className="flex-1 rounded-lg border border-cream-dim bg-cream-card px-3 py-2 text-xs text-ink outline-none focus:border-brand"
             >
-              {exporting ? 'Mengekspor...' : '⬇ Export Excel'}
+              <option value="semua">Semua crew</option>
+              <option value="ikhlas">Ada Ikhlas</option>
+              <option value="lupa-out">Ada Lupa Out</option>
+              <option value="keduanya">Ada Ikhlas &amp; Lupa Out</option>
+            </select>
+          </label>
+
+          <label className="mt-3 flex items-center gap-2 text-xs text-muted">
+            Urutkan:
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as SortMode)}
+              className="flex-1 rounded-lg border border-cream-dim bg-cream-card px-3 py-2 text-xs text-ink outline-none focus:border-brand"
+            >
+              <option value="nama">Nama crew</option>
+              <option value="telat-terbanyak">Telat terbanyak</option>
+              <option value="telat-paling-sedikit">Telat paling sedikit</option>
+            </select>
+          </label>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => handleExport(false)}
+              disabled={exporting || visibleSummaries.length === 0}
+              className="rounded-lg bg-success/10 px-2 py-2 text-xs font-semibold text-success disabled:opacity-60"
+            >
+              {exporting ? 'Mengekspor...' : '⬇ Export sesuai filter'}
+            </button>
+            <button
+              onClick={() => handleExport(true)}
+              disabled={exporting}
+              className="rounded-lg border border-cream-dim bg-cream-card px-2 py-2 text-xs font-semibold text-ink disabled:opacity-60"
+            >
+              {exporting ? 'Mengekspor...' : 'Export semua'}
             </button>
           </div>
 
           <div className="mt-2 space-y-2">
-            {summaries.map((s) => (
+            {visibleSummaries.map((s) => (
               <Link
                 key={s.userId}
                 href={`/manager/laporan/${s.userId}?start=${generatedRange!.start}&end=${generatedRange!.end}&nama=${encodeURIComponent(s.nama)}`}
@@ -217,8 +310,8 @@ export default function LaporanPage() {
                     <p className="text-[9px] text-muted">Telat</p>
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-ink">{s.totalMenitTelat}</p>
-                    <p className="text-[9px] text-muted">Menit</p>
+                    <p className="text-sm font-semibold text-brand">{s.totalIkhlas}</p>
+                    <p className="text-[9px] text-muted">Ikhlas</p>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-warning">{s.totalLupaAbsenPulang}</p>
@@ -227,6 +320,11 @@ export default function LaporanPage() {
                 </div>
               </Link>
             ))}
+            {visibleSummaries.length === 0 && (
+              <p className="rounded-xl border border-cream-dim bg-cream-card px-4 py-3 text-sm text-muted">
+                Tidak ada crew yang cocok dengan pencarian atau filter ini.
+              </p>
+            )}
           </div>
         </div>
       )}

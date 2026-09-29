@@ -109,6 +109,39 @@ export async function getScheduleStateForDate(
   return state
 }
 
+export type DailySchedule = {
+  id: number
+  userId: string
+  nama: string
+  jamMulai: string
+  jamSelesai: string
+  jobdeskLabels: string[]
+}
+
+export async function getDailySchedules(dateStr: string): Promise<DailySchedule[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('schedule')
+    .select(`
+      id, user_id, jam_mulai, jam_selesai, freelance_nama,
+      users:user_id (nama),
+      schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+    `)
+    .eq('tanggal', dateStr)
+    .order('jam_mulai')
+
+  if (error) throw new Error('Gagal mengambil cakupan jadwal harian: ' + error.message)
+
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    userId: row.user_id || `freelance-${row.id}`,
+    nama: row.users?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
+    jamMulai: row.jam_mulai,
+    jamSelesai: row.jam_selesai,
+    jobdeskLabels: (row.schedule_jobdesk || []).map((item: any) => item.jobdesk?.singkatan).filter(Boolean),
+  }))
+}
+
 export type ScheduleWithJobdesk = {
   id: number
   user_id: string
