@@ -16,12 +16,12 @@ export function evaluateCheckIn(
   checkInTime: Date
 ): { status: CheckInStatus; menitTelat: number } {
   const shiftStart = combineDateTime(shift.tanggal, shift.jamMulai)
-  const earliestAllowed = new Date(shiftStart.getTime() - 60 * 60 * 1000) // 60 menit sebelum
-     const onTimeDeadline = new Date(shiftStart.getTime() - 9 * 60 * 1000) // 9 menit sebelum shift = titik 15:51 untuk shift 16:00
+  const earliestAllowed = new Date(shiftStart.getTime() - 60 * 60 * 1000)
+  const onTimeDeadline = new Date(shiftStart.getTime() - 9 * 60 * 1000)
 
   if (checkInTime < earliestAllowed) {
     throw new Error(
-      `Belum bisa check-in. Check-in dibuka mulai ${earliestAllowed.toLocaleTimeString('id-ID')}`
+      `Belum bisa check-in. Check-in dibuka mulai ${earliestAllowed.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })}`
     )
   }
 
@@ -29,11 +29,8 @@ export function evaluateCheckIn(
     return { status: 'tepat_waktu', menitTelat: 0 }
   }
 
-  const menitTelat = Math.round((checkInTime.getTime() - shiftStart.getTime()) / 60000)
-  return {
-    status: 'telat',
-    menitTelat: Math.max(0, menitTelat), // gak negatif kalau masih di jendela toleransi
-  }
+  const menitTelat = Math.round((checkInTime.getTime() - onTimeDeadline.getTime()) / 60000)
+  return { status: 'telat', menitTelat }
 }
 
 export function evaluateCheckOut(
