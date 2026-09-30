@@ -43,6 +43,10 @@ export async function respondLeaveRequest(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
 
+  const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
+  if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
+  if (profile?.role !== 'manager') return { success: false, message: 'Hanya manager yang dapat memproses pengajuan izin' }
+
   const { data: leaveRequest, error: fetchError } = await supabase
     .from('leave_request')
     .select('*')
@@ -52,47 +56,80 @@ export async function respondLeaveRequest(
   if (fetchError || !leaveRequest) {
     return { success: false, message: 'Pengajuan izin tidak ditemukan' }
   }
+  if (leaveRequest.status !== 'pending') return { success: false, message: 'Pengajuan ini sudah pernah diproses' }
 
-  const { error } = await supabase
-    .from('leave_request')
-    .update({ status, approved_by: user.id, catatan_manajer: catatanManajer })
-    .eq('id', id)
-
-  if (error) return { success: false, message: error.message }
-
-  const conflicts: string[] = []
-
+  let originalSchedules: { id: number; user_id: string | null; freelance_nama: string | null; tanggal: string }[] = []
   if (status === 'disetujui') {
-    const { data: schedules } = await supabase
+    if (leaveRequest.pengganti_type === 'crew' && !leaveRequest.pengganti_user_id) {
+      return { success: false, message: 'Crew pengganti belum dipilih' }
+    }
+    if (leaveRequest.pengganti_type === 'freelance' && !leaveRequest.pengganti_nama_manual?.trim()) {
+      return { success: false, message: 'Nama freelance pengganti belum diisi' }
+    }
+    const { data: schedules, error: schedulesError } = await supabase
       .from('schedule')
-      .select('id, tanggal')
+      .select('id, tanggal, user_id, freelance_nama')
       .eq('user_id', leaveRequest.user_id)
       .gte('tanggal', leaveRequest.tanggal_mulai)
       .lte('tanggal', leaveRequest.tanggal_selesai)
+    if (schedulesError) return { success: false, message: 'Gagal membaca jadwal pengaju: ' + schedulesError.message }
+    originalSchedules = schedules || []
 
-    for (const sch of schedules || []) {
+    if (leaveRequest.pengganti_type === 'crew' && leaveRequest.pengganti_user_id) {
+      const { data: targetSchedules, error: targetError } = await supabase
+        .from('schedule').select('tanggal').eq('user_id', leaveRequest.pengganti_user_id)
+        .gte('tanggal', leaveRequest.tanggal_mulai).lte('tanggal', leaveRequest.tanggal_selesai)
+      if (targetError) return { success: false, message: 'Gagal memeriksa jadwal crew pengganti: ' + targetError.message }
+      const occupiedDates = new Set((targetSchedules || []).map((row) => row.tanggal))
+      const conflict = originalSchedules.find((row) => occupiedDates.has(row.tanggal))
+      if (conflict) return { success: false, message: `Crew pengganti sudah memiliki jadwal tanggal ${conflict.tanggal}` }
+    }
+
+    for (const sch of originalSchedules) {
+      let updateError: { message: string } | null = null
       if (leaveRequest.pengganti_type === 'crew' && leaveRequest.pengganti_user_id) {
-        const { error: updateError } = await supabase
+        const { error } = await supabase
           .from('schedule')
           .update({ user_id: leaveRequest.pengganti_user_id, freelance_nama: null })
           .eq('id', sch.id)
-        if (updateError) conflicts.push(`Tanggal ${sch.tanggal}: ${updateError.message}`)
+        updateError = error
       } else if (leaveRequest.pengganti_type === 'freelance') {
-        const { error: updateError } = await supabase
+        const { error } = await supabase
           .from('schedule')
           .update({ user_id: null, freelance_nama: leaveRequest.pengganti_nama_manual })
           .eq('id', sch.id)
-        if (updateError) conflicts.push(`Tanggal ${sch.tanggal}: ${updateError.message}`)
+        updateError = error
+      } else {
+        return { success: false, message: 'Jenis pengganti tidak valid' }
+      }
+      if (updateError) {
+        const rollbackErrors: string[] = []
+        for (const original of originalSchedules) {
+          if (original.id === sch.id) break
+          const { error } = await supabase.from('schedule').update({ user_id: original.user_id, freelance_nama: original.freelance_nama }).eq('id', original.id)
+          if (error) rollbackErrors.push(`${original.tanggal}: ${error.message}`)
+        }
+        return { success: false, message: `Gagal mengganti jadwal tanggal ${sch.tanggal}: ${updateError.message}${rollbackErrors.length ? `. Pemulihan sebagian gagal: ${rollbackErrors.join('; ')}` : '. Perubahan sebelumnya sudah dipulihkan.'}` }
       }
     }
+  }
+
+  const { data: processed, error } = await supabase
+    .from('leave_request')
+    .update({ status, approved_by: user.id, catatan_manajer: catatanManajer })
+    .eq('id', id).eq('status', 'pending').select('id').maybeSingle()
+  if (error || !processed) {
+    const rollbackErrors: string[] = []
+    for (const original of originalSchedules) {
+      const { error: rollbackError } = await supabase.from('schedule').update({ user_id: original.user_id, freelance_nama: original.freelance_nama }).eq('id', original.id)
+      if (rollbackError) rollbackErrors.push(`${original.tanggal}: ${rollbackError.message}`)
+    }
+    return { success: false, message: `Gagal memperbarui status izin: ${error?.message || 'Pengajuan sudah diproses oleh manager lain'}${rollbackErrors.length ? `. Pemulihan jadwal gagal: ${rollbackErrors.join('; ')}` : originalSchedules.length ? '. Perubahan jadwal sudah dipulihkan.' : ''}` }
   }
 
   revalidatePath('/manager/izin')
   revalidatePath('/manager/jadwal')
   revalidatePath('/jadwal-saya')
 
-  if (conflicts.length > 0) {
-    return { success: true, message: 'Izin disetujui, tapi ada konflik jadwal: ' + conflicts.join('; ') }
-  }
-  return { success: true }
+  return { success: true, message: status === 'disetujui' ? `Izin disetujui; ${originalSchedules.length} jadwal diperbarui.` : 'Izin ditolak.' }
 }

@@ -55,7 +55,7 @@ export default function ManagerIzinPage() {
   async function handleRespond(id: number, status: 'disetujui' | 'ditolak') {
     const result = await respondLeaveRequest(id, status, catatan[id] || '')
     if (!result.success) { toast('Error: ' + result.message, 'error'); return }
-    toast(status === 'disetujui' ? 'Izin disetujui' : 'Izin ditolak', 'success')
+    toast(result.message || (status === 'disetujui' ? 'Izin disetujui' : 'Izin ditolak'), 'success')
     setOpenCatatanFor(null)
     loadData()
   }

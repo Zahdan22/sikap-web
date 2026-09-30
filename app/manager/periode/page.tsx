@@ -47,7 +47,7 @@ export default function PeriodePage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-10">
+    <div className="flex min-h-full flex-col bg-cream pb-24">
       <div className="flex items-center gap-3 px-5 pt-6">
         <a href="/manager" className="text-brand text-lg">←</a>
         <h1 className="text-lg font-semibold text-ink">Kelola Periode Kerja</h1>

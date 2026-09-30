@@ -24,9 +24,12 @@ export type JobdeskOption = {
 
 // Kondisi 1 crew di grid: jam kerja mana yang dipilih ('libur' kalau tidak kerja), dan jobdesk apa aja
 export type CrewScheduleState = {
-  jamKerjaOpsiId: number | 'libur'
+  jamKerjaOpsiId: number | 'libur' | 'jadwal-lama'
   jobdeskIds: number[]
   existingScheduleId: number | null // null kalau belum ada jadwal tersimpan untuk crew ini di tanggal ini
+  jamMulaiLama?: string
+  jamSelesaiLama?: string
+  durasiLama?: number
 }
 
 export async function getCrewList(): Promise<Crew[]> {
@@ -80,7 +83,7 @@ export async function getScheduleStateForDate(
 
   const { data: schedules, error } = await supabase
     .from('schedule')
-    .select('id, user_id, jam_mulai, jam_selesai, schedule_jobdesk(jobdesk_id)')
+    .select('id, user_id, jam_mulai, jam_selesai, durasi_jam, schedule_jobdesk(jobdesk_id)')
     .eq('tanggal', dateStr)
 
   if (error) throw new Error('Gagal ambil jadwal: ' + error.message)
@@ -100,9 +103,12 @@ export async function getScheduleStateForDate(
     )
 
     state[sch.user_id] = {
-      jamKerjaOpsiId: matchedOption ? matchedOption.id : 'libur', // kalau gak ada preset yang cocok, treat sebagai belum match
+      jamKerjaOpsiId: matchedOption ? matchedOption.id : 'jadwal-lama',
       jobdeskIds: (sch.schedule_jobdesk as { jobdesk_id: number }[]).map((sj) => sj.jobdesk_id),
       existingScheduleId: sch.id,
+      jamMulaiLama: sch.jam_mulai,
+      jamSelesaiLama: sch.jam_selesai,
+      durasiLama: sch.durasi_jam,
     }
   }
 

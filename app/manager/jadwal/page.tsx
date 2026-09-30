@@ -173,7 +173,7 @@ export default function JadwalPage() {
       ...previous,
       [date]: {
         ...(previous[date] ?? EMPTY_STATE),
-        jamKerjaOpsiId: value === 'libur' ? 'libur' : Number(value),
+        jamKerjaOpsiId: value === 'libur' || value === 'jadwal-lama' ? value : Number(value),
       },
     }))
   }
@@ -382,14 +382,16 @@ export default function JadwalPage() {
                     <button onClick={() => { setCopySource(dateString); setCopyTargets([]) }} className="text-xs font-semibold text-brand">Salin ke hari lain</button>
                   </div>
 
-                  <select value={isLibur ? 'libur' : state.jamKerjaOpsiId} onChange={(event) => updateJamKerja(dateString, event.target.value)} className="mt-3 w-full rounded-lg border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand">
+                <select value={isLibur ? 'libur' : state.jamKerjaOpsiId} onChange={(event) => updateJamKerja(dateString, event.target.value)} className="mt-3 w-full rounded-lg border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand">
                     <option value="libur">Libur</option>
+                    {state.jamKerjaOpsiId === 'jadwal-lama' && <option value="jadwal-lama">Jadwal tersimpan ({state.jamMulaiLama?.slice(0, 5)}–{state.jamSelesaiLama?.slice(0, 5)})</option>}
                     {jamKerjaOptions.map((option) => <option key={option.id} value={option.id}>{option.label} ({option.jam_mulai.slice(0, 5)}–{option.jam_selesai.slice(0, 5)})</option>)}
                   </select>
 
                   {!isLibur && (
                     <>
                       {selectedOption && <p className="mt-2 text-xs text-muted">Durasi: {selectedOption.durasi_jam} jam</p>}
+                      {state.jamKerjaOpsiId === 'jadwal-lama' && <p className="mt-2 text-xs text-muted">Durasi: {state.durasiLama} jam · pilih shift lain jika ingin mengubah jadwal ini.</p>}
                       <button onClick={() => setOpenJobdeskFor(dateString)} className="mt-2 w-full rounded-lg border border-cream-dim bg-white px-3 py-2.5 text-left text-xs text-ink">
                         {state.jobdeskIds.length > 0
                           ? `Jobdesk: ${state.jobdeskIds.map((id) => jobdeskOptions.find((jobdesk) => jobdesk.id === id)?.singkatan).filter(Boolean).join(', ')}`

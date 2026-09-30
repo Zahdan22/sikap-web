@@ -41,7 +41,7 @@ export default function RiwayatPage() {
         hariHadir: data.filter((d) => d.jamMasukAktual).length,
         hariTelat: data.filter((d) => d.statusMasuk === 'telat').length,
         totalIkhlas: data.filter((d) => d.menitTelat >= 30).length,
-        totalJam: data.filter((d) => d.jamMasukAktual).length * 7,
+        totalJam: data.reduce((total, d) => total + (d.jamMasukAktual ? d.durasiJam : 0), 0),
       })
 
       const urls: Record<number, { masuk?: string; pulang?: string }> = {}

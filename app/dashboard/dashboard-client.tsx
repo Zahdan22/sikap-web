@@ -4,9 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getTodayStatus } from '@/lib/attendance'
-import LogoutButton from './logout-button'
 import { getDailySchedules, getTodayCrewStatus, TodayCrewStatus, DailySchedule } from '@/lib/jadwal'
-import { getHoliday } from '@/lib/holidays'
 import { toDateString, formatDateWithDay } from '@/lib/date-utils'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountMenu from '@/components/AccountMenu'
@@ -14,6 +12,17 @@ import Spinner from '@/components/Spinner'
 import DailyScheduleTimeline from '@/components/DailyScheduleTimeline'
 
 type Props = { nama: string; role: string }
+type ManagerActivity = {
+  id: string
+  type: 'schedule' | 'leave' | 'swap'
+  title: string
+  detail: string
+  happenedAt: string
+}
+
+function getRelatedName(value: { nama: string } | { nama: string }[] | null | undefined) {
+  return Array.isArray(value) ? value[0]?.nama : value?.nama
+}
 
 export default function DashboardClient({ nama, role }: Props) {
   if (role === 'manager') {
@@ -25,10 +34,10 @@ export default function DashboardClient({ nama, role }: Props) {
 function ManagerDashboard({ nama }: { nama: string }) {
   const [crewToday, setCrewToday] = useState<TodayCrewStatus[]>([])
   const [loadingCrew, setLoadingCrew] = useState(true)
-  const [currentMonth, setCurrentMonth] = useState(new Date())
-  const [selectedHoliday, setSelectedHoliday] = useState<string | null>(null)
   const [pendingIzin, setPendingIzin] = useState(0)
   const [pendingSwap, setPendingSwap] = useState(0)
+  const [activities, setActivities] = useState<ManagerActivity[]>([])
+  const [loadingActivities, setLoadingActivities] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -47,6 +56,81 @@ function ManagerDashboard({ nama }: { nama: string }) {
     load()
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    async function loadActivities() {
+      const supabase = createClient()
+      try {
+        const [scheduleResult, leaveResult, swapResult] = await Promise.all([
+          supabase
+            .from('schedule')
+            .select('id, tanggal, jam_mulai, jam_selesai, created_at, updated_at, freelance_nama, users:user_id (nama)')
+            .order('updated_at', { ascending: false })
+            .limit(8),
+          supabase
+            .from('leave_request')
+            .select('id, jenis, tanggal_mulai, tanggal_selesai, status, created_at, updated_at, users:user_id (nama)')
+            .order('updated_at', { ascending: false })
+            .limit(8),
+          supabase
+            .from('shift_swap_request')
+            .select('id, tanggal, status, target_type, target_nama_freelance, created_at, updated_at, requester:requester_id (nama), target:target_id (nama)')
+            .order('updated_at', { ascending: false })
+            .limit(8),
+        ])
+
+        const feed: ManagerActivity[] = []
+        for (const row of scheduleResult.data || []) {
+          const created = !row.updated_at || !row.created_at || Math.abs(new Date(row.updated_at).getTime() - new Date(row.created_at).getTime()) < 1000
+          const crewName = getRelatedName(row.users) || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : 'Crew')
+          feed.push({
+            id: `schedule-${row.id}`,
+            type: 'schedule',
+            title: created ? 'Jadwal ditambahkan' : 'Jadwal diperbarui',
+            detail: `${crewName} · ${formatDateWithDay(row.tanggal)} · ${row.jam_mulai.slice(0, 5)}–${row.jam_selesai.slice(0, 5)}`,
+            happenedAt: created ? row.created_at : row.updated_at,
+          })
+        }
+        for (const row of leaveResult.data || []) {
+          const crewName = getRelatedName(row.users) || 'Crew'
+          const title = row.status === 'pending'
+            ? 'Pengajuan izin masuk'
+            : row.status === 'disetujui' ? 'Izin disetujui' : 'Izin ditolak'
+          feed.push({
+            id: `leave-${row.id}`,
+            type: 'leave',
+            title,
+            detail: `${crewName} · ${row.jenis.replace('_', ' ')} · ${formatDateWithDay(row.tanggal_mulai)}${row.tanggal_selesai !== row.tanggal_mulai ? ` – ${formatDateWithDay(row.tanggal_selesai)}` : ''}`,
+            happenedAt: row.status === 'pending' ? row.created_at : row.updated_at,
+          })
+        }
+        for (const row of swapResult.data || []) {
+          const requesterName = getRelatedName(row.requester) || 'Crew'
+          const targetName = row.target_type === 'freelance' ? `Freelance ${row.target_nama_freelance || ''}` : getRelatedName(row.target) || 'rekan kerja'
+          const title = row.status === 'pending'
+            ? 'Permintaan tukar shift masuk'
+            : row.status === 'disetujui' ? 'Tukar shift disetujui' : 'Tukar shift ditolak'
+          feed.push({
+            id: `swap-${row.id}`,
+            type: 'swap',
+            title,
+            detail: `${requesterName} ↔ ${targetName} · ${formatDateWithDay(row.tanggal)}`,
+            happenedAt: row.status === 'pending' ? row.created_at : row.updated_at,
+          })
+        }
+
+        feed.sort((a, b) => new Date(b.happenedAt).getTime() - new Date(a.happenedAt).getTime())
+        if (!cancelled) setActivities(feed.slice(0, 6))
+      } catch {
+        if (!cancelled) setActivities([])
+      } finally {
+        if (!cancelled) setLoadingActivities(false)
+      }
+    }
+    loadActivities()
+    return () => { cancelled = true }
+  }, [])
+
   function formatStatus(c: TodayCrewStatus) {
     if (!c.jamMasukAktual) return { label: 'Belum Absen', color: 'bg-muted/10 text-muted' }
     if (!c.jamPulangAktual) {
@@ -56,11 +140,6 @@ function ManagerDashboard({ nama }: { nama: string }) {
     }
     return { label: 'Selesai', color: 'bg-muted/10 text-muted' }
   }
-
-  const year = currentMonth.getFullYear()
-  const month = currentMonth.getMonth()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const firstDayOfWeek = new Date(year, month, 1).getDay()
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-24">
@@ -135,44 +214,36 @@ function ManagerDashboard({ nama }: { nama: string }) {
       </div>
 
       <div className="mt-6 px-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Kalender</p>
-        <div className="mt-2 rounded-2xl border border-cream-dim bg-cream-card p-4">
-          <div className="flex items-center justify-between">
-            <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="text-brand">‹</button>
-            <p className="text-sm font-semibold text-ink">
-              {currentMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
-            </p>
-            <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="text-brand">›</button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-7 gap-y-2 text-center">
-            {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map((d) => (
-              <span key={d} className="text-[10px] font-medium text-muted">{d}</span>
-            ))}
-            {Array.from({ length: firstDayOfWeek }).map((_, i) => <span key={'e' + i} />)}
-            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-              const holiday = getHoliday(dateStr)
-              return (
-                <button
-                  key={day}
-                  onClick={() => holiday && setSelectedHoliday(dateStr)}
-                  className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs ${
-                    holiday ? 'bg-brand/10 font-semibold text-brand' : 'text-ink'
-                  }`}
-                >
-                  {day}
-                </button>
-              )
-            })}
-          </div>
-
-          {selectedHoliday && getHoliday(selectedHoliday) && (
-            <div className="mt-3 rounded-xl bg-brand/10 px-4 py-2">
-              <p className="text-xs font-semibold text-brand">{selectedHoliday}</p>
-              <p className="text-xs text-brand">{getHoliday(selectedHoliday)?.nama}</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Aktivitas Terbaru</p>
+          <span className="text-[10px] text-muted">6 terakhir</span>
+        </div>
+        <div className="mt-2 space-y-2">
+          {loadingActivities && <Spinner />}
+          {!loadingActivities && activities.length === 0 && (
+            <div className="rounded-2xl border border-cream-dim bg-cream-card px-4 py-5 text-center">
+              <p className="text-sm font-medium text-ink">Belum ada aktivitas</p>
+              <p className="mt-1 text-xs text-muted">Perubahan jadwal dan pengajuan terbaru akan muncul di sini.</p>
             </div>
           )}
+          {activities.map((activity) => {
+            const icon = activity.type === 'schedule' ? '▦' : activity.type === 'leave' ? '✓' : '↔'
+            const activityTime = new Date(activity.happenedAt).toLocaleString('id-ID', {
+              timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+            })
+            return (
+              <div key={activity.id} className="flex items-start gap-3 rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-bold text-brand">{icon}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-ink">{activity.title}</p>
+                    <time className="shrink-0 text-[10px] text-muted">{activityTime}</time>
+                  </div>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted">{activity.detail}</p>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 
@@ -212,14 +283,15 @@ function CrewDashboard({ nama }: { nama: string }) {
       const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
       const { data: monthAttendance } = await supabase
         .from('attendance')
-        .select('status_masuk, schedule:schedule_id(jam_mulai, jam_selesai, tanggal)')
+        .select('status_masuk, jam_masuk_aktual, schedule:schedule_id(jam_mulai, jam_selesai, durasi_jam, tanggal)')
         .eq('user_id', user.id)
         .gte('schedule.tanggal', startOfMonth)
+        .lte('schedule.tanggal', toDateString(now))
 
       const rows = (monthAttendance || []).filter((r: any) => r.schedule !== null)
       setMonthStats({
-        totalHours: rows.length * 7,
-        daysPresent: rows.length,
+        totalHours: rows.reduce((total: number, r: any) => total + (r.jam_masuk_aktual ? Number(r.schedule.durasi_jam || 0) : 0), 0),
+        daysPresent: rows.filter((r: any) => r.jam_masuk_aktual).length,
         lateCount: rows.filter((r: any) => r.status_masuk === 'telat').length,
       })
     }

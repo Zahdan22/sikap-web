@@ -105,7 +105,7 @@ export default function DetailKaryawanPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-cream pb-10">
+    <div className="flex min-h-full flex-col bg-cream pb-24">
       <PageHeader title={nama} backHref="/manager/laporan" />
       <p className="px-5 pt-2 text-xs text-muted">{start} s.d. {end}</p>
 

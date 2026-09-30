@@ -16,6 +16,7 @@ export type AttendanceDetail = {
   jamSelesaiJadwal: string
   jamMasukAktual: string | null
   jamPulangAktual: string | null
+  durasiJam: number
   statusMasuk: string
   statusPulang: string
   menitTelat: number
@@ -31,7 +32,7 @@ async function getRawAttendanceInRange(startDate: string, endDate: string) {
     .from('attendance')
     .select(`
       id, user_id, jam_masuk_aktual, jam_pulang_aktual, status_masuk, status_pulang, menit_telat, foto_masuk, foto_pulang,
-      schedule:schedule_id (tanggal, jam_mulai, jam_selesai),
+      schedule:schedule_id (tanggal, jam_mulai, jam_selesai, durasi_jam),
       users:user_id (nama)
     `)
     .gte('schedule.tanggal', startDate)
@@ -76,7 +77,7 @@ export async function getEmployeeDetail(userId: string, startDate: string, endDa
     .from('attendance')
     .select(`
       id, jam_masuk_aktual, jam_pulang_aktual, status_masuk, status_pulang, menit_telat, foto_masuk, foto_pulang,
-      schedule:schedule_id (tanggal, jam_mulai, jam_selesai)
+      schedule:schedule_id (tanggal, jam_mulai, jam_selesai, durasi_jam)
     `)
     .eq('user_id', userId)
     .gte('schedule.tanggal', startDate)
@@ -93,6 +94,7 @@ export async function getEmployeeDetail(userId: string, startDate: string, endDa
       jamSelesaiJadwal: row.schedule.jam_selesai,
       jamMasukAktual: row.jam_masuk_aktual,
       jamPulangAktual: row.jam_pulang_aktual,
+      durasiJam: Number(row.schedule.durasi_jam) || 0,
       statusMasuk: row.status_masuk,
       statusPulang: row.status_pulang,
       menitTelat: row.menit_telat,
