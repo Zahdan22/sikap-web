@@ -22,7 +22,9 @@ function isOvernightShift(schedule: Schedule): boolean {
 }
 
 function getYesterdayDateString(date: Date): string {
-  const yesterday = new Date(date)
+  // Jadwal disimpan menurut tanggal kerja Asia/Jakarta. Kurangi tanggal
+  // Jakarta, bukan tanggal UTC (yang bisa masih hari sebelumnya sebelum 07:00 WIB).
+  const yesterday = new Date(`${getJakartaDateString(date)}T00:00:00Z`)
   yesterday.setUTCDate(yesterday.getUTCDate() - 1)
   return yesterday.toISOString().slice(0, 10)
 }
