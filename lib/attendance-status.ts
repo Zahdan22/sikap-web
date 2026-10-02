@@ -8,7 +8,10 @@ type ShiftTime = {
 }
 
 function combineDateTime(tanggal: string, jam: string): Date {
-  return new Date(`${tanggal}T${jam}`)
+  const [year, month, day] = tanggal.split('-').map(Number)
+  const [hour, minute = 0, second = 0] = jam.split(':').map(Number)
+  // Jadwal SI-KAP memakai waktu Asia/Jakarta (UTC+7), terlepas dari timezone server/device.
+  return new Date(Date.UTC(year, month - 1, day, hour - 7, minute, second))
 }
 
 export function evaluateCheckIn(

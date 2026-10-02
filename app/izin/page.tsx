@@ -75,7 +75,7 @@ export default function IzinPage() {
     if (buktiFile) {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) { setSubmitting(false); toast('Sesi login tidak ditemukan. Silakan login kembali.', 'error'); return }
 
       const fileName = `${user.id}/${Date.now()}-${buktiFile.name}`
       const { error: uploadError } = await supabase.storage.from('leave-attachments').upload(fileName, buktiFile)
@@ -99,7 +99,14 @@ export default function IzinPage() {
     )
 
     setSubmitting(false)
-    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    if (!result.success) {
+      if (buktiPath) {
+        const supabase = createClient()
+        const { error } = await supabase.storage.from('leave-attachments').remove([buktiPath])
+        if (error) { toast(`Error: ${result.message}. Bukti sementara gagal dihapus: ${error.message}`, 'error'); return }
+      }
+      toast('Error: ' + result.message, 'error'); return
+    }
     toast('Pengajuan berhasil dikirim', 'success')
     setTanggalMulai('')
     setTanggalSelesai('')

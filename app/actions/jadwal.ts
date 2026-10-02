@@ -17,7 +17,8 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
   const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
   if (profile?.role !== 'manager') return { success: false, message: 'Hanya manager yang dapat mengelola jadwal' }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !Array.isArray(payload)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !Array.isArray(payload) || payload.length > 7
+    || payload.some((item) => !item || typeof item.userId !== 'string' || !Array.isArray(item.jobdeskIds))) {
     return { success: false, message: 'Tanggal atau data jadwal tidak valid' }
   }
   if (new Set(payload.map((item) => item.userId)).size !== payload.length) return { success: false, message: 'Data memuat crew duplikat' }
@@ -65,6 +66,12 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
       return { success: false, message: 'Pilihan jam kerja tidak valid. Muat ulang halaman dan coba lagi.' }
     }
     if (!existing && !option) return { success: false, message: 'Jadwal lama tidak ditemukan; pilih jam kerja yang tersedia.' }
+
+    if (existing && option && (existing.jam_mulai !== option.jam_mulai || existing.jam_selesai !== option.jam_selesai || Number(existing.durasi_jam) !== Number(option.durasi_jam))) {
+      const { count, error } = await supabase.from('attendance').select('id', { count: 'exact', head: true }).eq('schedule_id', existing.id)
+      if (error) return { success: false, message: 'Gagal memeriksa absensi terkait: ' + error.message }
+      if (count) return { success: false, message: `Jam jadwal tanggal ${tanggal} tidak bisa diubah karena absensinya sudah tercatat.` }
+    }
 
     let scheduleId = existing?.id
     if (existing && option) {

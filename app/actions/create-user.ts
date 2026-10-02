@@ -2,25 +2,23 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { usernameToEmail } from '@/lib/auth'
-import { createClient as createServerSupabase } from '@/lib/supabase/server'
+import { requireManager } from '@/lib/manager-auth'
 
 export async function createCrewAccount(
   username: string,
   password: string,
-  nama: string,
-  role: 'crew' | 'manager' = 'crew'
+  nama: string
 ) {
-  const supabase = await createServerSupabase()
-  const { data: { user: caller } } = await supabase.auth.getUser()
-  if (!caller) return { success: false, message: 'Kamu belum login' }
-
-  const { data: callerProfile } = await supabase.from('users').select('role').eq('id', caller.id).single()
-  if (callerProfile?.role !== 'manager') {
-    return { success: false, message: 'Hanya manager yang boleh membuat akun baru' }
-  }
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const cleanUsername = username.trim().toLowerCase()
+  const cleanName = nama.trim()
+  if (!/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) return { success: false, message: 'Username harus 3–32 karakter: huruf, angka, titik, garis bawah, atau tanda hubung.' }
+  if (password.length < 6) return { success: false, message: 'Password minimal 6 karakter.' }
+  if (cleanName.length < 2 || cleanName.length > 100) return { success: false, message: 'Nama harus 2–100 karakter.' }
 
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email: usernameToEmail(username),
+    email: usernameToEmail(cleanUsername),
     password,
     email_confirm: true,
   })
@@ -29,27 +27,39 @@ export async function createCrewAccount(
 
   const { error: profileError } = await supabaseAdmin.from('users').insert({
     id: data.user.id,
-    username: username.trim().toLowerCase(),
-    nama,
-    role,
+    username: cleanUsername,
+    nama: cleanName,
+    role: 'crew',
   })
 
-  if (profileError) return { success: false, message: profileError.message }
+  if (profileError) {
+    const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(data.user.id)
+    return { success: false, message: `Gagal membuat profil crew: ${profileError.message}${cleanupError ? `. Akun Auth yatim juga gagal dibersihkan: ${cleanupError.message}` : '. Akun Auth sementara sudah dibersihkan.'}` }
+  }
   return { success: true }
 }
 
 export async function deleteCrewAccount(userId: string) {
-  const supabase = await createServerSupabase()
-  const { data: { user: caller } } = await supabase.auth.getUser()
-  if (!caller) return { success: false, message: 'Kamu belum login' }
-
-  const { data: callerProfile } = await supabase.from('users').select('role').eq('id', caller.id).single()
-  if (callerProfile?.role !== 'manager') {
-    return { success: false, message: 'Hanya manager yang boleh menghapus akun' }
-  }
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  if (!userId || userId === access.userId) return { success: false, message: 'Target akun tidak valid.' }
+  const { data: target, error: targetError } = await access.supabase.from('users').select('role').eq('id', userId).maybeSingle()
+  if (targetError) return { success: false, message: 'Gagal memeriksa akun target: ' + targetError.message }
+  if (!target || target.role !== 'crew') return { success: false, message: 'Akun target tidak ditemukan atau bukan akun crew.' }
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
   if (error) return { success: false, message: error.message }
 
+  return { success: true }
+}
+
+export async function setCrewActive(userId: string, active: boolean) {
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const { data: target, error: targetError } = await access.supabase.from('users').select('role').eq('id', userId).maybeSingle()
+  if (targetError) return { success: false, message: 'Gagal memeriksa akun target: ' + targetError.message }
+  if (!target || target.role !== 'crew') return { success: false, message: 'Akun target tidak ditemukan atau bukan akun crew.' }
+  const { error } = await access.supabase.from('users').update({ status_aktif: active }).eq('id', userId)
+  if (error) return { success: false, message: error.message }
   return { success: true }
 }

@@ -14,6 +14,31 @@ export async function createSwapRequest(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
 
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !['crew', 'freelance'].includes(targetType)) {
+    return { success: false, message: 'Tanggal atau jenis tukar shift tidak valid.' }
+  }
+  const { data: requester, error: requesterError } = await supabase.from('users')
+    .select('role, status_aktif').eq('id', user.id).single()
+  if (requesterError) return { success: false, message: 'Gagal memeriksa akun: ' + requesterError.message }
+  if (requester.role !== 'crew' || !requester.status_aktif) return { success: false, message: 'Hanya crew aktif yang dapat mengajukan tukar shift.' }
+  const { data: ownSchedule, error: ownScheduleError } = await supabase.from('schedule')
+    .select('id').eq('user_id', user.id).eq('tanggal', tanggal).maybeSingle()
+  if (ownScheduleError) return { success: false, message: 'Gagal memeriksa jadwal: ' + ownScheduleError.message }
+  if (!ownSchedule) return { success: false, message: 'Kamu tidak memiliki jadwal pada tanggal tersebut.' }
+  if (targetType === 'crew') {
+    if (!targetId || targetId === user.id) return { success: false, message: 'Pilih crew lain yang valid.' }
+    const { data: target, error: targetError } = await supabase.from('users')
+      .select('id').eq('id', targetId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (targetError) return { success: false, message: 'Gagal memeriksa crew tujuan: ' + targetError.message }
+    if (!target) return { success: false, message: 'Crew tujuan tidak ditemukan atau sedang nonaktif.' }
+  } else if (!targetNamaFreelance?.trim()) {
+    return { success: false, message: 'Nama freelance wajib diisi.' }
+  }
+  const { data: pending, error: pendingError } = await supabase.from('shift_swap_request')
+    .select('id').eq('requester_id', user.id).eq('tanggal', tanggal).eq('status', 'pending').limit(1)
+  if (pendingError) return { success: false, message: 'Gagal memeriksa pengajuan lain: ' + pendingError.message }
+  if (pending?.length) return { success: false, message: 'Masih ada pengajuan tukar shift yang menunggu pada tanggal tersebut.' }
+
   const { error } = await supabase.from('shift_swap_request').insert({
     tanggal,
     requester_id: user.id,
@@ -103,6 +128,9 @@ export async function respondSwapRequest(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
+  if (!Number.isInteger(id) || id <= 0 || !['disetujui', 'ditolak'].includes(status)) {
+    return { success: false, message: 'Data keputusan tukar shift tidak valid.' }
+  }
 
   const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
@@ -130,6 +158,11 @@ export async function respondSwapRequest(
       if (!loaded.snapshot) return { success: false, message: 'Gagal membaca detail jadwal: ' + loaded.error }
       snapshots = [loaded.snapshot]
 
+      const { data: attendanceRows, error: attendanceError } = await supabase.from('attendance')
+        .select('id').eq('schedule_id', loaded.snapshot.id).limit(1)
+      if (attendanceError) return { success: false, message: 'Gagal memeriksa absensi terkait: ' + attendanceError.message }
+      if (attendanceRows?.length) return { success: false, message: 'Jadwal sudah memiliki data absensi dan tidak dapat ditukar.' }
+
       const { data: updated, error } = await supabase.from('schedule').update({
         user_id: null,
         freelance_nama: swap.target_nama_freelance,
@@ -153,6 +186,11 @@ export async function respondSwapRequest(
           return { success: false, message: 'Gagal membaca detail jadwal: ' + (loadedA.error || loadedB.error) }
         }
         snapshots = [loadedA.snapshot, loadedB.snapshot]
+
+        const { data: attendanceRows, error: attendanceError } = await supabase.from('attendance')
+          .select('schedule_id').in('schedule_id', snapshots.map((snapshot) => snapshot.id))
+        if (attendanceError) return { success: false, message: 'Gagal memeriksa absensi terkait: ' + attendanceError.message }
+        if (attendanceRows?.length) return { success: false, message: 'Salah satu jadwal sudah memiliki data absensi dan tidak dapat ditukar.' }
 
         const { data: updatedA, error: updateAError } = await supabase.from('schedule').update({
           jam_mulai: loadedB.snapshot.jam_mulai,
@@ -187,6 +225,11 @@ export async function respondSwapRequest(
         const loaded = await loadScheduleSnapshot(supabase, scheduleToTransfer.id)
         if (!loaded.snapshot) return { success: false, message: 'Gagal membaca detail jadwal: ' + loaded.error }
         snapshots = [loaded.snapshot]
+
+        const { data: attendanceRows, error: attendanceError } = await supabase.from('attendance')
+          .select('id').eq('schedule_id', loaded.snapshot.id).limit(1)
+        if (attendanceError) return { success: false, message: 'Gagal memeriksa absensi terkait: ' + attendanceError.message }
+        if (attendanceRows?.length) return { success: false, message: 'Jadwal sudah memiliki data absensi dan tidak dapat dialihkan.' }
 
         const { data: updated, error } = await supabase.from('schedule').update({ user_id: newUserId }).eq('id', scheduleToTransfer.id).select('id').maybeSingle()
         if (error || !updated) return { success: false, message: 'Gagal mengalihkan jadwal ke crew tujuan: ' + (error?.message || 'Jadwal tidak berubah') }

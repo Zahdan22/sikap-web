@@ -16,6 +16,34 @@ export async function createLeaveRequest(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
+  const { data: requester, error: requesterError } = await supabase.from('users')
+    .select('role, status_aktif').eq('id', user.id).single()
+  if (requesterError) return { success: false, message: 'Gagal memeriksa akun: ' + requesterError.message }
+  if (requester.role !== 'crew' || !requester.status_aktif) return { success: false, message: 'Hanya crew aktif yang dapat mengajukan izin.' }
+  if (buktiPath && (!buktiPath.startsWith(`${user.id}/`) || buktiPath.includes('..'))) {
+    return { success: false, message: 'Path bukti izin tidak valid.' }
+  }
+  if (!['sakit', 'keperluan_pribadi'].includes(jenis) || !['crew', 'freelance'].includes(penggantiType)) {
+    return { success: false, message: 'Jenis pengajuan tidak valid.' }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggalMulai) || !/^\d{4}-\d{2}-\d{2}$/.test(tanggalSelesai) || tanggalSelesai < tanggalMulai) {
+    return { success: false, message: 'Rentang tanggal izin tidak valid.' }
+  }
+  if (penggantiType === 'crew') {
+    if (!penggantiUserId || penggantiUserId === user.id) return { success: false, message: 'Crew pengganti tidak valid.' }
+    const { data: replacement, error: replacementError } = await supabase.from('users')
+      .select('id').eq('id', penggantiUserId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (replacementError) return { success: false, message: 'Gagal memeriksa crew pengganti: ' + replacementError.message }
+    if (!replacement) return { success: false, message: 'Crew pengganti tidak ditemukan atau sedang nonaktif.' }
+  } else if (!penggantiNamaManual?.trim()) {
+    return { success: false, message: 'Nama freelance pengganti wajib diisi.' }
+  }
+
+  const { data: existingPending, error: pendingError } = await supabase.from('leave_request')
+    .select('id').eq('user_id', user.id).eq('status', 'pending')
+    .lte('tanggal_mulai', tanggalSelesai).gte('tanggal_selesai', tanggalMulai).limit(1)
+  if (pendingError) return { success: false, message: 'Gagal memeriksa pengajuan izin lain: ' + pendingError.message }
+  if (existingPending?.length) return { success: false, message: 'Masih ada pengajuan izin lain yang menunggu pada rentang tanggal tersebut.' }
 
   const { error } = await supabase.from('leave_request').insert({
     user_id: user.id,
@@ -42,6 +70,9 @@ export async function respondLeaveRequest(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
+  if (!Number.isInteger(id) || id <= 0 || !['disetujui', 'ditolak'].includes(status)) {
+    return { success: false, message: 'Data keputusan izin tidak valid.' }
+  }
 
   const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
@@ -74,6 +105,15 @@ export async function respondLeaveRequest(
       .lte('tanggal', leaveRequest.tanggal_selesai)
     if (schedulesError) return { success: false, message: 'Gagal membaca jadwal pengaju: ' + schedulesError.message }
     originalSchedules = schedules || []
+
+    if (originalSchedules.length > 0) {
+      const { data: attendanceRows, error: attendanceError } = await supabase.from('attendance')
+        .select('schedule_id')
+        .in('schedule_id', originalSchedules.map((row) => row.id))
+      if (attendanceError) return { success: false, message: 'Gagal memeriksa absensi pada jadwal izin: ' + attendanceError.message }
+      const checkedIn = originalSchedules.find((row) => attendanceRows?.some((item) => item.schedule_id === row.id))
+      if (checkedIn) return { success: false, message: `Jadwal tanggal ${checkedIn.tanggal} sudah memiliki data absensi dan tidak dapat dialihkan.` }
+    }
 
     if (leaveRequest.pengganti_type === 'crew' && leaveRequest.pengganti_user_id) {
       const { data: targetSchedules, error: targetError } = await supabase

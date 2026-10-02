@@ -3,7 +3,7 @@ import Link from 'next/link'
 const tools = [
   { href: '/manager/karyawan', label: 'Manajemen Karyawan', desc: 'Tambah & kelola akun crew' },
   { href: '/manager/jadwal', label: 'Kelola Jadwal', desc: 'Grid jadwal mingguan' },
-  { href: '/manager/jam-kerja', label: 'Kelola Jam Kerja', desc: 'Preset opsi shift' },
+  { href: '/manager/jadwal', label: 'Kelola Jam Kerja', desc: 'Preset opsi shift' },
   { href: '/manager/jobdesk', label: 'Kelola Jobdesk', desc: 'Master daftar tugas' },
   { href: '/manager/izin', label: 'Kelola Izin', desc: 'Setujui/tolak pengajuan izin' },
   { href: '/manager/tukar-shift', label: 'Kelola Tukar Shift', desc: 'Setujui/tolak tukar shift' },

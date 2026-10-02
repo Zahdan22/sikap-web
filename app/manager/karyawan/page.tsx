@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { createCrewAccount, deleteCrewAccount } from '@/app/actions/create-user'
+import { createCrewAccount, deleteCrewAccount, setCrewActive } from '@/app/actions/create-user'
 import { useDialog } from '@/components/ui/DialogProvider'
 import PageHeader from '@/components/PageHeader'
 
@@ -38,7 +38,7 @@ export default function KaryawanPage() {
     e.preventDefault()
     setLoading(true)
 
-    const result = await createCrewAccount(username, password, nama, 'crew')
+    const result = await createCrewAccount(username, password, nama)
 
     setLoading(false)
     if (!result.success) { toast('Error: ' + result.message, 'error'); return }
@@ -53,9 +53,8 @@ export default function KaryawanPage() {
     })
     if (!ok) return
 
-    const supabase = createClient()
-    const { error } = await supabase.from('users').update({ status_aktif: !currentStatus }).eq('id', id)
-    if (error) { toast('Error: ' + error.message, 'error'); return }
+    const result = await setCrewActive(id, !currentStatus)
+    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
     toast(currentStatus ? 'Karyawan dinonaktifkan' : 'Karyawan diaktifkan kembali', 'success')
     loadList()
   }

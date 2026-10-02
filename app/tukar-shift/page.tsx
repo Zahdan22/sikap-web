@@ -54,7 +54,7 @@ export default function TukarShiftPage() {
     setList((swapData as any) || [])
 
     const { data: crewData } = await supabase
-      .from('users').select('id, nama').eq('role', 'crew').neq('id', user.id).order('nama')
+      .from('users').select('id, nama').eq('role', 'crew').eq('status_aktif', true).neq('id', user.id).order('nama')
     setCrewOptions(crewData || [])
   }
 
@@ -191,4 +191,4 @@ export default function TukarShiftPage() {
       </div>
     </div>
   )
-} 
+}

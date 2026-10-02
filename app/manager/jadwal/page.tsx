@@ -213,10 +213,23 @@ export default function JadwalPage() {
     toast(`Jadwal disalin ke ${copyTargets.length} hari`, 'success')
   }
 
+  async function reloadWeekSchedule() {
+    const rows = await Promise.all(weekDateStrings.map(async (date) => {
+      const state = await getScheduleStateForDate(
+        date,
+        crewList.filter((crew) => crew.id === selectedCrewId),
+        jamKerjaOptions,
+      )
+      return [date, state[selectedCrewId] ?? EMPTY_STATE] as const
+    }))
+    setScheduleByDate(Object.fromEntries(rows))
+  }
+
   async function handleSave() {
     if (!selectedCrewId) return
     setSaving(true)
     try {
+      let savedDays = 0
       for (const date of weekDateStrings) {
         const state = scheduleByDate[date] ?? EMPTY_STATE
         const result = await simpanJadwalHariIni(date, [{
@@ -225,20 +238,14 @@ export default function JadwalPage() {
           jobdeskIds: state.jobdeskIds,
         }])
         if (!result.success) {
-          toast(`Gagal menyimpan ${date}: ${result.message}`, 'error')
+          await reloadWeekSchedule()
+          toast(`Tersimpan ${savedDays} dari 7 hari. Gagal menyimpan ${date}: ${result.message}`, 'error')
           return
         }
+        savedDays += 1
       }
       toast(`Jadwal ${selectedCrew?.nama ?? 'crew'} berhasil disimpan`, 'success')
-      const rows = await Promise.all(weekDateStrings.map(async (date) => {
-        const state = await getScheduleStateForDate(
-          date,
-          crewList.filter((crew) => crew.id === selectedCrewId),
-          jamKerjaOptions,
-        )
-        return [date, state[selectedCrewId] ?? EMPTY_STATE] as const
-      }))
-      setScheduleByDate(Object.fromEntries(rows))
+      await reloadWeekSchedule()
     } catch (error) {
       toast('Gagal menyimpan jadwal: ' + (error as Error).message, 'error')
     } finally {

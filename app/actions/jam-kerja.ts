@@ -1,16 +1,16 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { requireManager } from '@/lib/manager-auth'
 import { revalidatePath } from 'next/cache'
 
 export async function createPreset(nama: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { success: false, message: 'Belum login' }
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const { supabase, userId } = access
 
   const { data, error } = await supabase
     .from('jam_kerja_preset')
-    .insert({ nama, dibuat_oleh: user.id })
+    .insert({ nama, dibuat_oleh: userId })
     .select('id')
     .single()
 
@@ -20,7 +20,9 @@ export async function createPreset(nama: string) {
 }
 
 export async function deletePreset(id: number) {
-  const supabase = await createClient()
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const { supabase } = access
   const { error } = await supabase.from('jam_kerja_preset').delete().eq('id', id)
   if (error) return { success: false, message: error.message }
   revalidatePath('/manager/jadwal')
@@ -28,9 +30,9 @@ export async function deletePreset(id: number) {
 }
 
 export async function createJamKerja(presetId: number, label: string, jamMulai: string, jamSelesai: string, durasiJam: number) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { success: false, message: 'Belum login' }
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const { supabase, userId } = access
 
   const { error } = await supabase.from('jam_kerja_opsi').insert({
     preset_id: presetId,
@@ -38,7 +40,7 @@ export async function createJamKerja(presetId: number, label: string, jamMulai: 
     jam_mulai: jamMulai,
     jam_selesai: jamSelesai,
     durasi_jam: durasiJam,
-    dibuat_oleh: user.id,
+    dibuat_oleh: userId,
   })
 
   if (error) return { success: false, message: error.message }
@@ -47,7 +49,9 @@ export async function createJamKerja(presetId: number, label: string, jamMulai: 
 }
 
 export async function updateJamKerja(id: number, label: string, jamMulai: string, jamSelesai: string, durasiJam: number) {
-  const supabase = await createClient()
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const { supabase } = access
   const { error } = await supabase
     .from('jam_kerja_opsi')
     .update({ label, jam_mulai: jamMulai, jam_selesai: jamSelesai, durasi_jam: durasiJam })
@@ -59,7 +63,9 @@ export async function updateJamKerja(id: number, label: string, jamMulai: string
 }
 
 export async function deleteJamKerja(id: number) {
-  const supabase = await createClient()
+  const access = await requireManager()
+  if (!access.ok) return { success: false, message: access.message }
+  const { supabase } = access
   const { error } = await supabase.from('jam_kerja_opsi').delete().eq('id', id)
   if (error) return { success: false, message: error.message }
   revalidatePath('/manager/jadwal')

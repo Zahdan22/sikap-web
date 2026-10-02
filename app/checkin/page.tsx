@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import CameraCapture from '@/components/CameraCapture'
-import { checkIn, checkOut, getTodayStatus } from '@/lib/attendance'
+import { getTodayStatus } from '@/lib/attendance'
+import { submitCheckIn, submitCheckOut } from '@/app/actions/attendance'
+import { getCurrentPosition, reverseGeocode } from '@/lib/geo'
+import { applyWatermark } from '@/lib/watermark'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { createClient } from '@/lib/supabase/client'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
 
-type ViewState = 'loading' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
+type ViewState = 'loading' | 'error' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
 
 export default function CheckInOutPage() {
   const [userId, setUserId] = useState<string | null>(null)
@@ -20,22 +23,26 @@ export default function CheckInOutPage() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
 
   async function loadStatus() {
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    setUserId(user.id)
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setViewState('error'); setStatusMessage('Sesi login tidak ditemukan. Silakan login kembali.'); return }
+      setUserId(user.id)
 
-    const { schedule, attendance } = await getTodayStatus(user.id)
+      const { schedule, attendance } = await getTodayStatus(user.id)
+      if (!schedule) {
+        setViewState('no-schedule')
+        return
+      }
+      setScheduleInfo({ jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })
 
-    if (!schedule) {
-      setViewState('no-schedule')
-      return
+      if (!attendance) setViewState('ready-checkin')
+      else if (!attendance.jam_pulang_aktual) setViewState('ready-checkout')
+      else setViewState('done')
+    } catch (error) {
+      setViewState('error')
+      setStatusMessage((error as Error).message || 'Gagal memuat status absensi.')
     }
-    setScheduleInfo({ jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })
-
-    if (!attendance) setViewState('ready-checkin')
-    else if (!attendance.jam_pulang_aktual) setViewState('ready-checkout')
-    else setViewState('done')
   }
 
   useEffect(() => {
@@ -47,14 +54,25 @@ export default function CheckInOutPage() {
     setProcessing(true)
     setShowCamera(false)
     try {
+      const position = await getCurrentPosition()
+      const address = await reverseGeocode(position.latitude, position.longitude)
+      const watermarked = await applyWatermark(photo, {
+        timestamp: new Date(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+        address,
+      })
+
       if (viewState === 'ready-checkin') {
-        const result = await checkIn(userId, photo)
+        const result = await submitCheckIn(position.latitude, position.longitude, watermarked)
+        if (!result.success) throw new Error(result.message)
         setStatusMessage(
           `Check-in berhasil. ${result.status === 'telat' ? `Telat ${result.menitTelat} menit` : 'Tepat waktu'}`
         )
         setPhotoUrl(await getPhotoSignedUrl(result.photoPath))
       } else if (viewState === 'ready-checkout') {
-        const result = await checkOut(userId, photo)
+        const result = await submitCheckOut(position.latitude, position.longitude, watermarked)
+        if (!result.success) throw new Error(result.message)
         setStatusMessage(`Check-out berhasil. Status: ${result.status.replace('_', ' ')}`)
         setPhotoUrl(await getPhotoSignedUrl(result.photoPath))
       }
@@ -76,6 +94,13 @@ export default function CheckInOutPage() {
       <div className="px-5">
         {viewState === 'loading' && <Spinner />}
 
+        {viewState === 'error' && (
+          <div className="mt-6 rounded-2xl border border-cream-dim bg-cream-card px-5 py-6 text-center">
+            <p className="text-sm text-brand">{statusMessage}</p>
+            <button onClick={() => { setViewState('loading'); setStatusMessage(''); loadStatus() }} className="mt-3 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white">Coba lagi</button>
+          </div>
+        )}
+
         {viewState === 'no-schedule' && (
           <div className="mt-6 rounded-2xl border border-cream-dim bg-cream-card px-5 py-6 text-center">
             <p className="text-sm text-muted">Tidak ada jadwal kerja untuk hari ini.</p>
@@ -88,7 +113,7 @@ export default function CheckInOutPage() {
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand/10 text-brand">📍</span>
               <div>
                 <p className="text-xs uppercase tracking-wide text-muted">Status Lokasi</p>
-                <p className="text-sm font-semibold text-ink">GPS Aktif</p>
+                <p className="text-sm font-semibold text-ink">Lokasi diverifikasi saat absen</p>
               </div>
             </div>
 
