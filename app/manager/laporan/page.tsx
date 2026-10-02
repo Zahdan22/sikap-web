@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getEmployeeSummaries, getEmployeeDetail, EmployeeSummary } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
@@ -21,6 +22,9 @@ function getMonthRange(year: number, month: number) {
 }
 
 export default function LaporanPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialQuery = useRef(searchParams.toString())
   const [mode, setMode] = useState<'bulan' | 'periode'>('bulan')
   const [year, setYear] = useState(new Date().getFullYear())
   const [month, setMonth] = useState(new Date().getMonth() + 1)
@@ -68,6 +72,41 @@ export default function LaporanPage() {
 
   useEffect(() => { loadPeriode() }, [])
 
+  useEffect(() => {
+    const params = new URLSearchParams(initialQuery.current)
+    const restoredMode = params.get('mode')
+    const restoredMonth = Number(params.get('month'))
+    const restoredYear = Number(params.get('year'))
+    const restoredPeriodeId = Number(params.get('periode'))
+    const restoredFilter = params.get('filter')
+    const restoredSort = params.get('sort')
+    if (restoredMode === 'bulan' || restoredMode === 'periode') setMode(restoredMode)
+    if (Number.isInteger(restoredMonth) && restoredMonth >= 1 && restoredMonth <= 12) setMonth(restoredMonth)
+    if (Number.isInteger(restoredYear) && restoredYear >= 2000 && restoredYear <= 2100) setYear(restoredYear)
+    if (Number.isInteger(restoredPeriodeId) && restoredPeriodeId > 0) setSelectedPeriodeId(restoredPeriodeId)
+    if (['semua', 'ikhlas', 'lupa-out', 'keduanya'].includes(restoredFilter || '')) setSummaryFilter(restoredFilter as SummaryFilter)
+    if (['nama', 'telat-terbanyak', 'telat-paling-sedikit'].includes(restoredSort || '')) setSortMode(restoredSort as SortMode)
+    setSearchCrew(params.get('search') || '')
+
+    const start = params.get('start')
+    const end = params.get('end')
+    if (!start || !end) return
+
+    const range = { start, end }
+    setGeneratedRange(range)
+    setLoading(true)
+    getEmployeeSummaries(start, end).then((data) => {
+      setSummaries(data)
+      setLoading(false)
+      const storedScroll = sessionStorage.getItem('manager-report-scroll')
+      const scrollTop = Number(storedScroll ?? params.get('scroll') ?? 0)
+      sessionStorage.removeItem('manager-report-scroll')
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, scrollTop)))
+    }).catch(() => {
+      setLoading(false)
+    })
+  }, [])
+
   function getDateRange(): { start: string; end: string } | null {
     if (mode === 'bulan') return getMonthRange(year, month)
     const periode = periodeList.find((p) => p.id === selectedPeriodeId)
@@ -83,6 +122,11 @@ export default function LaporanPage() {
     setSummaries(data)
     setGeneratedRange(range)
     setLoading(false)
+    const params = new URLSearchParams({ mode, month: String(month), year: String(year), filter: summaryFilter, sort: sortMode, search: searchCrew })
+    if (selectedPeriodeId) params.set('periode', String(selectedPeriodeId))
+    params.set('start', range.start)
+    params.set('end', range.end)
+    router.replace(`/manager/laporan?${params.toString()}`, { scroll: false })
   }
 
   async function handleExport(exportAll: boolean) {
@@ -293,7 +337,19 @@ export default function LaporanPage() {
             {visibleSummaries.map((s) => (
               <Link
                 key={s.userId}
-                href={`/manager/laporan/${s.userId}?start=${generatedRange!.start}&end=${generatedRange!.end}&nama=${encodeURIComponent(s.nama)}`}
+                href={(() => {
+                  const backParams = new URLSearchParams({
+                    mode, month: String(month), year: String(year), filter: summaryFilter,
+                    sort: sortMode, search: searchCrew, start: generatedRange!.start, end: generatedRange!.end,
+                  })
+                  if (selectedPeriodeId) backParams.set('periode', String(selectedPeriodeId))
+                  const detailParams = new URLSearchParams({
+                    start: generatedRange!.start, end: generatedRange!.end, nama: s.nama,
+                    back: `/manager/laporan?${backParams.toString()}`,
+                  })
+                  return `/manager/laporan/${s.userId}?${detailParams.toString()}`
+                })()}
+                onClick={() => sessionStorage.setItem('manager-report-scroll', String(window.scrollY))}
                 className="block rounded-xl border border-cream-dim bg-cream-card px-4 py-3"
               >
                 <div className="flex items-center justify-between">

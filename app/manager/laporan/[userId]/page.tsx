@@ -26,6 +26,10 @@ export default function DetailKaryawanPage() {
   const start = searchParams.get('start') || ''
   const end = searchParams.get('end') || ''
   const nama = searchParams.get('nama') || ''
+  const requestedBackHref = searchParams.get('back') || ''
+  const backHref = requestedBackHref.startsWith('/manager/laporan?') && !requestedBackHref.startsWith('//')
+    ? requestedBackHref
+    : '/manager/laporan'
 
   const [details, setDetails] = useState<AttendanceDetail[]>([])
   const [photoUrls, setPhotoUrls] = useState<Record<number, { masuk?: string; pulang?: string }>>({})
@@ -106,7 +110,7 @@ export default function DetailKaryawanPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-24">
-      <PageHeader title={nama} backHref="/manager/laporan" />
+      <PageHeader title={nama} backHref={backHref} />
       <p className="px-5 pt-2 text-xs text-muted">{start} s.d. {end}</p>
 
       <div className="mt-3 px-5">
