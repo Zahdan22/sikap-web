@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getMonthSchedules, getMySchedulesInRange, ScheduleWithJobdesk } from '@/lib/jadwal'
+import { formatMinuteClock, getMonthSchedules, getMySchedulesInRange, ScheduleWithJobdesk } from '@/lib/jadwal'
 import { toDateString, getWeekDates, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
@@ -155,7 +155,9 @@ export default function JadwalPage() {
                   </div>
                   <p className="mt-1 text-lg font-semibold">{mySchedule.jam_mulai} - {mySchedule.jam_selesai}</p>
                   <p className="mt-1 text-xs text-white/80">
-                    {mySchedule.jobdeskLabels.length > 0 ? mySchedule.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}
+                    {mySchedule.jobdeskBlocks.length > 0
+                      ? mySchedule.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)}–${formatMinuteClock(block.selesaiMenit)} ${block.labels.join(', ')}`).join(' · ')
+                      : mySchedule.jobdeskLabels.length > 0 ? mySchedule.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}
                   </p>
                 </div>
               ) : (
@@ -179,6 +181,7 @@ export default function JadwalPage() {
                           <div>
                             <p className="text-sm font-medium text-ink">{s.nama}</p>
                             <p className="text-xs text-muted">{s.jam_mulai} - {s.jam_selesai}</p>
+                            {s.jobdeskBlocks.length > 0 && <p className="mt-1 text-[10px] leading-relaxed text-muted">{s.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)}–${formatMinuteClock(block.selesaiMenit)} ${block.labels.join(', ')}`).join(' · ')}</p>}
                           </div>
                         </div>
                         {s.jobdeskLabels.length > 0 && (
@@ -216,7 +219,9 @@ export default function JadwalPage() {
                     <>
                       <p className="mt-1 text-sm text-brand">{sch.jam_mulai} - {sch.jam_selesai}</p>
                       <p className="mt-0.5 text-xs text-muted">
-                        {sch.jobdeskLabels.length > 0 ? sch.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}
+                        {sch.jobdeskBlocks.length > 0
+                          ? sch.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)}–${formatMinuteClock(block.selesaiMenit)} ${block.labels.join(', ')}`).join(' · ')
+                          : sch.jobdeskLabels.length > 0 ? sch.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}
                       </p>
                     </>
                   ) : (

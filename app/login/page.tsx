@@ -3,37 +3,35 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
-import { createClient } from '@/lib/supabase/client'
-import { usernameToEmail } from '@/lib/auth'
+import { loginWithUsername } from '@/app/actions/auth'
 
 export default function LoginPage() {
+  const router = useRouter()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const form = e.currentTarget as HTMLFormElement
     setLoading(true)
     setErrorMsg('')
 
-    const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({
-      email: usernameToEmail(username),
-      password,
-    })
-
-    setLoading(false)
-
-    if (error) {
-      setErrorMsg('Username atau password salah')
-      return
+    try {
+      const result = await loginWithUsername(new FormData(form))
+      if (!result.ok) {
+        setErrorMsg(result.message)
+        return
+      }
+      // The Server Action response has applied the session cookie before navigation starts.
+      router.replace('/dashboard')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'
+      setErrorMsg(`Tidak dapat menyelesaikan login: ${message}`)
+    } finally {
+      setLoading(false)
     }
-
-    router.push('/dashboard')
-    router.refresh()
   }
 
   return (
@@ -63,6 +61,7 @@ export default function LoginPage() {
               type="text"
               placeholder="username"
               value={username}
+              name="username"
               onChange={(e) => setUsername(e.target.value)}
               required
               className="w-full rounded-xl border border-cream-dim bg-white px-4 py-3 text-sm text-ink placeholder:text-muted/70 outline-none focus:border-brand"
@@ -78,6 +77,7 @@ export default function LoginPage() {
                 type={showPassword ? 'text' : 'password'}
                 placeholder="••••••••"
                 value={password}
+                name="password"
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 className="w-full rounded-xl border border-cream-dim bg-white px-4 py-3 pr-11 text-sm text-ink placeholder:text-muted/70 outline-none focus:border-brand"

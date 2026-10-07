@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getTodayStatus } from '@/lib/attendance'
-import { getDailySchedules, getTodayCrewStatus, TodayCrewStatus, DailySchedule } from '@/lib/jadwal'
+import { formatMinuteClock, getDailySchedules, getTodayCrewStatus, TodayCrewStatus, DailySchedule } from '@/lib/jadwal'
 import { toDateString, formatDateWithDay } from '@/lib/date-utils'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountMenu from '@/components/AccountMenu'
@@ -392,7 +392,9 @@ function CrewDashboard({ nama }: { nama: string }) {
             nama: schedule.nama,
             jam_mulai: schedule.jamMulai,
             jam_selesai: schedule.jamSelesai,
-            jobdeskLabels: schedule.jobdeskLabels,
+            jobdeskLabels: schedule.jobdeskBlocks.length
+              ? schedule.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)} ${block.labels.join(',')}`)
+              : schedule.jobdeskLabels,
           }))}
           loading={loadingTimeline}
         />

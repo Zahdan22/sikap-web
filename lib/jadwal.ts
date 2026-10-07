@@ -26,10 +26,28 @@ export type JobdeskOption = {
 export type CrewScheduleState = {
   jamKerjaOpsiId: number | 'libur' | 'jadwal-lama'
   jobdeskIds: number[]
+  jobdeskBlocks: JobdeskTimeBlock[]
   existingScheduleId: number | null // null kalau belum ada jadwal tersimpan untuk crew ini di tanggal ini
   jamMulaiLama?: string
   jamSelesaiLama?: string
   durasiLama?: number
+}
+
+export type JobdeskTimeBlock = { mulaiMenit: number; selesaiMenit: number; jobdeskIds: number[]; labels?: string[] }
+
+export function formatMinuteClock(minute: number) {
+  const hour = Math.floor(minute / 60) % 24
+  const mins = minute % 60
+  return `${String(hour).padStart(2, '0')}:${String(mins).padStart(2, '0')}${minute >= 1440 ? ' +1' : ''}`
+}
+
+function isMissingBlockRelation(message: string) {
+  return message.includes('schedule_jobdesk_block')
+    && /schema cache|does not exist|relationship/i.test(message)
+}
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | undefined {
+  return Array.isArray(value) ? value[0] : value as T | undefined
 }
 
 export async function getCrewList(): Promise<Crew[]> {
@@ -81,10 +99,18 @@ export async function getScheduleStateForDate(
 ): Promise<Record<string, CrewScheduleState>> {
   const supabase = createClient()
 
-  const { data: schedules, error } = await supabase
+  let { data: schedules, error } = await supabase
     .from('schedule')
-    .select('id, user_id, jam_mulai, jam_selesai, durasi_jam, schedule_jobdesk(jobdesk_id)')
+    .select('id, user_id, jam_mulai, jam_selesai, durasi_jam, schedule_jobdesk(jobdesk_id), schedule_jobdesk_block(jobdesk_id, mulai_menit, selesai_menit)')
     .eq('tanggal', dateStr)
+
+  if (error && isMissingBlockRelation(error.message)) {
+    const legacy = await supabase.from('schedule')
+      .select('id, user_id, jam_mulai, jam_selesai, durasi_jam, schedule_jobdesk(jobdesk_id)')
+      .eq('tanggal', dateStr)
+    schedules = legacy.data as typeof schedules
+    error = legacy.error
+  }
 
   if (error) throw new Error('Gagal ambil jadwal: ' + error.message)
 
@@ -92,7 +118,7 @@ export async function getScheduleStateForDate(
 
   // Default semua crew: libur, belum ada jadwal
   for (const crew of crewList) {
-    state[crew.id] = { jamKerjaOpsiId: 'libur', jobdeskIds: [], existingScheduleId: null }
+    state[crew.id] = { jamKerjaOpsiId: 'libur', jobdeskIds: [], jobdeskBlocks: [], existingScheduleId: null }
   }
 
   // Timpa dengan data yang beneran ada
@@ -105,6 +131,7 @@ export async function getScheduleStateForDate(
     state[sch.user_id] = {
       jamKerjaOpsiId: matchedOption ? matchedOption.id : 'jadwal-lama',
       jobdeskIds: (sch.schedule_jobdesk as { jobdesk_id: number }[]).map((sj) => sj.jobdesk_id),
+      jobdeskBlocks: groupJobdeskBlocks(sch.schedule_jobdesk_block as { jobdesk_id: number; mulai_menit: number; selesai_menit: number }[]),
       existingScheduleId: sch.id,
       jamMulaiLama: sch.jam_mulai,
       jamSelesaiLama: sch.jam_selesai,
@@ -115,6 +142,17 @@ export async function getScheduleStateForDate(
   return state
 }
 
+function groupJobdeskBlocks(rows: { jobdesk_id: number; mulai_menit: number; selesai_menit: number }[] = []): JobdeskTimeBlock[] {
+  const grouped = new Map<string, JobdeskTimeBlock>()
+  for (const row of rows || []) {
+    const key = `${row.mulai_menit}-${row.selesai_menit}`
+    const block = grouped.get(key) || { mulaiMenit: row.mulai_menit, selesaiMenit: row.selesai_menit, jobdeskIds: [] }
+    block.jobdeskIds.push(row.jobdesk_id)
+    grouped.set(key, block)
+  }
+  return [...grouped.values()].sort((a, b) => a.mulaiMenit - b.mulaiMenit)
+}
+
 export type DailySchedule = {
   id: number
   userId: string
@@ -122,29 +160,41 @@ export type DailySchedule = {
   jamMulai: string
   jamSelesai: string
   jobdeskLabels: string[]
+  jobdeskBlocks: { mulaiMenit: number; selesaiMenit: number; labels: string[] }[]
 }
 
 export async function getDailySchedules(dateStr: string): Promise<DailySchedule[]> {
   const supabase = createClient()
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('schedule')
     .select(`
       id, user_id, jam_mulai, jam_selesai, freelance_nama,
       users:user_id (nama),
-      schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+      schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
+      schedule_jobdesk_block (mulai_menit, selesai_menit, jobdesk:jobdesk_id (singkatan))
     `)
     .eq('tanggal', dateStr)
     .order('jam_mulai')
 
+  if (error && isMissingBlockRelation(error.message)) {
+    const legacy = await supabase.from('schedule').select(`
+      id, user_id, jam_mulai, jam_selesai, freelance_nama,
+      users:user_id (nama), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+    `).eq('tanggal', dateStr).order('jam_mulai')
+    data = legacy.data as typeof data
+    error = legacy.error
+  }
+
   if (error) throw new Error('Gagal mengambil cakupan jadwal harian: ' + error.message)
 
-  return (data || []).map((row: any) => ({
+  return (data || []).map((row) => ({
     id: row.id,
     userId: row.user_id || `freelance-${row.id}`,
-    nama: row.users?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
+    nama: firstRelation(row.users)?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
     jamMulai: row.jam_mulai,
     jamSelesai: row.jam_selesai,
-    jobdeskLabels: (row.schedule_jobdesk || []).map((item: any) => item.jobdesk?.singkatan).filter(Boolean),
+    jobdeskLabels: (row.schedule_jobdesk || []).map((item) => firstRelation(item.jobdesk)?.singkatan).filter(Boolean),
+    jobdeskBlocks: groupLabeledBlocks(row.schedule_jobdesk_block || []),
   }))
 }
 
@@ -157,6 +207,25 @@ export type ScheduleWithJobdesk = {
   durasi_jam: number
   nama: string
   jobdeskLabels: string[]
+  jobdeskBlocks: { mulaiMenit: number; selesaiMenit: number; labels: string[] }[]
+}
+
+type LabeledBlockRow = {
+  mulai_menit: number
+  selesai_menit: number
+  jobdesk: { singkatan?: string } | { singkatan?: string }[] | null
+}
+
+function groupLabeledBlocks(rows: LabeledBlockRow[]) {
+  const grouped = new Map<string, { mulaiMenit: number; selesaiMenit: number; labels: string[] }>()
+  for (const row of rows) {
+    const key = `${row.mulai_menit}-${row.selesai_menit}`
+    const block: { mulaiMenit: number; selesaiMenit: number; labels: string[] } = grouped.get(key) || { mulaiMenit: row.mulai_menit, selesaiMenit: row.selesai_menit, labels: [] }
+    const relation = Array.isArray(row.jobdesk) ? row.jobdesk[0] : row.jobdesk
+    if (relation?.singkatan) block.labels.push(relation.singkatan)
+    grouped.set(key, block)
+  }
+  return [...grouped.values()].sort((a, b) => a.mulaiMenit - b.mulaiMenit)
 }
 
 // Ambil SEMUA jadwal (semua crew) dalam 1 bulan — dipakai buat kalender crew
@@ -167,27 +236,38 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
   const lastDay = new Date(year, month, 0).getDate()
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('schedule')
     .select(`
       id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam, freelance_nama,
       users:user_id (nama),
-      schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+      schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
+      schedule_jobdesk_block (mulai_menit, selesai_menit, jobdesk:jobdesk_id (singkatan))
     `)
     .gte('tanggal', startDate)
     .lte('tanggal', endDate)
 
+  if (error && isMissingBlockRelation(error.message)) {
+    const legacy = await supabase.from('schedule').select(`
+      id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam, freelance_nama,
+      users:user_id (nama), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+    `).gte('tanggal', startDate).lte('tanggal', endDate)
+    data = legacy.data as typeof data
+    error = legacy.error
+  }
+
   if (error) throw new Error('Gagal ambil jadwal bulan ini: ' + error.message)
 
-  return (data || []).map((row: any) => ({
+  return (data || []).map((row) => ({
     id: row.id,
     user_id: row.user_id,
     tanggal: row.tanggal,
     jam_mulai: row.jam_mulai,
     jam_selesai: row.jam_selesai,
     durasi_jam: row.durasi_jam,
-    nama: row.users?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
-    jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
+    nama: firstRelation(row.users)?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
+    jobdeskLabels: (row.schedule_jobdesk || []).map((sj) => firstRelation(sj.jobdesk)?.singkatan).filter(Boolean),
+    jobdeskBlocks: groupLabeledBlocks(row.schedule_jobdesk_block || []),
   }))
 }
 
@@ -197,28 +277,39 @@ export async function getMySchedulesInRange(
   endDate: string
 ): Promise<ScheduleWithJobdesk[]> {
   const supabase = createClient()
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('schedule')
     .select(`
       id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam,
       users:user_id (nama),
-      schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+      schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
+      schedule_jobdesk_block (mulai_menit, selesai_menit, jobdesk:jobdesk_id (singkatan))
     `)
     .eq('user_id', userId)
     .gte('tanggal', startDate)
     .lte('tanggal', endDate)
 
+  if (error && isMissingBlockRelation(error.message)) {
+    const legacy = await supabase.from('schedule').select(`
+      id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam,
+      users:user_id (nama), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+    `).eq('user_id', userId).gte('tanggal', startDate).lte('tanggal', endDate)
+    data = legacy.data as typeof data
+    error = legacy.error
+  }
+
   if (error) throw new Error('Gagal ambil jadwal minggu ini: ' + error.message)
 
-  return (data || []).map((row: any) => ({
+  return (data || []).map((row) => ({
     id: row.id,
     user_id: row.user_id,
     tanggal: row.tanggal,
     jam_mulai: row.jam_mulai,
     jam_selesai: row.jam_selesai,
     durasi_jam: row.durasi_jam,
-    nama: row.users?.nama || '',
-    jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
+    nama: firstRelation(row.users)?.nama || '',
+    jobdeskLabels: (row.schedule_jobdesk || []).map((sj) => firstRelation(sj.jobdesk)?.singkatan).filter(Boolean),
+    jobdeskBlocks: groupLabeledBlocks(row.schedule_jobdesk_block || []),
   }))
 }
 
@@ -252,15 +343,15 @@ export async function getTodayCrewStatus(): Promise<TodayCrewStatus[]> {
 
   if (error) throw new Error('Gagal ambil status crew hari ini: ' + error.message)
 
-  return (data || []).map((row: any) => {
+  return (data || []).map((row) => {
     const att = Array.isArray(row.attendance) ? row.attendance[0] : row.attendance
     return {
       scheduleId: row.id,
       userId: row.user_id,
-      nama: row.users?.nama || '',
+      nama: firstRelation(row.users)?.nama || '',
       jamMulai: row.jam_mulai,
       jamSelesai: row.jam_selesai,
-      jobdeskLabels: (row.schedule_jobdesk || []).map((sj: any) => sj.jobdesk?.singkatan).filter(Boolean),
+      jobdeskLabels: (row.schedule_jobdesk || []).map((sj) => firstRelation(sj.jobdesk)?.singkatan).filter(Boolean),
       jamMasukAktual: att?.jam_masuk_aktual || null,
       statusMasuk: att?.status_masuk || null,
       jamPulangAktual: att?.jam_pulang_aktual || null,

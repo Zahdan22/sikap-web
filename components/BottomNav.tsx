@@ -59,23 +59,30 @@ function getIcon(label: string, className: string): ReactNode {
 export default function BottomNav() {
   const pathname = usePathname()
   const hiddenPaths = ['/checkin', '/izin', '/tukar-shift', '/settings', '/login']
-  if (hiddenPaths.some((p) => pathname.startsWith(p))) return null
+  const isHidden = hiddenPaths.some((p) => pathname.startsWith(p))
   const [isManager, setIsManager] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
+    if (isHidden) return
+    let active = true
     async function checkRole() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        if (active) setLoaded(true)
+        return
+      }
       const { data } = await supabase.from('users').select('role').eq('id', user.id).single()
+      if (!active) return
       setIsManager(data?.role === 'manager')
       setLoaded(true)
     }
     checkRole()
-  }, [])
+    return () => { active = false }
+  }, [isHidden])
 
-  if (!loaded) return null
+  if (isHidden || !loaded) return null
 
   const items = isManager
     ? [

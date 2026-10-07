@@ -7,6 +7,7 @@ type CrewPayload = {
   userId: string
   jamKerjaOpsiId: number | 'libur' | 'jadwal-lama'
   jobdeskIds: number[]
+  jobdeskBlocks?: { mulaiMenit: number; selesaiMenit: number; jobdeskIds: number[] }[]
 }
 
 export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[]) {
@@ -17,7 +18,7 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
   const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
   if (profile?.role !== 'manager') return { success: false, message: 'Hanya manager yang dapat mengelola jadwal' }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !Array.isArray(payload) || payload.length > 7
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !Array.isArray(payload) || payload.length > 200
     || payload.some((item) => !item || typeof item.userId !== 'string' || !Array.isArray(item.jobdeskIds))) {
     return { success: false, message: 'Tanggal atau data jadwal tidak valid' }
   }
@@ -32,11 +33,38 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
   if (jobdeskError) return { success: false, message: 'Gagal memuat jobdesk: ' + jobdeskError.message }
   const validJobdeskIds = new Set((jobdesks || []).map((row) => row.id))
 
+  let blocksTableAvailable = true
+  const { error: blocksTableError } = await supabase.from('schedule_jobdesk_block').select('id').limit(1)
+  if (blocksTableError) {
+    const missingTable = blocksTableError.message.includes('schedule_jobdesk_block')
+      && /schema cache|does not exist|relationship/i.test(blocksTableError.message)
+    const needsRotationStorage = payload.some((item) => Boolean(item.jobdeskBlocks?.length))
+    if (!missingTable || needsRotationStorage) {
+      return { success: false, message: missingTable
+        ? 'Tabel rotasi jobdesk belum siap. Terapkan migrasi supabase/migrations/202610070001_schedule_jobdesk_blocks.sql terlebih dahulu.'
+        : 'Gagal memeriksa tabel rotasi jobdesk: ' + blocksTableError.message }
+    }
+    blocksTableAvailable = false
+  }
+
   for (const item of payload) {
     if (!item.userId || !crewIds.has(item.userId) || !Array.isArray(item.jobdeskIds) || item.jobdeskIds.some((id) => !validJobdeskIds.has(id))) {
       return { success: false, message: 'Data crew atau jobdesk tidak valid' }
     }
     if (new Set(item.jobdeskIds).size !== item.jobdeskIds.length) return { success: false, message: 'Jobdesk duplikat ditemukan' }
+    const blocks = item.jobdeskBlocks || []
+    const orderedBlocks = [...blocks].sort((a, b) => a.mulaiMenit - b.mulaiMenit)
+    if (orderedBlocks.some((block, index) => index > 0 && orderedBlocks[index - 1].selesaiMenit > block.mulaiMenit)) {
+      return { success: false, message: 'Rentang blok jobdesk tidak boleh saling tumpang tindih' }
+    }
+    for (const block of blocks) {
+      if (!Number.isInteger(block.mulaiMenit) || !Number.isInteger(block.selesaiMenit)
+        || block.mulaiMenit < 0 || block.selesaiMenit <= block.mulaiMenit || block.selesaiMenit > 2880
+        || !Array.isArray(block.jobdeskIds) || block.jobdeskIds.length > 5 || block.jobdeskIds.some((id) => !validJobdeskIds.has(id))) {
+        return { success: false, message: 'Pembagian jobdesk atau rentang waktunya tidak valid' }
+      }
+      if (new Set(block.jobdeskIds).size !== block.jobdeskIds.length) return { success: false, message: 'Ada jobdesk duplikat dalam satu blok waktu' }
+    }
 
     const { data: existing, error: existingError } = await supabase
       .from('schedule').select('id, jam_mulai, jam_selesai, durasi_jam')
@@ -66,6 +94,21 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
       return { success: false, message: 'Pilihan jam kerja tidak valid. Muat ulang halaman dan coba lagi.' }
     }
     if (!existing && !option) return { success: false, message: 'Jadwal lama tidak ditemukan; pilih jam kerja yang tersedia.' }
+
+    if (item.jobdeskBlocks !== undefined && blocksTableAvailable) {
+      const startText = option?.jam_mulai || existing?.jam_mulai
+      const endText = option?.jam_selesai || existing?.jam_selesai
+      if (startText && endText) {
+        const [startHour, startMinute = '0'] = startText.split(':')
+        const [endHour, endMinute = '0'] = endText.split(':')
+        const shiftStart = Number(startHour) * 60 + Number(startMinute)
+        let shiftEnd = Number(endHour) * 60 + Number(endMinute)
+        if (shiftEnd <= shiftStart) shiftEnd += 1440
+        if (blocks.some((block) => block.mulaiMenit < shiftStart || block.selesaiMenit > shiftEnd)) {
+          return { success: false, message: 'Jobdesk harus berada di dalam rentang jam shift crew.' }
+        }
+      }
+    }
 
     if (existing && option && (existing.jam_mulai !== option.jam_mulai || existing.jam_selesai !== option.jam_selesai || Number(existing.durasi_jam) !== Number(option.durasi_jam))) {
       const { count, error } = await supabase.from('attendance').select('id', { count: 'exact', head: true }).eq('schedule_id', existing.id)
@@ -121,6 +164,19 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
           if (restoreError) rollbackErrors.push('jobdesk lama: ' + restoreError.message)
         }
         return { success: false, message: `Gagal menyimpan jobdesk: ${insertJobdeskError.message}${rollbackErrors.length ? `. Pemulihan juga gagal: ${rollbackErrors.join('; ')}` : existing ? '. Perubahan dipulihkan.' : ''}` }
+      }
+    }
+
+    if (item.jobdeskBlocks !== undefined) {
+      const { error: deleteBlocksError } = await supabase.from('schedule_jobdesk_block').delete().eq('schedule_id', scheduleId)
+      if (deleteBlocksError) return { success: false, message: 'Jadwal tersimpan, tetapi pembagian jobdesk lama gagal dibersihkan. Muat ulang dan coba lagi: ' + deleteBlocksError.message }
+      const blockRows = blocks.flatMap((block) => block.jobdeskIds.map((jobdeskId) => ({
+        schedule_id: scheduleId!, jobdesk_id: jobdeskId,
+        mulai_menit: block.mulaiMenit, selesai_menit: block.selesaiMenit,
+      })))
+      if (blockRows.length > 0) {
+        const { error: insertBlocksError } = await supabase.from('schedule_jobdesk_block').insert(blockRows)
+        if (insertBlocksError) return { success: false, message: 'Jadwal tersimpan, tetapi pembagian jobdesk gagal. Pastikan migrasi database sudah diterapkan: ' + insertBlocksError.message }
       }
     }
   }
