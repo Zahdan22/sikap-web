@@ -6,12 +6,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getEmployeeSummaries, getEmployeeDetail, EmployeeSummary } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
+import { formatDateWithDay, toDateString } from '@/lib/date-utils'
 import * as XLSX from 'xlsx'
 import PageHeader from '@/components/PageHeader'
 import PeriodeModal from '@/components/PeriodeModal'
 
 type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
-type SortMode = 'nama' | 'telat-terbanyak' | 'telat-paling-sedikit'
+type SortMode = 'nama' | 'telat-terbanyak' | 'lupa-out-terbanyak'
 type SummaryFilter = 'semua' | 'ikhlas' | 'lupa-out' | 'keduanya'
 
 function getMonthRange(year: number, month: number) {
@@ -19,6 +20,20 @@ function getMonthRange(year: number, month: number) {
   const lastDay = new Date(year, month, 0).getDate()
   const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
   return { start, end }
+}
+
+function countInclusiveDays(start: string, end: string) {
+  if (end < start) return 0
+  const toDayNumber = (value: string) => {
+    const [year, month, day] = value.split('-').map(Number)
+    return Date.UTC(year, month - 1, day) / 86_400_000
+  }
+  return toDayNumber(end) - toDayNumber(start) + 1
+}
+
+function getReportDataEnd(periodEnd: string) {
+  const today = toDateString(new Date())
+  return periodEnd < today ? periodEnd : today
 }
 
 export default function LaporanPage() {
@@ -53,16 +68,22 @@ export default function LaporanPage() {
     })
     .sort((a, b) => {
     if (sortMode === 'telat-terbanyak') return b.totalHariTelat - a.totalHariTelat || a.nama.localeCompare(b.nama)
-    if (sortMode === 'telat-paling-sedikit') return a.totalHariTelat - b.totalHariTelat || a.nama.localeCompare(b.nama)
+    if (sortMode === 'lupa-out-terbanyak') return b.totalLupaAbsenPulang - a.totalLupaAbsenPulang || a.nama.localeCompare(b.nama)
     return a.nama.localeCompare(b.nama)
   })
 
   const teamTotals = summaries.reduce((totals, summary) => ({
-    hadir: totals.hadir + summary.totalHariHadir,
     telat: totals.telat + summary.totalHariTelat,
     ikhlas: totals.ikhlas + summary.totalIkhlas,
     lupaOut: totals.lupaOut + summary.totalLupaAbsenPulang,
-  }), { hadir: 0, telat: 0, ikhlas: 0, lupaOut: 0 })
+  }), { telat: 0, ikhlas: 0, lupaOut: 0 })
+
+  const periodProgress = generatedRange
+    ? {
+        elapsed: countInclusiveDays(generatedRange.start, getReportDataEnd(generatedRange.end)),
+        total: countInclusiveDays(generatedRange.start, generatedRange.end),
+      }
+    : null
 
   async function loadPeriode() {
     const supabase = createClient()
@@ -85,7 +106,7 @@ export default function LaporanPage() {
     if (Number.isInteger(restoredYear) && restoredYear >= 2000 && restoredYear <= 2100) setYear(restoredYear)
     if (Number.isInteger(restoredPeriodeId) && restoredPeriodeId > 0) setSelectedPeriodeId(restoredPeriodeId)
     if (['semua', 'ikhlas', 'lupa-out', 'keduanya'].includes(restoredFilter || '')) setSummaryFilter(restoredFilter as SummaryFilter)
-    if (['nama', 'telat-terbanyak', 'telat-paling-sedikit'].includes(restoredSort || '')) setSortMode(restoredSort as SortMode)
+    if (['nama', 'telat-terbanyak', 'lupa-out-terbanyak'].includes(restoredSort || '')) setSortMode(restoredSort as SortMode)
     setSearchCrew(params.get('search') || '')
 
     const start = params.get('start')
@@ -95,7 +116,7 @@ export default function LaporanPage() {
     const range = { start, end }
     setGeneratedRange(range)
     setLoading(true)
-    getEmployeeSummaries(start, end).then((data) => {
+    getEmployeeSummaries(start, getReportDataEnd(end)).then((data) => {
       setSummaries(data)
       setLoading(false)
       const storedScroll = sessionStorage.getItem('manager-report-scroll')
@@ -118,7 +139,7 @@ export default function LaporanPage() {
     const range = getDateRange()
     if (!range) { alert('Pilih periode kerja dulu'); return }
     setLoading(true)
-    const data = await getEmployeeSummaries(range.start, range.end)
+    const data = await getEmployeeSummaries(range.start, getReportDataEnd(range.end))
     setSummaries(data)
     setGeneratedRange(range)
     setLoading(false)
@@ -135,8 +156,9 @@ export default function LaporanPage() {
 
     const allRows: any[] = []
     const summariesToExport = exportAll ? summaries : visibleSummaries
+    const dataEnd = getReportDataEnd(generatedRange.end)
     for (const summary of summariesToExport) {
-      const details = await getEmployeeDetail(summary.userId, generatedRange.start, generatedRange.end)
+      const details = await getEmployeeDetail(summary.userId, generatedRange.start, dataEnd)
       for (const d of details) {
         const isIkhlas = d.menitTelat >= 30
         const isLupaOut = Boolean(d.jamMasukAktual && !d.jamPulangAktual)
@@ -264,16 +286,16 @@ export default function LaporanPage() {
         </div>
       </div>
 
-      {summaries.length > 0 && (
+      {generatedRange && !loading && (
         <div className="mt-5 px-5">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Ringkasan</p>
           </div>
 
           <div className="mt-2 rounded-2xl border border-cream-dim bg-cream-card p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Ringkasan seluruh tim</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Ringkasan seluruh tim · data s.d. {formatDateWithDay(getReportDataEnd(generatedRange.end))}</p>
             <div className="mt-2 grid grid-cols-4 gap-1 text-center">
-              <div><p className="text-sm font-semibold text-ink">{teamTotals.hadir}</p><p className="text-[9px] text-muted">Total Hari</p></div>
+              <div><p className="text-sm font-semibold text-ink">{periodProgress ? `${periodProgress.elapsed} / ${periodProgress.total}` : '—'}</p><p className="text-[9px] text-muted">Hari Terlewati / Total</p></div>
               <div><p className="text-sm font-semibold text-brand">{teamTotals.telat}</p><p className="text-[9px] text-muted">Telat</p></div>
               <div><p className="text-sm font-semibold text-brand">{teamTotals.ikhlas}</p><p className="text-[9px] text-muted">Ikhlas</p></div>
               <div><p className="text-sm font-semibold text-warning">{teamTotals.lupaOut}</p><p className="text-[9px] text-muted">Lupa Out</p></div>
@@ -312,7 +334,7 @@ export default function LaporanPage() {
             >
               <option value="nama">Nama crew</option>
               <option value="telat-terbanyak">Telat terbanyak</option>
-              <option value="telat-paling-sedikit">Telat paling sedikit</option>
+              <option value="lupa-out-terbanyak">Lupa Out terbanyak</option>
             </select>
           </label>
 
@@ -344,7 +366,7 @@ export default function LaporanPage() {
                   })
                   if (selectedPeriodeId) backParams.set('periode', String(selectedPeriodeId))
                   const detailParams = new URLSearchParams({
-                    start: generatedRange!.start, end: generatedRange!.end, nama: s.nama,
+                    start: generatedRange!.start, end: getReportDataEnd(generatedRange!.end), nama: s.nama,
                     back: `/manager/laporan?${backParams.toString()}`,
                   })
                   return `/manager/laporan/${s.userId}?${detailParams.toString()}`
