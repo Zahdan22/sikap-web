@@ -38,6 +38,14 @@ begin
   if swap_row.tanggal = swap_row.tanggal_target then
     raise exception 'Tanggal shift harus berbeda';
   end if;
+  if swap_row.tanggal < (now() at time zone 'Asia/Jakarta')::date
+     or swap_row.tanggal_target < (now() at time zone 'Asia/Jakarta')::date then
+    raise exception 'Tanggal pertukaran sudah lewat';
+  end if;
+  if not exists (select 1 from public.users where id = swap_row.requester_id and role = 'crew' and status_aktif)
+     or not exists (select 1 from public.users where id = swap_row.target_id and role = 'crew' and status_aktif) then
+    raise exception 'Salah satu crew sudah tidak aktif';
+  end if;
 
   select id into requester_schedule_id
   from public.schedule

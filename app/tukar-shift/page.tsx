@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createSwapRequest } from '@/app/actions/shift-swap'
 import { useDialog } from '@/components/ui/DialogProvider'
-import BackArrow from '@/components/BackArrow'
 import PageHeader from '@/components/PageHeader'
 
 type SwapRequest = {
@@ -130,6 +129,7 @@ export default function TukarShiftPage() {
               <option value="">-- Pilih tanggal kamu masuk --</option>
               {myShiftDates.map((date) => <option key={date} value={date}>{dateLabel(date)}</option>)}
             </select>
+            {myShiftDates.length === 0 && <p className="mt-1 text-[11px] text-warning">Belum ada jadwal shift hari ini atau mendatang yang bisa ditukar.</p>}
           </div>
 
           <div className="mt-3">
@@ -156,18 +156,21 @@ export default function TukarShiftPage() {
             </div>
 
             {targetType === 'crew' ? (
-              <select
-                value={targetId}
-                onChange={(e) => { setTargetId(e.target.value); setTanggalTarget('') }}
-                required
-                disabled={!tanggal}
-                className="mt-2 w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
-              >
-                <option value="">-- Pilih rekan yang bisa bertukar --</option>
-                {eligibleCrewOptions.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nama}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={targetId}
+                  onChange={(e) => { setTargetId(e.target.value); setTanggalTarget('') }}
+                  required
+                  disabled={!tanggal}
+                  className="mt-2 w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
+                >
+                  <option value="">-- Pilih rekan yang bisa bertukar --</option>
+                  {eligibleCrewOptions.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nama}</option>
+                  ))}
+                </select>
+                {tanggal && eligibleCrewOptions.length === 0 && <p className="mt-1 text-[11px] text-warning">Belum ada rekan yang memiliki pola jadwal berlawanan pada tanggal pilihanmu.</p>}
+              </>
             ) : (
               <input
                 placeholder="Nama freelance (ketik manual)"
@@ -186,6 +189,7 @@ export default function TukarShiftPage() {
                 <option value="">-- Pilih tanggal rekan masuk --</option>
                 {targetWorkDates.map((date) => <option key={date} value={date}>{dateLabel(date)}</option>)}
               </select>
+              {targetId && targetWorkDates.length === 0 && <p className="mt-1 text-[11px] text-warning">Tidak ada tanggal shift rekan yang bisa ditukar karena kamu sudah memiliki jadwal pada tanggal-tanggal itu.</p>}
             </div>
           )}
 

@@ -120,7 +120,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
           } else penalties.push(latePenalty)
         }
       }
-      if ((shiftEnded && !attendance?.jam_pulang_aktual) || attendance.status_pulang === 'lewat_batas') {
+      if ((shiftEnded && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas') {
         penalties.push({ reason: !attendance?.jam_pulang_aktual ? 'Tidak checkout' : 'Telat checkout', amount: 2_000, points: 4 })
       }
     }
@@ -331,7 +331,7 @@ export async function loadPayrollCrewDetail(userId: string, start: string, end: 
     if (!hasCheckIn && shiftEnded) penalties.push({ reason: 'Tidak absen masuk · Kerja Ikhlas', amount: 0, points: 3 })
     else if (latePenalty && minutesLate >= 30 && tier?.tier !== 'senior') penalties.push({ reason: 'Telat ≥30 menit · Kerja Ikhlas, upah shift tidak dibayar', amount: 0, points: 6 })
     else if (latePenalty) penalties.push(latePenalty)
-    if (hasCheckIn && ((shiftEnded && !attendance?.jam_pulang_aktual) || attendance.status_pulang === 'lewat_batas')) {
+    if (hasCheckIn && ((shiftEnded && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas')) {
       penalties.push({ reason: !attendance?.jam_pulang_aktual ? 'Tidak checkout' : 'Telat checkout', amount: 2_000, points: 4 })
     }
     const attendanceDeduction = penalties.reduce((sum, penalty) => sum + penalty.amount, 0)
