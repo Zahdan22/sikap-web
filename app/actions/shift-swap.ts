@@ -3,8 +3,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
+function jakartaToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
 export async function createSwapRequest(
   tanggal: string,
+  tanggalTarget: string | null,
   targetType: 'crew' | 'freelance',
   targetId: string | null,
   targetNamaFreelance: string | null,
@@ -16,6 +23,12 @@ export async function createSwapRequest(
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !['crew', 'freelance'].includes(targetType)) {
     return { success: false, message: 'Tanggal atau jenis tukar shift tidak valid.' }
+  }
+  if (targetType === 'crew' && (!tanggalTarget || !/^\d{4}-\d{2}-\d{2}$/.test(tanggalTarget) || tanggalTarget === tanggal)) {
+    return { success: false, message: 'Pilih dua tanggal shift yang berbeda.' }
+  }
+  if (tanggal < jakartaToday() || (targetType === 'crew' && tanggalTarget! < jakartaToday())) {
+    return { success: false, message: 'Pertukaran hanya dapat diajukan untuk jadwal hari ini atau mendatang.' }
   }
   const { data: requester, error: requesterError } = await supabase.from('users')
     .select('role, status_aktif').eq('id', user.id).single()
@@ -31,16 +44,46 @@ export async function createSwapRequest(
       .select('id').eq('id', targetId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
     if (targetError) return { success: false, message: 'Gagal memeriksa crew tujuan: ' + targetError.message }
     if (!target) return { success: false, message: 'Crew tujuan tidak ditemukan atau sedang nonaktif.' }
+    const { data: targetSchedule, error: targetScheduleError } = await supabase.from('schedule')
+      .select('id').eq('user_id', targetId).eq('tanggal', tanggalTarget!).maybeSingle()
+    if (targetScheduleError) return { success: false, message: 'Gagal memeriksa jadwal rekan: ' + targetScheduleError.message }
+    if (!targetSchedule) return { success: false, message: 'Rekan tidak memiliki shift pada tanggal kedua yang dipilih.' }
+    const { data: conflicts, error: conflictError } = await supabase.from('schedule')
+      .select('id, user_id, tanggal').in('user_id', [user.id, targetId]).in('tanggal', [tanggal, tanggalTarget!])
+    if (conflictError) return { success: false, message: 'Gagal memeriksa jadwal tujuan: ' + conflictError.message }
+    if ((conflicts || []).some((row) => (row.user_id === user.id && row.tanggal === tanggalTarget)
+      || (row.user_id === targetId && row.tanggal === tanggal))) {
+      return { success: false, message: 'Pertukaran tidak bisa dilakukan karena salah satu crew sudah memiliki shift pada tanggal tujuan.' }
+    }
+    const { data: attendanceRows, error: attendanceError } = await supabase.from('attendance')
+      .select('id').in('schedule_id', [ownSchedule.id, targetSchedule.id])
+    if (attendanceError) return { success: false, message: 'Gagal memeriksa absensi pada jadwal: ' + attendanceError.message }
+    if (attendanceRows?.length) return { success: false, message: 'Salah satu shift sudah memiliki data absensi dan tidak dapat diajukan untuk ditukar.' }
   } else if (!targetNamaFreelance?.trim()) {
     return { success: false, message: 'Nama freelance wajib diisi.' }
   }
   const { data: pending, error: pendingError } = await supabase.from('shift_swap_request')
-    .select('id').eq('requester_id', user.id).eq('tanggal', tanggal).eq('status', 'pending').limit(1)
+    .select('id, tanggal, tanggal_target').eq('status', 'pending')
+    .or(`requester_id.eq.${user.id},target_id.eq.${user.id}`)
   if (pendingError) return { success: false, message: 'Gagal memeriksa pengajuan lain: ' + pendingError.message }
-  if (pending?.length) return { success: false, message: 'Masih ada pengajuan tukar shift yang menunggu pada tanggal tersebut.' }
+  if ((pending || []).some((row) => [row.tanggal, row.tanggal_target].includes(tanggal)
+    || (tanggalTarget && [row.tanggal, row.tanggal_target].includes(tanggalTarget)))) {
+    return { success: false, message: 'Kamu masih memiliki pengajuan tukar shift yang memakai salah satu tanggal ini.' }
+  }
+  if (targetType === 'crew') {
+    const { data: crewPending, error: crewPendingError } = await supabase.from('shift_swap_request')
+      .select('id, tanggal, tanggal_target').eq('status', 'pending')
+      .or(`requester_id.eq.${targetId},target_id.eq.${targetId}`)
+    if (crewPendingError) return { success: false, message: 'Gagal memeriksa pengajuan rekan: ' + crewPendingError.message }
+    if ((crewPending || []).some((row) => [row.tanggal, row.tanggal_target].includes(tanggal)
+      || [row.tanggal, row.tanggal_target].includes(tanggalTarget))) {
+      return { success: false, message: 'Kamu atau rekanmu sudah memiliki pengajuan aktif yang memakai salah satu tanggal ini.' }
+    }
+  }
 
   const { error } = await supabase.from('shift_swap_request').insert({
     tanggal,
+    tanggal_target: targetType === 'crew' ? tanggalTarget : null,
     requester_id: user.id,
     target_type: targetType,
     target_id: targetType === 'crew' ? targetId : null,
@@ -145,6 +188,20 @@ export async function respondSwapRequest(
   if (fetchError || !swap) return { success: false, message: 'Pengajuan tidak ditemukan' }
 
   if (swap.status !== 'pending') return { success: false, message: 'Pengajuan ini sudah pernah diproses' }
+
+  if (status === 'disetujui' && swap.target_type === 'crew' && swap.tanggal_target) {
+    const { error } = await supabase.rpc('approve_two_date_shift_swap', {
+      p_request_id: id,
+      p_manager_note: catatanManajer,
+    })
+    if (error) return { success: false, message: 'Gagal menyetujui pertukaran jadwal: ' + error.message }
+    revalidatePath('/manager/tukar-shift')
+    revalidatePath('/tukar-shift')
+    revalidatePath('/jadwal-saya')
+    revalidatePath('/manager/jadwal')
+    revalidatePath('/dashboard')
+    return { success: true }
+  }
 
   let snapshots: ScheduleSnapshot[] = []
   if (status === 'disetujui') {

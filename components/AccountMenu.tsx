@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useDialog } from '@/components/ui/DialogProvider'
 
-export default function AccountMenu({ role }: { role: 'crew' | 'manager' }) {
+export default function AccountMenu({ role }: { role: 'crew' | 'manager' | 'finance' }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
   const { confirm } = useDialog()

@@ -9,12 +9,17 @@ import PageHeader from '@/components/PageHeader'
 type SwapRequest = {
   id: number
   tanggal: string
+  tanggal_target: string | null
   alasan: string | null
   status: string
   target_type: string
   target_nama_freelance: string | null
   requester: { nama: string } | null
   target: { nama: string } | null
+}
+
+function dateLabel(value: string) {
+  return new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`))
 }
 
 const statusStyle: Record<string, string> = {
@@ -75,7 +80,8 @@ export default function ManagerTukarShiftPage() {
                   {item.status}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-muted">{item.tanggal}</p>
+              <p className="mt-1 text-xs text-muted">{item.tanggal_target ? `${dateLabel(item.tanggal)} ↔ ${dateLabel(item.tanggal_target)}` : dateLabel(item.tanggal)}</p>
+              {item.target_type === 'crew' && item.tanggal_target && <p className="mt-2 rounded-lg bg-success/10 px-3 py-2 text-xs leading-relaxed text-ink">Jika disetujui: @{item.target?.nama || 'Rekan'} masuk pada {dateLabel(item.tanggal)} dan libur pada {dateLabel(item.tanggal_target)}; @{item.requester?.nama || 'Pengaju'} masuk pada {dateLabel(item.tanggal_target)} dan libur pada {dateLabel(item.tanggal)}. Jam kerja dan jobdesk mengikuti shift masing-masing.</p>}
               {item.alasan && <p className="mt-1 text-xs text-muted">"{item.alasan}"</p>}
 
               {openCatatanFor === item.id ? (
@@ -128,7 +134,7 @@ export default function ManagerTukarShiftPage() {
                   {item.status}
                 </span>
               </div>
-              <p className="mt-0.5 text-xs text-muted">{item.tanggal}</p>
+              <p className="mt-0.5 text-xs text-muted">{item.tanggal_target ? `${dateLabel(item.tanggal)} ↔ ${dateLabel(item.tanggal_target)}` : dateLabel(item.tanggal)}</p>
             </div>
           ))}
           {historyList.length === 0 && <p className="text-sm text-muted">Belum ada riwayat.</p>}

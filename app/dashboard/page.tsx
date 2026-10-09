@@ -16,5 +16,6 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
+  if (profile?.role === 'finance') redirect('/finance')
   return <DashboardClient nama={profile?.nama || ''} role={profile?.role || 'crew'} />
 }

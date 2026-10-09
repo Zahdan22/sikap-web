@@ -15,13 +15,6 @@ type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesa
 type SortMode = 'nama' | 'telat-terbanyak' | 'lupa-out-terbanyak'
 type SummaryFilter = 'semua' | 'ikhlas' | 'lupa-out' | 'keduanya'
 
-function getMonthRange(year: number, month: number) {
-  const start = `${year}-${String(month).padStart(2, '0')}-01`
-  const lastDay = new Date(year, month, 0).getDate()
-  const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
-  return { start, end }
-}
-
 function countInclusiveDays(start: string, end: string) {
   if (end < start) return 0
   const toDayNumber = (value: string) => {
@@ -37,12 +30,14 @@ function getReportDataEnd(periodEnd: string) {
 }
 
 export default function LaporanPage() {
+  return <LaporanPageClient />
+}
+
+export function LaporanPageClient({ finance = false }: { finance?: boolean }) {
+  const reportPath = finance ? '/finance/laporan' : '/manager/laporan'
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialQuery = useRef(searchParams.toString())
-  const [mode, setMode] = useState<'bulan' | 'periode'>('bulan')
-  const [year, setYear] = useState(new Date().getFullYear())
-  const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [periodeList, setPeriodeList] = useState<Periode[]>([])
   const [selectedPeriodeId, setSelectedPeriodeId] = useState<number | null>(null)
   const [summaries, setSummaries] = useState<EmployeeSummary[]>([])
@@ -88,22 +83,22 @@ export default function LaporanPage() {
   async function loadPeriode() {
     const supabase = createClient()
     const { data } = await supabase.from('periode_kerja').select('*').order('tanggal_mulai', { ascending: false })
-    setPeriodeList(data || [])
+    const list = data || []
+    setPeriodeList(list)
+    const requestedId = Number(new URLSearchParams(initialQuery.current).get('periode'))
+    setSelectedPeriodeId((current) => {
+      const preferred = requestedId || current
+      return list.some((period) => period.id === preferred) ? preferred : (list[0]?.id ?? null)
+    })
   }
 
   useEffect(() => { loadPeriode() }, [])
 
   useEffect(() => {
     const params = new URLSearchParams(initialQuery.current)
-    const restoredMode = params.get('mode')
-    const restoredMonth = Number(params.get('month'))
-    const restoredYear = Number(params.get('year'))
     const restoredPeriodeId = Number(params.get('periode'))
     const restoredFilter = params.get('filter')
     const restoredSort = params.get('sort')
-    if (restoredMode === 'bulan' || restoredMode === 'periode') setMode(restoredMode)
-    if (Number.isInteger(restoredMonth) && restoredMonth >= 1 && restoredMonth <= 12) setMonth(restoredMonth)
-    if (Number.isInteger(restoredYear) && restoredYear >= 2000 && restoredYear <= 2100) setYear(restoredYear)
     if (Number.isInteger(restoredPeriodeId) && restoredPeriodeId > 0) setSelectedPeriodeId(restoredPeriodeId)
     if (['semua', 'ikhlas', 'lupa-out', 'keduanya'].includes(restoredFilter || '')) setSummaryFilter(restoredFilter as SummaryFilter)
     if (['nama', 'telat-terbanyak', 'lupa-out-terbanyak'].includes(restoredSort || '')) setSortMode(restoredSort as SortMode)
@@ -129,7 +124,6 @@ export default function LaporanPage() {
   }, [])
 
   function getDateRange(): { start: string; end: string } | null {
-    if (mode === 'bulan') return getMonthRange(year, month)
     const periode = periodeList.find((p) => p.id === selectedPeriodeId)
     if (!periode) return null
     return { start: periode.tanggal_mulai, end: periode.tanggal_selesai }
@@ -143,11 +137,11 @@ export default function LaporanPage() {
     setSummaries(data)
     setGeneratedRange(range)
     setLoading(false)
-    const params = new URLSearchParams({ mode, month: String(month), year: String(year), filter: summaryFilter, sort: sortMode, search: searchCrew })
+    const params = new URLSearchParams({ mode: 'periode', filter: summaryFilter, sort: sortMode, search: searchCrew })
     if (selectedPeriodeId) params.set('periode', String(selectedPeriodeId))
     params.set('start', range.start)
     params.set('end', range.end)
-    router.replace(`/manager/laporan?${params.toString()}`, { scroll: false })
+    router.replace(`${reportPath}?${params.toString()}`, { scroll: false })
   }
 
   async function handleExport(exportAll: boolean) {
@@ -197,10 +191,8 @@ export default function LaporanPage() {
       <div className="relative">
         <PageHeader
           title="Laporan & Rekap"
-          backHref="/dashboard"
-          rightSlot={
-            <button onClick={() => setShowMenu((v) => !v)} className="text-xl text-white">⋮</button>
-          }
+          backHref={finance ? '/finance' : '/dashboard'}
+          rightSlot={<button onClick={() => setShowMenu((v) => !v)} className="px-2 text-xl text-white" aria-label="Kelola periode kerja">⋮</button>}
         />
         {showMenu && (
           <div className="absolute right-5 top-16 z-10 w-48 rounded-xl border border-cream-dim bg-cream-card p-2 shadow-md">
@@ -216,45 +208,7 @@ export default function LaporanPage() {
 
       <div className="mt-4 px-5">
         <div className="rounded-2xl border border-cream-dim bg-cream-card p-4">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setMode('bulan')}
-              className={`flex-1 rounded-xl border py-2 text-xs font-semibold ${
-                mode === 'bulan' ? 'border-brand bg-brand text-white' : 'border-cream-dim bg-white text-ink'
-              }`}
-            >
-              Bulan Kalender
-            </button>
-            <button
-              onClick={() => setMode('periode')}
-              className={`flex-1 rounded-xl border py-2 text-xs font-semibold ${
-                mode === 'periode' ? 'border-brand bg-brand text-white' : 'border-cream-dim bg-white text-ink'
-              }`}
-            >
-              Periode Kerja
-            </button>
-          </div>
-
-          {mode === 'bulan' ? (
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <select
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
-                className="rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>Bulan {m}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={year}
-                onChange={(e) => setYear(Number(e.target.value))}
-                className="rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-              />
-            </div>
-          ) : (
-            <div className="mt-3">
+          <div>
               <select
                 value={selectedPeriodeId ?? ''}
                 onChange={(e) => setSelectedPeriodeId(Number(e.target.value))}
@@ -273,8 +227,7 @@ export default function LaporanPage() {
                   Belum ada periode, buat dulu →
                 </button>
               )}
-            </div>
-          )}
+          </div>
 
           <button
             onClick={handleGenerate}
@@ -361,15 +314,15 @@ export default function LaporanPage() {
                 key={s.userId}
                 href={(() => {
                   const backParams = new URLSearchParams({
-                    mode, month: String(month), year: String(year), filter: summaryFilter,
+                  mode: 'periode', filter: summaryFilter,
                     sort: sortMode, search: searchCrew, start: generatedRange!.start, end: generatedRange!.end,
                   })
                   if (selectedPeriodeId) backParams.set('periode', String(selectedPeriodeId))
                   const detailParams = new URLSearchParams({
                     start: generatedRange!.start, end: getReportDataEnd(generatedRange!.end), nama: s.nama,
-                    back: `/manager/laporan?${backParams.toString()}`,
+                    back: `${reportPath}?${backParams.toString()}`,
                   })
-                  return `/manager/laporan/${s.userId}?${detailParams.toString()}`
+                  return `${reportPath}/${s.userId}?${detailParams.toString()}`
                 })()}
                 onClick={() => sessionStorage.setItem('manager-report-scroll', String(window.scrollY))}
                 className="block rounded-xl border border-cream-dim bg-cream-card px-4 py-3"

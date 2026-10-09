@@ -20,6 +20,10 @@ const statusStyle: Record<string, string> = {
 type AttendanceFilter = 'semua' | 'check-in' | 'check-out' | 'keduanya' | 'ikhlas' | 'lupa-out'
 
 export default function DetailKaryawanPage() {
+  return <DetailKaryawanClient />
+}
+
+export function DetailKaryawanClient({ finance = false }: { finance?: boolean }) {
   const params = useParams()
   const searchParams = useSearchParams()
   const userId = params.userId as string
@@ -27,9 +31,10 @@ export default function DetailKaryawanPage() {
   const end = searchParams.get('end') || ''
   const nama = searchParams.get('nama') || ''
   const requestedBackHref = searchParams.get('back') || ''
-  const backHref = requestedBackHref.startsWith('/manager/laporan?') && !requestedBackHref.startsWith('//')
+  const reportPath = finance ? '/finance/laporan' : '/manager/laporan'
+  const backHref = requestedBackHref.startsWith(`${reportPath}?`) && !requestedBackHref.startsWith('//')
     ? requestedBackHref
-    : '/manager/laporan'
+    : reportPath
 
   const [details, setDetails] = useState<AttendanceDetail[]>([])
   const [photoUrls, setPhotoUrls] = useState<Record<number, { masuk?: string; pulang?: string }>>({})

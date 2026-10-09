@@ -52,6 +52,8 @@ function getIcon(label: string, className: string): ReactNode {
     case 'History': return <HistoryIcon className={className} />
     case 'Jadwal': return <ScheduleIcon className={className} />
     case 'Laporan': return <ReportIcon className={className} />
+    case 'Tier Crew': return <HistoryIcon className={className} />
+    case 'Payroll': return <ReportIcon className={className} />
     default: return null
   }
 }
@@ -60,7 +62,7 @@ export default function BottomNav() {
   const pathname = usePathname()
   const hiddenPaths = ['/checkin', '/izin', '/tukar-shift', '/settings', '/login']
   const isHidden = hiddenPaths.some((p) => pathname.startsWith(p))
-  const [isManager, setIsManager] = useState(false)
+  const [role, setRole] = useState<string>('crew')
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export default function BottomNav() {
       }
       const { data } = await supabase.from('users').select('role').eq('id', user.id).single()
       if (!active) return
-      setIsManager(data?.role === 'manager')
+      setRole(data?.role || 'crew')
       setLoaded(true)
     }
     checkRole()
@@ -84,7 +86,14 @@ export default function BottomNav() {
 
   if (isHidden || !loaded) return null
 
-  const items = isManager
+  const items = role === 'finance'
+    ? [
+        { href: '/finance', label: 'Dashboard' },
+        { href: '/finance/crew', label: 'Tier Crew' },
+        { href: '/finance/payroll', label: 'Payroll' },
+        { href: '/finance/laporan', label: 'Laporan' },
+      ]
+    : role === 'manager'
     ? [
         { href: '/dashboard', label: 'Dashboard' },
         { href: '/manager/jadwal', label: 'Jadwal' },
@@ -99,12 +108,13 @@ export default function BottomNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-cream-dim bg-cream-card px-3 py-2.5">
       {items.map((item) => {
-        const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+        const isRootTab = item.href === '/dashboard' || item.href === '/finance'
+        const active = pathname === item.href || (!isRootTab && pathname.startsWith(item.href))
         return (
           <Link
             key={item.href}
             href={item.href}
-            className={`flex flex-col items-center gap-1 rounded-2xl px-4 py-2 text-xs font-semibold transition-colors ${
+            className={`flex min-w-0 flex-col items-center gap-1 rounded-2xl px-2 py-2 text-center text-xs font-semibold transition-colors sm:px-4 ${
               active ? 'bg-brand text-white' : 'text-muted'
             }`}
           >
