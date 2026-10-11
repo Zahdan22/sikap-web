@@ -1,9 +1,10 @@
 'use client'
 
-import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { loadPayrollCrewDetail } from '@/app/actions/payroll'
+import BackArrow from '@/components/BackArrow'
+import type { ApprovedOvertime } from '@/lib/overtime-payroll'
 
 type ShiftDetail = {
   scheduleId: number; tanggal: string; jamMulai: string; jamSelesai: string; hours: number; attendanceComplete: boolean; payable: boolean; ikhlas: boolean; status: string
@@ -11,9 +12,10 @@ type ShiftDetail = {
   seniorPlusLevel: number; hourlyRate: number; basePay: number; seniorPlusBonus: number; attendanceDeductions: number; attendancePoints: number; penalties: { reason: string; amount: number; points: number }[]; totalPay: number
 }
 type Adjustment = { id: number; adjustment_type: 'sp_deduction' | 'other_deduction' | 'addition'; amount: number; reason: string }
-type Detail = { success: true; person: { nama: string; username: string }; start: string; end: string; periodStatus: string | null; details: ShiftDetail[]; adjustments: Adjustment[] }
+type Detail = { success: true; person: { nama: string; username: string }; start: string; end: string; periodStatus: string | null; details: ShiftDetail[]; adjustments: Adjustment[]; overtimeDetails: ApprovedOvertime[]; overtimePay: number; overtimeHours: number }
 
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
+const hoursFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 })
 const adjustmentLabels = { sp_deduction: 'Potongan SP', other_deduction: 'Potongan lain', addition: 'Tambahan' }
 
 function dateLabel(value: string) {
@@ -72,8 +74,8 @@ export default function PayrollCrewDetailClient() {
 
   return <div className="min-h-full bg-cream pb-24">
     <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
-      <Link href={`/finance/payroll${backQuery ? `?${backQuery}` : ''}`} className="text-xl" aria-label="Kembali ke payroll">←</Link>
-      <div><h1 className="text-lg font-bold">Rincian Payroll Crew</h1><p className="text-xs text-white/80">Perhitungan berdasarkan jadwal dan tier berlaku</p></div>
+      <BackArrow href={`/finance/payroll${backQuery ? `?${backQuery}` : ''}`} />
+      <div><h1 className="text-lg font-bold">Rincian Payroll Crew</h1></div>
     </header>
     <main className="space-y-3 px-5 pt-4">
       {loading && <p className="py-8 text-center text-sm text-muted">Memuat rincian payroll…</p>}
@@ -85,20 +87,20 @@ export default function PayrollCrewDetailClient() {
           {result.periodStatus && <p className="mt-2 text-xs font-semibold text-brand">Status payroll: {result.periodStatus === 'finalized' ? 'Difinalisasi' : 'Draf'}</p>}
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div><p className="font-bold text-ink">{totals?.days ?? 0}</p><p className="text-[10px] text-muted">Hari lengkap</p></div>
-            <div><p className="font-bold text-ink">{(totals?.hours ?? 0).toFixed(2)}</p><p className="text-[10px] text-muted">Jam jadwal dibayar</p></div>
-            <div><p className="font-bold text-brand">{idr.format((totals?.pay ?? 0) + (adjustments?.additions ?? 0) - (adjustments?.deductions ?? 0))}</p><p className="text-[10px] text-muted">Gaji bersih</p></div>
+            <div><p className="font-bold text-ink">{hoursFormat.format(totals?.hours ?? 0)} jam</p><p className="text-[10px] text-muted">Jam jadwal dibayar</p></div>
+            <div><p className="font-bold text-brand">{idr.format((totals?.pay ?? 0) + result.overtimePay + (adjustments?.additions ?? 0) - (adjustments?.deductions ?? 0))}</p><p className="text-[10px] text-muted">Gaji bersih</p></div>
           </div>
         </section>
         <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">Rincian per hari</h2>
         {result.details.map((shift) => <article key={shift.scheduleId} className="rounded-2xl border border-cream-dim bg-cream-card p-4">
-          <div className="flex items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-ink">{dateLabel(shift.tanggal)}</h3><p className="text-xs text-muted">Jadwal {shift.jamMulai.slice(0, 5)}–{shift.jamSelesai.slice(0, 5)} · {shift.hours.toFixed(2)} jam</p></div><span className={`rounded-full px-2 py-1 text-[10px] ${shift.status === 'Hadir lengkap' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{shift.status}</span></div>
+          <div className="flex items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-ink">{dateLabel(shift.tanggal)}</h3><p className="text-xs text-muted">Jadwal {shift.jamMulai.slice(0, 5)}–{shift.jamSelesai.slice(0, 5)} · {hoursFormat.format(shift.hours)} jam</p></div><span className={`rounded-full px-2 py-1 text-[10px] ${shift.status === 'Hadir lengkap' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{shift.status}</span></div>
           <div className="mt-3 grid grid-cols-2 gap-y-2 text-xs">
             <p className="text-muted">Check-in <b className="text-ink">{shift.jamMasukAktual ? new Date(shift.jamMasukAktual).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</b></p>
             <p className="text-muted">Check-out <b className="text-ink">{shift.jamPulangAktual ? new Date(shift.jamPulangAktual).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</b></p>
             <p className="text-muted">Tier berlaku <b className="text-ink">{shift.tier?.replace('_', '-') || '—'}{shift.seniorPlusLevel ? ` +${shift.seniorPlusLevel}` : ''}</b></p>
             <p className="text-muted">Tarif per jam <b className="text-ink">{shift.hourlyRate ? idr.format(shift.hourlyRate) : '—'}</b></p>
             <p className="text-muted">Gaji dasar <b className="text-ink">{idr.format(shift.basePay)}</b></p>
-            <p className="text-muted">Bonus Senior+ <b className="text-ink">{idr.format(shift.seniorPlusBonus)}</b></p>
+            <p className="text-muted">Tunjangan Senior+ <b className="text-ink">{idr.format(shift.seniorPlusBonus)}</b></p>
             {shift.attendanceDeductions > 0 && <p className="text-muted">Denda absensi <b className="text-warning">{idr.format(shift.attendanceDeductions)}</b></p>}
             {shift.attendancePoints > 0 && <p className="text-muted">Poin absensi <b className="text-warning">{shift.attendancePoints}</b></p>}
             {shift.penalties.map((penalty, index) => <p key={index} className="col-span-2 text-warning">{penalty.reason}{penalty.amount ? ` · ${idr.format(penalty.amount)}` : ''}{penalty.points ? ` · ${penalty.points} poin` : ''}</p>)}
@@ -107,6 +109,16 @@ export default function PayrollCrewDetailClient() {
           </div>
         </article>)}
         {result.details.length === 0 && <p className="rounded-xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">Tidak ada jadwal crew ini dalam periode terpilih.</p>}
+        <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+          <h2 className="text-sm font-semibold text-ink">Lembur disetujui</h2>
+          <p className="mt-1 text-sm font-semibold text-brand">{result.overtimeHours} jam · {idr.format(result.overtimePay)}</p>
+          {result.overtimeDetails.map((item) => <div key={item.id} className="mt-3 border-t border-cream-dim pt-3 text-xs">
+            <p className="font-semibold text-ink">{dateLabel(item.tanggal)}</p>
+            <p className="mt-1 text-muted">{item.jam_mulai.slice(0, 5)}–{item.jam_selesai.slice(0, 5)}{item.jam_selesai < item.jam_mulai ? ' (hari berikutnya)' : ''} · {item.jam_dibayar} jam · {idr.format(item.nominal)}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-muted">{item.keterangan}</p>
+          </div>)}
+          {result.overtimeDetails.length === 0 && <p className="mt-2 text-xs text-muted">Belum ada lembur yang disetujui pada periode ini.</p>}
+        </section>
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
           <h2 className="text-sm font-semibold text-ink">Penyesuaian payroll</h2>
           {result.adjustments.length ? <div className="mt-2 space-y-2">{result.adjustments.map((item) => <p key={item.id} className="text-xs text-muted">{adjustmentLabels[item.adjustment_type]} · {idr.format(item.amount)} · {item.reason}</p>)}</div> : <p className="mt-1 text-xs text-muted">Belum ada penyesuaian untuk crew ini pada periode tersebut.</p>}

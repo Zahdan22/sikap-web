@@ -60,7 +60,7 @@ function getIcon(label: string, className: string): ReactNode {
 
 export default function BottomNav() {
   const pathname = usePathname()
-  const hiddenPaths = ['/checkin', '/izin', '/tukar-shift', '/settings', '/login']
+  const hiddenPaths = ['/checkin', '/izin', '/tukar-shift', '/lembur', '/settings', '/login']
   const isHidden = hiddenPaths.some((p) => pathname.startsWith(p))
   const [role, setRole] = useState<string>('crew')
   const [loaded, setLoaded] = useState(false)

@@ -1,9 +1,9 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { loadCrewPayrollStatus, saveCrewPayrollStatus } from '@/app/actions/payroll'
 import { useDialog } from '@/components/ui/DialogProvider'
+import BackArrow from '@/components/BackArrow'
 
 type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
 type CrewRow = {
@@ -20,7 +20,6 @@ const tierLabels: Record<Tier, string> = {
   junior: 'Junior',
   senior: 'Senior',
 }
-const tierThreshold: Partial<Record<Tier, number>> = { pra_training: 3, training: 22, junior: 24 }
 
 function jakartaToday() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
@@ -74,13 +73,10 @@ export default function FinanceCrewClient() {
   return (
     <div className="min-h-full bg-cream pb-24">
       <div className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
-        <Link href="/finance" className="text-xl" aria-label="Kembali">←</Link>
-        <div><h1 className="text-lg font-bold">Status Tier Crew</h1><p className="text-xs text-white/80">Data awal masa tier dan penetapan Senior+</p></div>
+        <BackArrow href="/finance" />
+        <div><h1 className="text-lg font-bold">Status Tier Crew</h1></div>
       </div>
       <div className="px-5 pt-4">
-        <div className="rounded-xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">
-          Atur tier awal dan progres hari crew saat pertama kali dicatat. Setelah tanggal jadwal tiba, setiap tanggal kerja yang memiliki jadwal menambah progres satu hari, terlepas dari status check-in atau check-out. Promosi otomatis mengikuti progres ini; Senior+ tetap diatur manual oleh manager keuangan.
-        </div>
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama crew..." className="mt-3 w-full rounded-xl border border-cream-dim bg-cream-card px-4 py-3 text-sm outline-none focus:border-brand" />
       </div>
       <div className="mt-4 space-y-3 px-5">
@@ -96,12 +92,12 @@ export default function FinanceCrewClient() {
                 <span className={`rounded-full px-2 py-1 text-[10px] ${person.payroll ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{person.payroll ? 'Tercatat' : 'Perlu diatur'}</span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <label className="text-xs text-muted">{person.payroll ? 'Tier saat ini · otomatis' : 'Tier awal'}
+                <label className="text-xs text-muted">{person.payroll ? 'Tier saat ini' : 'Tier awal'}
                   {person.payroll
                     ? <p className="mt-1 rounded-xl border border-cream-dim bg-cream px-3 py-2.5 text-sm font-medium text-ink">{tierLabels[draft.tier]}</p>
                     : <select value={draft.tier} onChange={(event) => setDrafts((prev) => ({ ...prev, [person.id]: { ...draft, tier: event.target.value as Tier, plus: event.target.value === 'senior' ? draft.plus : '0' } }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">{Object.entries(tierLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}
                 </label>
-                <label className="text-xs text-muted">{person.payroll ? 'Hari di tier ini · otomatis' : 'Hari awal di tier'}
+                <label className="text-xs text-muted">{person.payroll ? 'Hari di tier ini' : 'Hari awal di tier'}
                   {person.payroll
                     ? <p className="mt-1 rounded-xl border border-cream-dim bg-cream px-3 py-2.5 text-sm font-medium text-ink">{draft.days}</p>
                     : <input type="number" min="0" max="1000" step="1" value={draft.days} onChange={(event) => setDrafts((prev) => ({ ...prev, [person.id]: { ...draft, days: event.target.value } }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />}
@@ -111,15 +107,12 @@ export default function FinanceCrewClient() {
                 <label className="mt-3 block text-xs text-muted">{person.payroll ? 'Tanggal berlaku tier saat ini' : 'Tanggal mulai tier awal'}
                   <input type="date" value={draft.effectiveOn} max={jakartaToday()} onChange={(event) => setDrafts((prev) => ({ ...prev, [person.id]: { ...draft, effectiveOn: event.target.value } }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
                 </label>
-                <p className="mt-1 text-[11px] text-muted">Koreksi tanggal hanya untuk melengkapi riwayat tier/tarif. Promosi dan progres tier tetap otomatis.</p>
               </>
-              {tierThreshold[draft.tier] && <p className="mt-2 text-[11px] text-muted">Ambang promosi otomatis: {tierThreshold[draft.tier]} hari terjadwal. Isikan progres 0–{tierThreshold[draft.tier]! - 1} hari.</p>}
               {draft.tier === 'senior' && <label className="mt-3 block text-xs text-muted">Tingkat Senior+
                 <select value={draft.plus} onChange={(event) => setDrafts((prev) => ({ ...prev, [person.id]: { ...draft, plus: event.target.value } }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">
                   <option value="0">Senior biasa</option><option value="1">Senior +1</option><option value="2">Senior +2</option><option value="3">Senior +3</option><option value="4">Senior +4</option><option value="5">Senior +5</option>
                 </select>
               </label>}
-              <p className="mt-2 text-[11px] text-muted">Tarif: Pra-Training 5.000/jam · Training 5.000/jam · Junior 6.000/jam · Senior 6.800/jam.</p>
               {(draft.tier === 'senior' || !person.payroll || draft.effectiveOn !== person.payroll.effective_on) && <button disabled={saving === person.id} onClick={() => void save(person)} className="mt-3 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving === person.id ? 'Menyimpan…' : person.payroll ? 'Simpan perubahan' : 'Simpan data awal'}</button>}
             </section>
           )

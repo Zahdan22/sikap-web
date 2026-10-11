@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createPeriode, deletePeriode } from '@/app/actions/periode'
 import { useDialog } from '@/components/ui/DialogProvider'
+import PageHeader from '@/components/PageHeader'
 
 type Periode = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 
@@ -48,10 +49,7 @@ export default function PeriodePage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-24">
-      <div className="flex items-center gap-3 px-5 pt-6">
-        <a href="/manager" className="text-brand text-lg">←</a>
-        <h1 className="text-lg font-semibold text-ink">Kelola Periode Kerja</h1>
-      </div>
+      <PageHeader title="Kelola Periode Kerja" backHref="/manager" />
 
       <div className="mt-4 px-5">
         <button

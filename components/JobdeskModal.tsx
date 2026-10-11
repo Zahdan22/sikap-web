@@ -70,7 +70,7 @@ export default function JobdeskModal({ onClose }: { onClose: () => void }) {
           <form onSubmit={handleSubmit} className="mt-3 rounded-2xl border border-cream-dim bg-white p-4">
             <input placeholder="Nama" value={nama} onChange={(e) => setNama(e.target.value)} required
               className="w-full rounded-lg border border-cream-dim px-3 py-2 text-sm outline-none focus:border-brand" />
-            <input placeholder="Singkatan" value={singkatan} onChange={(e) => setSingkatan(e.target.value)} maxLength={5} required
+            <input placeholder="Singkatan" value={singkatan} onChange={(e) => setSingkatan(e.target.value)} required
               className="mt-2 w-full rounded-lg border border-cream-dim px-3 py-2 text-sm outline-none focus:border-brand" />
             <button type="submit" className="mt-2 w-full rounded-lg bg-brand py-2 text-sm font-semibold text-white">
               {editingId ? 'Update' : 'Tambah'}
@@ -81,7 +81,7 @@ export default function JobdeskModal({ onClose }: { onClose: () => void }) {
         <div className="mt-3 space-y-2">
           {list.map((item) => (
             <div key={item.id} className="flex items-center justify-between rounded-xl border border-cream-dim bg-white px-4 py-3">
-              <div>
+              <div className="min-w-0 flex-1 break-words pr-3">
                 <p className="text-sm font-semibold text-ink">{item.nama}</p>
                 <p className="text-xs text-muted">{item.singkatan}</p>
               </div>

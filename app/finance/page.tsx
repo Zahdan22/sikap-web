@@ -2,6 +2,7 @@ import Link from 'next/link'
 import DashboardHeader from '@/components/DashboardHeader'
 import AccountMenu from '@/components/AccountMenu'
 import { createClient } from '@/lib/supabase/server'
+import OvertimeDashboardCard from '@/components/OvertimeDashboardCard'
 
 export default async function FinanceHomePage() {
   const supabase = await createClient()
@@ -14,6 +15,7 @@ export default async function FinanceHomePage() {
         <AccountMenu role="finance" />
       </DashboardHeader>
       <section className="mt-5 space-y-3 px-5">
+        <OvertimeDashboardCard href="/finance/lembur" />
         <Link href="/finance/payroll" className="block rounded-2xl border border-cream-dim bg-cream-card p-5">
           <p className="font-semibold text-ink">Payroll & Rekap Gaji</p>
           <p className="mt-1 text-sm text-muted">Hitung gaji dari jadwal dan absensi lengkap, lalu ekspor Excel.</p>

@@ -15,14 +15,19 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
 
-  const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const { data: profile, error: profileError } = await supabase.from('users').select('role, status_aktif').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
-  if (profile?.role !== 'manager') return { success: false, message: 'Hanya manager yang dapat mengelola jadwal' }
+  if (profile?.role !== 'manager' || !profile.status_aktif) return { success: false, message: 'Hanya manager aktif yang dapat mengelola jadwal' }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !Array.isArray(payload) || payload.length > 200
     || payload.some((item) => !item || typeof item.userId !== 'string' || !Array.isArray(item.jobdeskIds))) {
     return { success: false, message: 'Tanggal atau data jadwal tidak valid' }
   }
   if (new Set(payload.map((item) => item.userId)).size !== payload.length) return { success: false, message: 'Data memuat crew duplikat' }
+  // Check the migration before changing any schedule rows.
+  const { error: statusError } = await supabase.from('schedule_day_status').select('tanggal').limit(1)
+  if (statusError) return { success: false, message: /schema cache|does not exist/i.test(statusError.message)
+    ? 'Jalankan migrasi 202610110002_schedule_day_status.sql di Supabase terlebih dahulu.'
+    : 'Gagal memeriksa status jadwal: ' + statusError.message }
   const { data: crewRows, error: crewError } = await supabase.from('users').select('id').eq('role', 'crew').eq('status_aktif', true)
   if (crewError) return { success: false, message: 'Gagal memeriksa daftar crew: ' + crewError.message }
   const crewIds = new Set((crewRows || []).map((row) => row.id))
@@ -181,8 +186,11 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
     }
   }
 
+  const { data: updatedAt, error: savedStatusError } = await supabase.rpc('mark_schedule_day_saved', { p_tanggal: tanggal })
+  if (savedStatusError) return { success: false, message: 'Jadwal tersimpan, tetapi waktu pembaruan gagal dicatat. Simpan ulang hari ini: ' + savedStatusError.message }
+
   revalidatePath('/manager/jadwal')
   revalidatePath('/dashboard')
   revalidatePath('/jadwal-saya')
-  return { success: true }
+  return { success: true, updatedAt: updatedAt as string }
 }

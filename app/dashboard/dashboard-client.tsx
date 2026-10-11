@@ -10,6 +10,7 @@ import DashboardHeader from '@/components/DashboardHeader'
 import AccountMenu from '@/components/AccountMenu'
 import Spinner from '@/components/Spinner'
 import DailyScheduleTimeline from '@/components/DailyScheduleTimeline'
+import OvertimeDashboardCard from '@/components/OvertimeDashboardCard'
 
 type Props = { nama: string; role: string }
 type ManagerActivity = {
@@ -178,6 +179,8 @@ function ManagerDashboard({ nama }: { nama: string }) {
           <p className="text-xs text-muted">Setujui/tolak</p>
         </Link>
       </div>
+
+      <div className="mt-3 px-5"><OvertimeDashboardCard href="/manager/lembur" /></div>
 
       <div className="mt-6 px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">Shift Hari Ini</p>
@@ -352,6 +355,21 @@ function CrewDashboard({ nama }: { nama: string }) {
       </div>
 
       <div className="mt-4 space-y-3 px-5">
+        <Link href="/lembur" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+              <svg aria-hidden="true" width="24" height="24" viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M27 22A13 13 0 1 1 14 9M11 6l3 3-3 3" />
+                <circle cx="14" cy="22" r="9" />
+                <path d="M14 17v5l-3 2M14 15v1M7 22h1M14 28v1M20 22h1" />
+                <circle cx="27" cy="9" r="6" />
+                <path d="M27 6v6M24 9h6" />
+              </svg>
+            </div>
+            <div><p className="text-sm font-semibold text-ink">Pengajuan Lembur</p><p className="text-xs text-muted">Ajukan dan lihat status lembur</p></div>
+          </div>
+          <span className="text-brand">→</span>
+        </Link>
         <Link href="/izin" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/10 text-brand">

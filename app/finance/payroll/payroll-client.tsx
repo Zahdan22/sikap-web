@@ -7,17 +7,20 @@ import * as XLSX from 'xlsx'
 import { addPayrollAdjustment, finalizePayroll, loadPayrollReport, loadPayrollWorkPeriods, savePayrollDraft } from '@/app/actions/payroll'
 import PeriodeModal from '@/components/PeriodeModal'
 import { useDialog } from '@/components/ui/DialogProvider'
+import BackArrow from '@/components/BackArrow'
 
 type Adjustment = { id: number; adjustment_type: 'sp_deduction' | 'other_deduction' | 'addition'; amount: number; reason: string }
 type PayrollRow = {
   userId: string; nama: string; username: string; statusAktif: boolean; tier: string | null; seniorPlusLevel: number
   scheduledDays: number; completedDays: number; payableDays: number; excludedDays: number; unratedDays: number; hours: number; basePay: number
   seniorPlusPay: number; deductions: number; attendanceDeductions: number; attendancePoints: number; additions: number; netPay: number; adjustments: Adjustment[]
+  overtimePay: number; overtimeHours: number
 }
 type PayrollReport = { periodId: number | null; periodStatus: 'draft' | 'finalized' | null; rows: PayrollRow[] }
 type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
+const hoursFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 })
 const adjustmentLabel: Record<Adjustment['adjustment_type'], string> = {
   sp_deduction: 'Potongan SP', other_deduction: 'Potongan lain', addition: 'Tambahan',
 }
@@ -89,12 +92,13 @@ export default function PayrollClient() {
     days: sum.days + row.payableDays,
     base: sum.base + row.basePay,
     bonus: sum.bonus + row.seniorPlusPay,
+    overtime: sum.overtime + row.overtimePay,
     deductions: sum.deductions + row.deductions,
     points: sum.points + row.attendancePoints,
     additions: sum.additions + row.additions,
     net: sum.net + row.netPay,
     unrated: sum.unrated + row.unratedDays,
-  }), { hours: 0, days: 0, base: 0, bonus: 0, deductions: 0, points: 0, additions: 0, net: 0, unrated: 0 }), [report])
+  }), { hours: 0, days: 0, base: 0, bonus: 0, overtime: 0, deductions: 0, points: 0, additions: 0, net: 0, unrated: 0 }), [report])
 
   async function saveDraft() {
     setSaving(true)
@@ -160,7 +164,9 @@ export default function PayrollClient() {
       'Hari tidak dihitung': row.excludedDays,
       'Total jam jadwal hadir': Number(row.hours.toFixed(2)),
       'Gaji dasar': row.basePay,
-      'Bonus Senior+': row.seniorPlusPay,
+      'Tunjangan Senior+': row.seniorPlusPay,
+      'Jam lembur dibayar': row.overtimeHours,
+      'Bonus lembur': row.overtimePay,
       'Potongan absensi': row.attendanceDeductions,
       'Poin absensi': row.attendancePoints,
       Tambahan: row.additions,
@@ -176,8 +182,8 @@ export default function PayrollClient() {
     <div className="min-h-full bg-cream pb-24">
       <div className="relative">
         <div className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
-          <Link href="/finance" className="text-xl" aria-label="Kembali">←</Link>
-          <div className="min-w-0 flex-1"><h1 className="text-lg font-bold">Payroll & Rekap Gaji</h1><p className="text-xs text-white/80">Gaji memakai jam jadwal dengan absensi lengkap</p></div>
+          <BackArrow href="/finance" />
+          <div className="min-w-0 flex-1"><h1 className="text-lg font-bold">Payroll & Rekap Gaji</h1></div>
           <button onClick={() => setShowMenu((value) => !value)} className="px-2 text-xl" aria-label="Kelola periode kerja">⋮</button>
         </div>
         {showMenu && <div className="absolute right-5 top-16 z-30 w-52 rounded-xl border border-cream-dim bg-cream-card p-2 shadow-md"><button onClick={() => { setShowPeriodModal(true); setShowMenu(false) }} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-ink">Kelola Periode Kerja</button></div>}
@@ -195,11 +201,12 @@ export default function PayrollClient() {
         </form>
         <div className="mt-3 rounded-2xl border border-cream-dim bg-cream-card p-4">
           <p className="text-xs font-semibold uppercase text-muted">Ringkasan periode</p>
-          <div className="mt-3 grid grid-cols-2 gap-3 text-center sm:grid-cols-5">
+          <div className="mt-3 grid grid-cols-2 gap-3 text-center sm:grid-cols-3">
             <div><p className="font-bold text-ink">{totals.days}</p><p className="text-xs text-muted">Shift dibayar</p></div>
-            <div><p className="font-bold text-ink">{totals.hours.toFixed(2)}</p><p className="text-xs text-muted">Total jam jadwal</p></div>
+            <div><p className="font-bold text-ink">{hoursFormat.format(totals.hours)} jam</p><p className="text-xs text-muted">Total jam jadwal</p></div>
             <div><p className="font-bold text-ink">{idr.format(totals.deductions)}</p><p className="text-xs text-muted">Total potongan</p></div>
             <div><p className="font-bold text-warning">{totals.points}</p><p className="text-xs text-muted">Total poin absensi</p></div>
+            <div><p className="font-bold text-ink">{idr.format(totals.overtime)}</p><p className="text-xs text-muted">Bonus lembur</p></div>
             <div><p className="font-bold text-brand">{idr.format(totals.net)}</p><p className="text-xs text-muted">Perkiraan gaji bersih</p></div>
           </div>
         </div>
@@ -211,7 +218,6 @@ export default function PayrollClient() {
           {report.periodId && report.periodStatus === 'draft' && <button onClick={() => void finalize()} className="rounded-xl border border-brand px-4 py-3 text-sm font-semibold text-brand">Finalisasi</button>}
         </div>}
         {report?.periodStatus === 'finalized' && <p className="mt-2 text-center text-xs font-semibold text-success">Periode sudah difinalisasi dan dikunci.</p>}
-        <p className="mt-3 rounded-xl bg-amber-100 px-4 py-3 text-xs leading-relaxed text-amber-900">Upah dasar memakai durasi jadwal. Tidak absen masuk menjadi Kerja Ikhlas dan upah shift tidak dibayar. Telat masuk ≥30 menit: Pra-Training sampai Junior tidak dibayar untuk shift itu; Senior dan Senior+ dikenai potongan Rp40.000, dengan bonus Senior+ tetap dihitung. Keduanya mendapat 6 poin. Tidak checkout atau checkout terlambat didenda Rp2.000 dan 4 poin.</p>
       </div>
       <div className="mt-4 space-y-3 px-5">
         {!report && !loading && <p className="py-8 text-center text-sm text-muted">Pilih periode untuk menghitung payroll.</p>}
@@ -224,11 +230,12 @@ export default function PayrollClient() {
               <span className="rounded-full bg-cream px-2 py-1 text-[10px] text-muted">{row.payableDays}/{row.scheduledDays} hari dibayar</span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-y-2 text-xs sm:grid-cols-3">
-              <p className="text-muted">Jam jadwal hadir <b className="text-ink">{row.hours.toFixed(2)}</b></p>
+              <p className="text-muted">Jam jadwal hadir <b className="text-ink">{hoursFormat.format(row.hours)} jam</b></p>
               <p className="text-muted">Dikecualikan <b className="text-warning">{row.excludedDays} hari</b></p>
               {row.unratedDays > 0 && <p className="text-warning">Tarif belum diketahui <b>{row.unratedDays} hari</b></p>}
               <p className="text-muted">Gaji dasar <b className="text-ink">{idr.format(row.basePay)}</b></p>
-              <p className="text-muted">Bonus Senior+ <b className="text-ink">{idr.format(row.seniorPlusPay)}</b></p>
+              <p className="text-muted">Tunjangan Senior+ <b className="text-ink">{idr.format(row.seniorPlusPay)}</b></p>
+              <p className="text-muted">Bonus lembur <b className="text-ink">{idr.format(row.overtimePay)} · {row.overtimeHours} jam</b></p>
               <p className="text-muted">Potongan absensi <b className="text-warning">{idr.format(row.attendanceDeductions)}</b></p>
               <p className="text-muted">Poin absensi <b className="text-warning">{row.attendancePoints}</b></p>
               <p className="text-muted">Potongan <b className="text-warning">{idr.format(row.deductions)}</b></p>

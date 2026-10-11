@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requireFinance } from '@/lib/finance-auth'
 import { createClient } from '@/lib/supabase/server'
+import { loadApprovedOvertime } from '@/lib/overtime-payroll'
 
 type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
 type AdjustmentType = 'sp_deduction' | 'other_deduction' | 'addition'
@@ -62,6 +63,8 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
   ])
   const problem = usersError || schedulesError || historyError || ratesError || plusRatesError
   if (problem) return { success: false as const, message: problem.message }
+  const overtime = await loadApprovedOvertime(supabase, start, end)
+  if (!overtime.success) return overtime
 
   // Future shifts are planned work, not absences and not yet payable.
   const scheduleRows = (schedules || []).filter((row) => row.tanggal <= jakartaToday())
@@ -187,6 +190,9 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       const total = totals.get(person.id)!
       const adjustments = adjustmentsByUser.get(person.id) || { deductions: 0, additions: 0, items: [] }
       const state = stateByUser.get(person.id)
+      const overtimeDetails = overtime.rows.filter((row) => row.user_id === person.id)
+      const overtimePay = overtimeDetails.reduce((sum, row) => sum + row.nominal, 0)
+      const overtimeHours = overtimeDetails.reduce((sum, row) => sum + row.jam_dibayar, 0)
       return {
         userId: person.id,
         nama: person.nama,
@@ -203,11 +209,14 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         hours: total.hours,
         basePay: Math.round(total.basePay),
         seniorPlusPay: Math.round(total.seniorPlusPay),
+        overtimePay,
+        overtimeHours,
+        overtimeDetails,
         deductions: Math.round(adjustments.deductions + total.attendanceDeductions),
         attendanceDeductions: Math.round(total.attendanceDeductions),
         attendancePoints: total.attendancePoints,
         additions: Math.round(adjustments.additions),
-        netPay: Math.round(total.basePay + total.seniorPlusPay - adjustments.deductions - total.attendanceDeductions + adjustments.additions),
+        netPay: Math.round(total.basePay + total.seniorPlusPay + overtimePay - adjustments.deductions - total.attendanceDeductions + adjustments.additions),
         adjustments: adjustments.items,
       }
     }),
@@ -297,6 +306,8 @@ export async function loadPayrollCrewDetail(userId: string, start: string, end: 
   ])
   const problem = personError || scheduleError || historyError || ratesError || plusError
   if (problem || !person) return { success: false as const, message: problem?.message || 'Crew tidak ditemukan.' }
+  const overtime = await loadApprovedOvertime(access.supabase, start, end, userId)
+  if (!overtime.success) return overtime
 
   const scheduleRows = schedules || []
   const ids = scheduleRows.map((row) => row.id)
@@ -379,6 +390,9 @@ export async function loadPayrollCrewDetail(userId: string, start: string, end: 
     end,
     periodStatus: period?.status || null,
     details,
+    overtimeDetails: overtime.rows,
+    overtimePay: overtime.rows.reduce((sum, row) => sum + row.nominal, 0),
+    overtimeHours: overtime.rows.reduce((sum, row) => sum + row.jam_dibayar, 0),
     attendanceDeductions: Math.round(details.reduce((sum, row) => sum + row.attendanceDeductions, 0)),
     attendancePoints: details.reduce((sum, row) => sum + row.attendancePoints, 0),
     adjustments: (adjustments || []).map((row) => ({ ...row, amount: Number(row.amount) })),
@@ -419,6 +433,9 @@ export async function savePayrollDraft(start: string, end: string) {
       excluded_days: row.excludedDays,
       unrated_days: row.unratedDays,
       additions: row.additions,
+      overtime_pay: row.overtimePay,
+      overtime_hours: row.overtimeHours,
+      overtime_details: row.overtimeDetails,
       attendance_deductions: row.attendanceDeductions,
       attendance_points: row.attendancePoints,
       completed_shift_calculations: row.shiftDetails,
@@ -473,7 +490,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
       senior_plus_pay: row.seniorPlusPay,
       deductions: row.deductions,
       net_pay: row.netPay,
-      calculation_snapshot: { tier: row.tier, senior_plus_level: row.seniorPlusLevel, scheduled_days: row.scheduledDays, excluded_days: row.excludedDays, unrated_days: row.unratedDays, additions: row.additions, attendance_deductions: row.attendanceDeductions, attendance_points: row.attendancePoints, completed_shift_calculations: row.shiftDetails },
+      calculation_snapshot: { tier: row.tier, senior_plus_level: row.seniorPlusLevel, scheduled_days: row.scheduledDays, excluded_days: row.excludedDays, unrated_days: row.unratedDays, additions: row.additions, overtime_pay: row.overtimePay, overtime_hours: row.overtimeHours, overtime_details: row.overtimeDetails, attendance_deductions: row.attendanceDeductions, attendance_points: row.attendancePoints, completed_shift_calculations: row.shiftDetails },
     }, { onConflict: 'payroll_period_id,user_id' })
     if (updateError) return { success: false as const, message: `Penyesuaian tercatat, tetapi total belum diperbarui: ${updateError.message}` }
   }

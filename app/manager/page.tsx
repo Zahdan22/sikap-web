@@ -6,6 +6,7 @@ const tools = [
   { href: '/manager/jadwal', label: 'Kelola Jam Kerja', desc: 'Preset opsi shift' },
   { href: '/manager/jobdesk', label: 'Kelola Jobdesk', desc: 'Master daftar tugas' },
   { href: '/manager/izin', label: 'Kelola Izin', desc: 'Setujui/tolak pengajuan izin' },
+  { href: '/manager/lembur', label: 'Kelola Lembur', desc: 'Setujui/tolak pengajuan lembur' },
   { href: '/manager/tukar-shift', label: 'Kelola Tukar Shift', desc: 'Setujui/tolak tukar shift' },
   { href: '/manager/periode', label: 'Kelola Periode Kerja', desc: 'Siklus gajian custom' },
   { href: '/manager/laporan', label: 'Laporan & Rekap', desc: 'Rekap kehadiran + export Excel' },

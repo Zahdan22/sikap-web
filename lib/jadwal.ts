@@ -91,6 +91,18 @@ export async function getJobdeskOptions(): Promise<JobdeskOption[]> {
   return data || []
 }
 
+export async function getScheduleDayStatus(dateStr: string): Promise<string | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase.from('schedule_day_status').select('updated_at').eq('tanggal', dateStr).maybeSingle()
+  if (error) {
+    if (/schema cache|does not exist/i.test(error.message)) {
+      throw new Error('Jalankan migrasi 202610110002_schedule_day_status.sql di Supabase, lalu muat ulang halaman.')
+    }
+    throw new Error('Gagal memuat status jadwal: ' + error.message)
+  }
+  return data?.updated_at || null
+}
+
 // Ambil semua schedule + jobdesk-nya untuk 1 tanggal, dan susun jadi state per crew
 export async function getScheduleStateForDate(
   dateStr: string,
