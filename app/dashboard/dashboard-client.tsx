@@ -11,6 +11,7 @@ import AccountMenu from '@/components/AccountMenu'
 import Spinner from '@/components/Spinner'
 import DailyScheduleTimeline from '@/components/DailyScheduleTimeline'
 import OvertimeDashboardCard from '@/components/OvertimeDashboardCard'
+import ViolationDashboardCard from '@/components/ViolationDashboardCard'
 
 type Props = { nama: string; role: string }
 type ManagerActivity = {
@@ -181,6 +182,7 @@ function ManagerDashboard({ nama }: { nama: string }) {
       </div>
 
       <div className="mt-3 px-5"><OvertimeDashboardCard href="/manager/lembur" /></div>
+      <div className="mt-3 px-5"><ViolationDashboardCard href="/manager/pelanggaran" manager /></div>
 
       <div className="mt-6 px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">Shift Hari Ini</p>
@@ -355,6 +357,7 @@ function CrewDashboard({ nama }: { nama: string }) {
       </div>
 
       <div className="mt-4 space-y-3 px-5">
+        <ViolationDashboardCard href="/pelanggaran" />
         <Link href="/lembur" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">

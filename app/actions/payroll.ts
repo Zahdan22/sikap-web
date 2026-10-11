@@ -4,10 +4,18 @@ import { revalidatePath } from 'next/cache'
 import { requireFinance } from '@/lib/finance-auth'
 import { createClient } from '@/lib/supabase/server'
 import { loadApprovedOvertime } from '@/lib/overtime-payroll'
+import { loadPayrollViolations } from '@/lib/violation-payroll'
+import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
 
 type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
 type AdjustmentType = 'sp_deduction' | 'other_deduction' | 'addition'
 type AttendancePenalty = { reason: string; amount: number; points: number }
+type ShiftCalculation = {
+  tanggal: string; jam: number; tier: Tier | null; hourlyRate: number; seniorPlusLevel: number; seniorPlusBonus: number
+  basePay: number; attendanceComplete: boolean; ikhlas: boolean; penalties: AttendancePenalty[]
+  scheduleId?: number; jamMulai?: string; jamSelesai?: string; jamMasukAktual?: string | null; jamPulangAktual?: string | null
+  menitTelat?: number; payable?: boolean; status?: string
+}
 
 const tiers: Tier[] = ['pra_training', 'training', 'junior', 'senior']
 const adjustmentTypes: AdjustmentType[] = ['sp_deduction', 'other_deduction', 'addition']
@@ -55,30 +63,32 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
   const { error: progressionError } = await supabase.rpc('sync_crew_payroll_tier_progress')
   if (progressionError) return { success: false as const, message: progressionError.message }
   const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: rates, error: ratesError }, { data: plusRates, error: plusRatesError }] = await Promise.all([
-    supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').order('nama'),
-    supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam').gte('tanggal', start).lte('tanggal', end).not('user_id', 'is', null),
-    supabase.from('crew_payroll_tier_history').select('user_id, tier, senior_plus_level, effective_on, id').order('effective_on').order('id'),
+    loadAllPayrollRows((from, to) => supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').order('nama').order('id').range(from, to)),
+    loadAllPayrollRows((from, to) => supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam').gte('tanggal', start).lte('tanggal', end).not('user_id', 'is', null).order('tanggal').order('id').range(from, to)),
+    loadAllPayrollRows((from, to) => supabase.from('crew_payroll_tier_history').select('user_id, tier, senior_plus_level, effective_on, id').lte('effective_on', end).order('effective_on').order('id').range(from, to)),
     supabase.from('payroll_tier_rates').select('tier, hourly_rate, work_days_to_next_tier'),
     supabase.from('payroll_senior_plus_rates').select('level, daily_bonus'),
   ])
   const problem = usersError || schedulesError || historyError || ratesError || plusRatesError
   if (problem) return { success: false as const, message: problem.message }
-  const overtime = await loadApprovedOvertime(supabase, start, end)
+  const [overtime, violations] = await Promise.all([
+    loadApprovedOvertime(supabase, start, end),
+    loadPayrollViolations(supabase, start, end),
+  ])
   if (!overtime.success) return overtime
+  if (!violations.success) return violations
 
   // Future shifts are planned work, not absences and not yet payable.
   const scheduleRows = (schedules || []).filter((row) => row.tanggal <= jakartaToday())
   const scheduleIds = scheduleRows.map((row) => row.id)
-  const { data: attendances, error: attendanceError } = scheduleIds.length
-    ? await supabase.from('attendance').select('id, user_id, schedule_id, jam_masuk_aktual, jam_pulang_aktual, status_masuk, status_pulang, menit_telat').in('schedule_id', scheduleIds)
-    : { data: [], error: null }
+  const { data: attendances, error: attendanceError } = await loadPayrollRowsForIds(scheduleIds, (ids, from, to) =>
+    supabase.from('attendance').select('id, user_id, schedule_id, jam_masuk_aktual, jam_pulang_aktual, status_masuk, status_pulang, menit_telat').in('schedule_id', ids).order('id').range(from, to))
   if (attendanceError) return { success: false as const, message: attendanceError.message }
 
   const crew = users || []
   const crewIds = crew.map((person) => person.id)
-  const { data: states, error: stateError } = crewIds.length
-    ? await supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level').in('user_id', crewIds)
-    : { data: [], error: null }
+  const { data: states, error: stateError } = await loadPayrollRowsForIds(crewIds, (ids, from, to) =>
+    supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level').in('user_id', ids).order('user_id').range(from, to))
   if (stateError) return { success: false as const, message: stateError.message }
 
   const historyByUser = new Map<string, typeof histories>()
@@ -92,7 +102,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
 
   const attendanceBySchedule = new Map((attendances || []).map((row) => [row.schedule_id, row]))
   const totals = new Map<string, { scheduledDays: number; completedDays: number; payableDays: number; unratedDays: number; hours: number; basePay: number; seniorPlusPay: number; attendanceDeductions: number; attendancePoints: number }>()
-  const shiftDetails = new Map<string, { tanggal: string; jam: number; tier: Tier | null; hourlyRate: number; seniorPlusLevel: number; seniorPlusBonus: number; basePay: number; attendanceComplete: boolean; ikhlas: boolean; penalties: AttendancePenalty[] }[]>()
+  const shiftDetails = new Map<string, ShiftCalculation[]>()
   for (const person of crew) {
     totals.set(person.id, { scheduledDays: 0, completedDays: 0, payableDays: 0, unratedDays: 0, hours: 0, basePay: 0, seniorPlusPay: 0, attendanceDeductions: 0, attendancePoints: 0 })
     shiftDetails.set(person.id, [])
@@ -134,14 +144,26 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     if (attendanceComplete) total.completedDays += 1
 
     const payable = hasCheckIn && !ikhlas
+    const minutesLate = Number(attendance?.menit_telat || 0)
+    const metadata = {
+      scheduleId: schedule.id, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai,
+      jamMasukAktual: belongsToCrew ? attendance?.jam_masuk_aktual || null : null,
+      jamPulangAktual: belongsToCrew ? attendance?.jam_pulang_aktual || null : null,
+      menitTelat: minutesLate, payable,
+      status: !hasCheckIn ? shiftEnded ? 'Kerja Ikhlas · tidak absen masuk' : 'Belum check-in'
+        : ikhlas ? 'Kerja Ikhlas · shift tidak dibayar'
+        : minutesLate >= 30 ? 'Telat ≥30 menit · potongan Rp40.000'
+        : !attendance?.jam_pulang_aktual ? 'Belum check-out'
+        : !tierEntry ? 'Tarif belum diketahui' : 'Hadir lengkap',
+    }
     if (payable) { total.hours += hours; total.payableDays += 1 }
     if (!payable) {
-      shiftDetails.get(schedule.user_id)!.push({ tanggal: schedule.tanggal, jam: hours, tier: tierEntry?.tier as Tier || null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
+      shiftDetails.get(schedule.user_id)!.push({ ...metadata, tanggal: schedule.tanggal, jam: hours, tier: tierEntry?.tier as Tier || null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
       continue
     }
     if (!tierEntry) {
       total.unratedDays += 1
-      shiftDetails.get(schedule.user_id)!.push({ tanggal: schedule.tanggal, jam: hours, tier: null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
+      shiftDetails.get(schedule.user_id)!.push({ ...metadata, tanggal: schedule.tanggal, jam: hours, tier: null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
       continue
     }
     const tier = tierEntry.tier as Tier
@@ -152,6 +174,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     const plusBonus = plusLevel > 0 ? (bonusByLevel.get(plusLevel) || 0) : 0
     total.seniorPlusPay += plusBonus
     shiftDetails.get(schedule.user_id)!.push({
+      ...metadata,
       tanggal: schedule.tanggal,
       jam: hours,
       tier,
@@ -169,7 +192,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
   if (periodResult.error) return { success: false as const, message: periodResult.error.message }
   let adjustmentsByUser = new Map<string, { deductions: number; additions: number; items: { id: number; adjustment_type: AdjustmentType; amount: number; reason: string }[] }>()
   if (periodResult.data) {
-    const { data: adjustments, error } = await supabase.from('payroll_adjustments').select('id, user_id, adjustment_type, amount, reason').eq('payroll_period_id', periodResult.data.id)
+    const { data: adjustments, error } = await loadAllPayrollRows((from, to) => supabase.from('payroll_adjustments').select('id, user_id, adjustment_type, amount, reason').eq('payroll_period_id', periodResult.data!.id).order('id').range(from, to))
     if (error) return { success: false as const, message: error.message }
     adjustmentsByUser = new Map()
     for (const adjustment of adjustments || []) {
@@ -193,6 +216,9 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       const overtimeDetails = overtime.rows.filter((row) => row.user_id === person.id)
       const overtimePay = overtimeDetails.reduce((sum, row) => sum + row.nominal, 0)
       const overtimeHours = overtimeDetails.reduce((sum, row) => sum + row.jam_dibayar, 0)
+      const violationDetails = violations.rows.filter((row) => row.user_id === person.id)
+      const violationDeductions = violationDetails.reduce((sum, row) => sum + row.denda, 0)
+      const violationPoints = violationDetails.reduce((sum, row) => sum + row.poin, 0)
       return {
         userId: person.id,
         nama: person.nama,
@@ -212,15 +238,80 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         overtimePay,
         overtimeHours,
         overtimeDetails,
-        deductions: Math.round(adjustments.deductions + total.attendanceDeductions),
+        violationDetails,
+        violationDeductions,
+        violationPoints,
+        deductions: Math.round(adjustments.deductions + total.attendanceDeductions + violationDeductions),
         attendanceDeductions: Math.round(total.attendanceDeductions),
         attendancePoints: total.attendancePoints,
         additions: Math.round(adjustments.additions),
-        netPay: Math.round(total.basePay + total.seniorPlusPay + overtimePay - adjustments.deductions - total.attendanceDeductions + adjustments.additions),
+        netPay: Math.round(total.basePay + total.seniorPlusPay + overtimePay - adjustments.deductions - total.attendanceDeductions - violationDeductions + adjustments.additions),
         adjustments: adjustments.items,
       }
     }),
   }
+}
+
+type PayrollRow = Extract<Awaited<ReturnType<typeof calculatePayroll>>, { success: true }>['rows'][number]
+type SavedSnapshot = {
+  report_row?: PayrollRow; tier?: string | null; senior_plus_level?: number; scheduled_days?: number
+  excluded_days?: number; unrated_days?: number; additions?: number; overtime_pay?: number; overtime_hours?: number
+  overtime_details?: PayrollRow['overtimeDetails']; violation_details?: PayrollRow['violationDetails']
+  violation_deductions?: number; violation_points?: number; attendance_deductions?: number; attendance_points?: number
+  completed_shift_calculations?: ShiftCalculation[]
+}
+
+function payrollSnapshot(row: PayrollRow) {
+  return {
+    version: 2, report_row: row,
+    tier: row.tier, senior_plus_level: row.seniorPlusLevel, scheduled_days: row.scheduledDays,
+    excluded_days: row.excludedDays, unrated_days: row.unratedDays, additions: row.additions,
+    overtime_pay: row.overtimePay, overtime_hours: row.overtimeHours, overtime_details: row.overtimeDetails,
+    violation_deductions: row.violationDeductions, violation_points: row.violationPoints, violation_details: row.violationDetails,
+    attendance_deductions: row.attendanceDeductions, attendance_points: row.attendancePoints,
+    completed_shift_calculations: row.shiftDetails,
+  }
+}
+
+async function loadFinalPayroll(supabase: Awaited<ReturnType<typeof createClient>>, periodId: number) {
+  const { data: items, error } = await loadAllPayrollRows((from, to) => supabase.from('payroll_items')
+    .select('user_id, scheduled_hours, completed_work_days, base_pay, senior_plus_pay, deductions, net_pay, calculation_snapshot')
+    .eq('payroll_period_id', periodId).order('user_id').range(from, to))
+  if (error) return { success: false as const, message: error.message }
+  if (!items?.length) return { success: false as const, message: 'Rekap payroll final tidak ditemukan. Periksa payroll_items untuk periode ini; perhitungan ulang tidak dilakukan.' }
+  const legacyIds = items.filter((item) => !(item.calculation_snapshot as SavedSnapshot | null)?.report_row).map((item) => item.user_id)
+  // Old snapshots lack names and adjustment descriptions. Read only these metadata;
+  // payroll amounts always come from the saved payroll item and its snapshot.
+  const [people, adjustments] = await Promise.all([
+    loadPayrollRowsForIds(legacyIds, (ids, from, to) => supabase.from('users').select('id, nama, username, status_aktif').in('id', ids).order('id').range(from, to)),
+    loadPayrollRowsForIds(legacyIds, (ids, from, to) => supabase.from('payroll_adjustments').select('id, user_id, adjustment_type, amount, reason').eq('payroll_period_id', periodId).in('user_id', ids).order('id').range(from, to)),
+  ])
+  if (people.error || adjustments.error) return { success: false as const, message: (people.error || adjustments.error)!.message }
+  const rows: PayrollRow[] = items.map((item) => {
+    const snapshot = (item.calculation_snapshot || {}) as SavedSnapshot
+    const saved = snapshot.report_row
+    const person = people.data?.find((entry) => entry.id === item.user_id)
+    const shifts = saved?.shiftDetails || snapshot.completed_shift_calculations || []
+    return {
+      userId: item.user_id, nama: saved?.nama || person?.nama || item.user_id,
+      username: saved?.username || person?.username || '', statusAktif: saved?.statusAktif ?? person?.status_aktif ?? false,
+      tier: saved?.tier ?? snapshot.tier ?? null, seniorPlusLevel: Number(saved?.seniorPlusLevel ?? snapshot.senior_plus_level ?? 0),
+      shiftDetails: shifts,
+      scheduledDays: Number(saved?.scheduledDays ?? snapshot.scheduled_days ?? item.completed_work_days),
+      completedDays: Number(saved?.completedDays ?? (shifts.length ? shifts.filter((shift) => shift.attendanceComplete).length : item.completed_work_days)),
+      payableDays: Number(item.completed_work_days), excludedDays: Number(saved?.excludedDays ?? snapshot.excluded_days ?? 0),
+      unratedDays: Number(saved?.unratedDays ?? snapshot.unrated_days ?? 0), hours: Number(item.scheduled_hours),
+      basePay: Number(item.base_pay), seniorPlusPay: Number(item.senior_plus_pay),
+      overtimePay: Number(snapshot.overtime_pay ?? 0), overtimeHours: Number(snapshot.overtime_hours ?? 0),
+      overtimeDetails: snapshot.overtime_details || [], violationDetails: snapshot.violation_details || [],
+      violationDeductions: Number(snapshot.violation_deductions ?? 0), violationPoints: Number(snapshot.violation_points ?? 0),
+      attendanceDeductions: Number(snapshot.attendance_deductions ?? 0), attendancePoints: Number(snapshot.attendance_points ?? 0),
+      additions: Number(snapshot.additions ?? 0), deductions: Number(item.deductions), netPay: Number(item.net_pay),
+      adjustments: saved?.adjustments || (adjustments.data || []).filter((entry) => entry.user_id === item.user_id).map((entry) => ({ id: entry.id, adjustment_type: entry.adjustment_type as AdjustmentType, amount: Number(entry.amount), reason: entry.reason })),
+    }
+  })
+  rows.sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
+  return { success: true as const, periodId, periodStatus: 'finalized' as const, rows }
 }
 
 export async function loadCrewPayrollStatus() {
@@ -229,8 +320,8 @@ export async function loadCrewPayrollStatus() {
   const { error: progressionError } = await access.supabase.rpc('sync_crew_payroll_tier_progress')
   if (progressionError) return { success: false as const, message: progressionError.message }
   const [{ data: crew, error: crewError }, { data: statuses, error: statusError }] = await Promise.all([
-    access.supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').order('nama'),
-    access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on'),
+    loadAllPayrollRows((from, to) => access.supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').order('nama').order('id').range(from, to)),
+    loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on').order('user_id').range(from, to)),
   ])
   if (crewError || statusError) return { success: false as const, message: (crewError || statusError)!.message }
   const statusByUser = new Map((statuses || []).map((status) => [status.user_id, status]))
@@ -277,8 +368,8 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, comple
 export async function loadPayrollWorkPeriods() {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  const { data, error } = await access.supabase.from('periode_kerja')
-    .select('id, nama, tanggal_mulai, tanggal_selesai').order('tanggal_mulai', { ascending: false })
+  const { data, error } = await loadAllPayrollRows((from, to) => access.supabase.from('periode_kerja')
+    .select('id, nama, tanggal_mulai, tanggal_selesai').order('tanggal_mulai', { ascending: false }).order('id').range(from, to))
   if (error) return { success: false as const, message: error.message }
   return { success: true as const, periods: data || [] }
 }
@@ -287,115 +378,47 @@ export async function loadPayrollReport(start: string, end: string) {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
   if (!validDate(start) || !validDate(end) || start > end) return { success: false as const, message: 'Rentang tanggal tidak valid.' }
-  return calculatePayroll(access.supabase, start, end)
+  const findPeriod = () => access.supabase.from('payroll_periods').select('id, status').eq('period_start', start).eq('period_end', end).maybeSingle()
+  const period = await findPeriod()
+  if (period.error) return { success: false as const, message: period.error.message }
+  if (period.data?.status === 'finalized') return loadFinalPayroll(access.supabase, period.data.id)
+  const report = await calculatePayroll(access.supabase, start, end)
+  // A finalization during calculation must not label live numbers as final.
+  const latest = await findPeriod()
+  if (latest.error) return { success: false as const, message: latest.error.message }
+  return latest.data?.status === 'finalized' ? loadFinalPayroll(access.supabase, latest.data.id) : report
 }
 
 export async function loadPayrollCrewDetail(userId: string, start: string, end: string) {
-  const access = await requireFinance()
-  if (!access.ok) return { success: false as const, message: access.message }
-  if (!userId || !validDate(start) || !validDate(end) || start > end) return { success: false as const, message: 'Data crew atau rentang tanggal tidak valid.' }
-  const { error: progressionError } = await access.supabase.rpc('sync_crew_payroll_tier_progress')
-  if (progressionError) return { success: false as const, message: progressionError.message }
-
-  const [{ data: person, error: personError }, { data: schedules, error: scheduleError }, { data: history, error: historyError }, { data: rates, error: ratesError }, { data: plusRates, error: plusError }] = await Promise.all([
-    access.supabase.from('users').select('id, nama, username').eq('id', userId).eq('role', 'crew').maybeSingle(),
-    access.supabase.from('schedule').select('id, tanggal, jam_mulai, jam_selesai, durasi_jam').eq('user_id', userId).gte('tanggal', start).lte('tanggal', end).lte('tanggal', jakartaToday()).order('tanggal'),
-    access.supabase.from('crew_payroll_tier_history').select('id, tier, senior_plus_level, effective_on').eq('user_id', userId).order('effective_on').order('id'),
-    access.supabase.from('payroll_tier_rates').select('tier, hourly_rate'),
-    access.supabase.from('payroll_senior_plus_rates').select('level, daily_bonus'),
-  ])
-  const problem = personError || scheduleError || historyError || ratesError || plusError
-  if (problem || !person) return { success: false as const, message: problem?.message || 'Crew tidak ditemukan.' }
-  const overtime = await loadApprovedOvertime(access.supabase, start, end, userId)
-  if (!overtime.success) return overtime
-
-  const scheduleRows = schedules || []
-  const ids = scheduleRows.map((row) => row.id)
-  const { data: attendanceRows, error: attendanceError } = ids.length
-    ? await access.supabase.from('attendance').select('schedule_id, user_id, jam_masuk_aktual, jam_pulang_aktual, status_masuk, status_pulang, menit_telat').in('schedule_id', ids).eq('user_id', userId)
-    : { data: [], error: null }
-  if (attendanceError) return { success: false as const, message: attendanceError.message }
-
-  const { data: period, error: periodError } = await access.supabase.from('payroll_periods')
-    .select('id, status').eq('period_start', start).eq('period_end', end).maybeSingle()
-  if (periodError) return { success: false as const, message: periodError.message }
-  const { data: adjustments, error: adjustmentError } = period
-    ? await access.supabase.from('payroll_adjustments').select('id, adjustment_type, amount, reason').eq('payroll_period_id', period.id).eq('user_id', userId)
-    : { data: [], error: null }
-  if (adjustmentError) return { success: false as const, message: adjustmentError.message }
-
-  const attendanceBySchedule = new Map((attendanceRows || []).map((row) => [row.schedule_id, row]))
-  const rateByTier = new Map((rates || []).map((row) => [row.tier, Number(row.hourly_rate)]))
-  const bonusByLevel = new Map((plusRates || []).map((row) => [Number(row.level), Number(row.daily_bonus)]))
-  const details = scheduleRows.map((schedule) => {
-    const attendance = attendanceBySchedule.get(schedule.id)
-    const hasCheckIn = Boolean(attendance?.jam_masuk_aktual)
-    const complete = Boolean(hasCheckIn && attendance?.jam_pulang_aktual)
-    const shiftEnded = hasShiftEnded(schedule.tanggal, schedule.jam_mulai, schedule.jam_selesai)
-    const entries = (history || []).filter((row) => row.effective_on <= schedule.tanggal)
-    const tier = hasCheckIn ? entries[entries.length - 1] : null
-    const hours = Number(schedule.durasi_jam) || 0
-    const minutesLate = Number(attendance?.menit_telat || 0)
-    const latePenalty = hasCheckIn && (attendance?.status_masuk === 'telat' || minutesLate > 0) ? getLatePenalty(minutesLate) : null
-    const ikhlas = (!hasCheckIn && shiftEnded) || (hasCheckIn && minutesLate >= 30 && tier?.tier !== 'senior')
-    const penalties: AttendancePenalty[] = []
-    if (!hasCheckIn && shiftEnded) penalties.push({ reason: 'Tidak absen masuk · Kerja Ikhlas', amount: 0, points: 3 })
-    else if (latePenalty && minutesLate >= 30 && tier?.tier !== 'senior') penalties.push({ reason: 'Telat ≥30 menit · Kerja Ikhlas, upah shift tidak dibayar', amount: 0, points: 6 })
-    else if (latePenalty) penalties.push(latePenalty)
-    if (hasCheckIn && ((shiftEnded && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas')) {
-      penalties.push({ reason: !attendance?.jam_pulang_aktual ? 'Tidak checkout' : 'Telat checkout', amount: 2_000, points: 4 })
-    }
-    const attendanceDeduction = penalties.reduce((sum, penalty) => sum + penalty.amount, 0)
-    const attendancePoints = penalties.reduce((sum, penalty) => sum + penalty.points, 0)
-    const hourlyRate = tier ? rateByTier.get(tier.tier) || 0 : 0
-    const seniorPlusLevel = tier?.tier === 'senior' ? Number(tier.senior_plus_level) : 0
-    const eligibleForPay = hasCheckIn && !ikhlas
-    const seniorPlusBonus = eligibleForPay && seniorPlusLevel > 0 ? bonusByLevel.get(seniorPlusLevel) || 0 : 0
-    const basePay = eligibleForPay && tier ? hours * hourlyRate : 0
-    const status = !hasCheckIn
-      ? shiftEnded ? 'Kerja Ikhlas · tidak absen masuk' : 'Belum check-in'
-      : minutesLate >= 30 && tier?.tier !== 'senior' ? 'Kerja Ikhlas · shift tidak dibayar'
-        : minutesLate >= 30 ? 'Telat ≥30 menit · potongan Rp40.000'
-        : !attendance?.jam_pulang_aktual ? 'Belum check-out'
-          : !tier ? 'Tarif belum diketahui' : 'Hadir lengkap'
+  if (!userId) return { success: false as const, message: 'Crew tidak valid.' }
+  const report = await loadPayrollReport(start, end)
+  if (!report.success) return report
+  const row = report.rows.find((item) => item.userId === userId)
+  if (!row) return { success: false as const, message: 'Crew tidak tercatat pada payroll periode ini.' }
+  const legacySnapshot = report.periodStatus === 'finalized' && (row.shiftDetails.length === 0 && row.scheduledDays > 0 || row.shiftDetails.some((shift) => shift.scheduleId === undefined))
+  const details = row.shiftDetails.map((shift, index) => {
+    const penalties = shift.penalties || []
+    const attendanceDeductions = penalties.reduce((sum, penalty) => sum + penalty.amount, 0)
     return {
-      scheduleId: schedule.id,
-      tanggal: schedule.tanggal,
-      jamMulai: schedule.jam_mulai,
-      jamSelesai: schedule.jam_selesai,
-      hours,
-      attendanceComplete: complete,
-      payable: eligibleForPay,
-      ikhlas,
-      status,
-      jamMasukAktual: attendance?.jam_masuk_aktual || null,
-      jamPulangAktual: attendance?.jam_pulang_aktual || null,
-      menitTelat: Number(attendance?.menit_telat || 0),
-      tier: tier?.tier || null,
-      seniorPlusLevel,
-      hourlyRate,
-      basePay: Math.round(basePay),
-      seniorPlusBonus,
-      attendanceDeductions: Math.round(attendanceDeduction),
-      attendancePoints,
-      penalties,
-      totalPay: Math.round(basePay + seniorPlusBonus - attendanceDeduction),
+      scheduleId: shift.scheduleId ?? index + 1, tanggal: shift.tanggal,
+      jamMulai: shift.jamMulai ?? null, jamSelesai: shift.jamSelesai ?? null,
+      hours: shift.jam, attendanceComplete: shift.attendanceComplete, payable: shift.payable ?? false,
+      ikhlas: shift.ikhlas, status: shift.status || 'Rincian tersimpan',
+      jamMasukAktual: shift.jamMasukAktual ?? null, jamPulangAktual: shift.jamPulangAktual ?? null,
+      menitTelat: shift.menitTelat ?? 0, tier: shift.tier, seniorPlusLevel: shift.seniorPlusLevel,
+      hourlyRate: shift.hourlyRate, basePay: shift.basePay, seniorPlusBonus: shift.seniorPlusBonus,
+      attendanceDeductions, attendancePoints: penalties.reduce((sum, penalty) => sum + penalty.points, 0),
+      penalties, totalPay: Math.round(shift.basePay + shift.seniorPlusBonus - attendanceDeductions),
+      metadataMissing: shift.scheduleId === undefined,
     }
   })
-
   return {
-    success: true as const,
-    person,
-    start,
-    end,
-    periodStatus: period?.status || null,
-    details,
-    overtimeDetails: overtime.rows,
-    overtimePay: overtime.rows.reduce((sum, row) => sum + row.nominal, 0),
-    overtimeHours: overtime.rows.reduce((sum, row) => sum + row.jam_dibayar, 0),
-    attendanceDeductions: Math.round(details.reduce((sum, row) => sum + row.attendanceDeductions, 0)),
-    attendancePoints: details.reduce((sum, row) => sum + row.attendancePoints, 0),
-    adjustments: (adjustments || []).map((row) => ({ ...row, amount: Number(row.amount) })),
+    success: true as const, person: { nama: row.nama, username: row.username }, start, end,
+    periodStatus: report.periodStatus, details, legacySnapshot,
+    summary: { days: row.completedDays, hours: row.hours, netPay: row.netPay },
+    overtimeDetails: row.overtimeDetails, overtimePay: row.overtimePay, overtimeHours: row.overtimeHours,
+    violationDetails: row.violationDetails, violationDeductions: row.violationDeductions, violationPoints: row.violationPoints,
+    attendanceDeductions: row.attendanceDeductions, attendancePoints: row.attendancePoints, adjustments: row.adjustments,
   }
 }
 
@@ -417,6 +440,8 @@ export async function savePayrollDraft(start: string, end: string) {
   const report = await calculatePayroll(access.supabase, start, end)
   if (!report.success) return report
   if (report.rows.some((row) => row.unratedDays > 0)) return { success: false as const, message: 'Ada absensi lengkap yang belum punya riwayat tier pada tanggal jadwalnya. Atur tier dan hari awal crew terlebih dahulu.' }
+  const negative = report.rows.find((row) => row.netPay < 0)
+  if (negative) return { success: false as const, message: `Total potongan ${negative.nama} melebihi gaji. Periksa denda dan penyesuaian sebelum menyimpan draf.` }
   const records = report.rows.map((row) => ({
     payroll_period_id: periodId,
     user_id: row.userId,
@@ -426,20 +451,7 @@ export async function savePayrollDraft(start: string, end: string) {
     senior_plus_pay: row.seniorPlusPay,
     deductions: row.deductions,
     net_pay: row.netPay,
-    calculation_snapshot: {
-      tier: row.tier,
-      senior_plus_level: row.seniorPlusLevel,
-      scheduled_days: row.scheduledDays,
-      excluded_days: row.excludedDays,
-      unrated_days: row.unratedDays,
-      additions: row.additions,
-      overtime_pay: row.overtimePay,
-      overtime_hours: row.overtimeHours,
-      overtime_details: row.overtimeDetails,
-      attendance_deductions: row.attendanceDeductions,
-      attendance_points: row.attendancePoints,
-      completed_shift_calculations: row.shiftDetails,
-    },
+    calculation_snapshot: payrollSnapshot(row),
   }))
   if (records.length) {
     const { error } = await access.supabase.from('payroll_items').upsert(records, { onConflict: 'payroll_period_id,user_id' })
@@ -468,6 +480,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
   const targetRow = currentReport.rows.find((row) => row.userId === userId)
   if (!targetRow) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
   if (type !== 'addition' && amount > targetRow.netPay) return { success: false as const, message: 'Potongan tidak boleh melebihi perkiraan gaji bersih crew.' }
+  if (type === 'addition' && targetRow.netPay + Math.round(amount) < 0) return { success: false as const, message: 'Gaji bersih setelah penyesuaian masih negatif. Periksa nominal denda atau tambahan.' }
   const { error } = await access.supabase.from('payroll_adjustments').insert({
     payroll_period_id: periodId,
     user_id: userId,
@@ -490,7 +503,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
       senior_plus_pay: row.seniorPlusPay,
       deductions: row.deductions,
       net_pay: row.netPay,
-      calculation_snapshot: { tier: row.tier, senior_plus_level: row.seniorPlusLevel, scheduled_days: row.scheduledDays, excluded_days: row.excludedDays, unrated_days: row.unratedDays, additions: row.additions, overtime_pay: row.overtimePay, overtime_hours: row.overtimeHours, overtime_details: row.overtimeDetails, attendance_deductions: row.attendanceDeductions, attendance_points: row.attendancePoints, completed_shift_calculations: row.shiftDetails },
+      calculation_snapshot: payrollSnapshot(row),
     }, { onConflict: 'payroll_period_id,user_id' })
     if (updateError) return { success: false as const, message: `Penyesuaian tercatat, tetapi total belum diperbarui: ${updateError.message}` }
   }
@@ -506,8 +519,8 @@ export async function finalizePayroll(periodId: number) {
   if (error || !period) return { success: false as const, message: error?.message || 'Periode payroll tidak ditemukan.' }
   if (period.status === 'finalized') return { success: true as const }
   const [{ data: crew, error: crewError }, { data: items, error: itemsError }] = await Promise.all([
-    access.supabase.from('users').select('id').eq('role', 'crew'),
-    access.supabase.from('payroll_items').select('user_id').eq('payroll_period_id', periodId),
+    loadAllPayrollRows((from, to) => access.supabase.from('users').select('id').eq('role', 'crew').order('id').range(from, to)),
+    loadAllPayrollRows((from, to) => access.supabase.from('payroll_items').select('user_id').eq('payroll_period_id', periodId).order('user_id').range(from, to)),
   ])
   if (crewError || itemsError) return { success: false as const, message: (crewError || itemsError)!.message }
   const savedUserIds = new Set((items || []).map((item) => item.user_id))

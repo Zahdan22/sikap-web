@@ -4,15 +4,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { loadPayrollCrewDetail } from '@/app/actions/payroll'
 import BackArrow from '@/components/BackArrow'
-import type { ApprovedOvertime } from '@/lib/overtime-payroll'
-
-type ShiftDetail = {
-  scheduleId: number; tanggal: string; jamMulai: string; jamSelesai: string; hours: number; attendanceComplete: boolean; payable: boolean; ikhlas: boolean; status: string
-  jamMasukAktual: string | null; jamPulangAktual: string | null; menitTelat: number; tier: string | null
-  seniorPlusLevel: number; hourlyRate: number; basePay: number; seniorPlusBonus: number; attendanceDeductions: number; attendancePoints: number; penalties: { reason: string; amount: number; points: number }[]; totalPay: number
-}
-type Adjustment = { id: number; adjustment_type: 'sp_deduction' | 'other_deduction' | 'addition'; amount: number; reason: string }
-type Detail = { success: true; person: { nama: string; username: string }; start: string; end: string; periodStatus: string | null; details: ShiftDetail[]; adjustments: Adjustment[]; overtimeDetails: ApprovedOvertime[]; overtimePay: number; overtimeHours: number }
+type Detail = Extract<Awaited<ReturnType<typeof loadPayrollCrewDetail>>, { success: true }>
 
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
 const hoursFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 })
@@ -47,6 +39,8 @@ export default function PayrollCrewDetailClient() {
       return () => { active = false }
     }
     setLoading(true)
+    setResult(null)
+    setError('')
     void loadPayrollCrewDetail(params.userId, start, end)
       .then((response) => {
         if (!active) return
@@ -62,16 +56,6 @@ export default function PayrollCrewDetailClient() {
     return () => { active = false }
   }, [params.userId, start, end])
 
-  const totals = result?.details.reduce((sum, shift) => ({
-    days: sum.days + (shift.attendanceComplete ? 1 : 0),
-    hours: sum.hours + (shift.payable ? shift.hours : 0),
-    pay: sum.pay + shift.totalPay,
-  }), { days: 0, hours: 0, pay: 0 })
-  const adjustments = result?.adjustments.reduce((sum, item) => ({
-    additions: sum.additions + (item.adjustment_type === 'addition' ? item.amount : 0),
-    deductions: sum.deductions + (item.adjustment_type === 'addition' ? 0 : item.amount),
-  }), { additions: 0, deductions: 0 })
-
   return <div className="min-h-full bg-cream pb-24">
     <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
       <BackArrow href={`/finance/payroll${backQuery ? `?${backQuery}` : ''}`} />
@@ -86,14 +70,15 @@ export default function PayrollCrewDetailClient() {
           <p className="text-xs text-muted">@{result.person.username} · {result.start} s.d. {result.end}</p>
           {result.periodStatus && <p className="mt-2 text-xs font-semibold text-brand">Status payroll: {result.periodStatus === 'finalized' ? 'Difinalisasi' : 'Draf'}</p>}
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-            <div><p className="font-bold text-ink">{totals?.days ?? 0}</p><p className="text-[10px] text-muted">Hari lengkap</p></div>
-            <div><p className="font-bold text-ink">{hoursFormat.format(totals?.hours ?? 0)} jam</p><p className="text-[10px] text-muted">Jam jadwal dibayar</p></div>
-            <div><p className="font-bold text-brand">{idr.format((totals?.pay ?? 0) + result.overtimePay + (adjustments?.additions ?? 0) - (adjustments?.deductions ?? 0))}</p><p className="text-[10px] text-muted">Gaji bersih</p></div>
+            <div><p className="font-bold text-ink">{result.summary.days}</p><p className="text-[10px] text-muted">Hari lengkap</p></div>
+            <div><p className="font-bold text-ink">{hoursFormat.format(result.summary.hours)} jam</p><p className="text-[10px] text-muted">Jam jadwal dibayar</p></div>
+            <div><p className="font-bold text-brand">{idr.format(result.summary.netPay)}</p><p className="text-[10px] text-muted">Gaji bersih</p></div>
           </div>
         </section>
+        {result.legacySnapshot && <p className="rounded-xl bg-warning/10 p-4 text-xs text-warning">Payroll ini memakai arsip lama. Jam shift dan waktu absensi yang tidak tersimpan ditampilkan sebagai tanda —. Total gaji tetap memakai nilai final yang tersimpan.</p>}
         <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">Rincian per hari</h2>
         {result.details.map((shift) => <article key={shift.scheduleId} className="rounded-2xl border border-cream-dim bg-cream-card p-4">
-          <div className="flex items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-ink">{dateLabel(shift.tanggal)}</h3><p className="text-xs text-muted">Jadwal {shift.jamMulai.slice(0, 5)}–{shift.jamSelesai.slice(0, 5)} · {hoursFormat.format(shift.hours)} jam</p></div><span className={`rounded-full px-2 py-1 text-[10px] ${shift.status === 'Hadir lengkap' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{shift.status}</span></div>
+          <div className="flex items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-ink">{dateLabel(shift.tanggal)}</h3><p className="text-xs text-muted">Jadwal {shift.jamMulai?.slice(0, 5) || '—'}–{shift.jamSelesai?.slice(0, 5) || '—'} · {hoursFormat.format(shift.hours)} jam</p></div><span className={`rounded-full px-2 py-1 text-[10px] ${shift.status === 'Hadir lengkap' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{shift.status}</span></div>
           <div className="mt-3 grid grid-cols-2 gap-y-2 text-xs">
             <p className="text-muted">Check-in <b className="text-ink">{shift.jamMasukAktual ? new Date(shift.jamMasukAktual).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</b></p>
             <p className="text-muted">Check-out <b className="text-ink">{shift.jamPulangAktual ? new Date(shift.jamPulangAktual).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</b></p>
@@ -108,7 +93,7 @@ export default function PayrollCrewDetailClient() {
             <p className="col-span-2 font-semibold text-brand">Total shift bersih <b>{idr.format(shift.totalPay)}</b></p>
           </div>
         </article>)}
-        {result.details.length === 0 && <p className="rounded-xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">Tidak ada jadwal crew ini dalam periode terpilih.</p>}
+        {result.details.length === 0 && <p className="rounded-xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">{result.legacySnapshot ? 'Rincian harian tidak tersedia pada arsip payroll ini.' : 'Tidak ada jadwal crew ini dalam periode terpilih.'}</p>}
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
           <h2 className="text-sm font-semibold text-ink">Lembur disetujui</h2>
           <p className="mt-1 text-sm font-semibold text-brand">{result.overtimeHours} jam · {idr.format(result.overtimePay)}</p>
@@ -118,6 +103,16 @@ export default function PayrollCrewDetailClient() {
             <p className="mt-1 whitespace-pre-wrap break-words text-muted">{item.keterangan}</p>
           </div>)}
           {result.overtimeDetails.length === 0 && <p className="mt-2 text-xs text-muted">Belum ada lembur yang disetujui pada periode ini.</p>}
+        </section>
+        <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+          <h2 className="text-sm font-semibold text-ink">Pelanggaran diperiksa</h2>
+          <p className="mt-1 text-sm font-semibold text-brand">{result.violationPoints} poin · Denda {idr.format(result.violationDeductions)}</p>
+          {result.violationDetails.map((item) => <div key={item.id} className="mt-3 border-t border-cream-dim pt-3 text-xs">
+            <p className="font-semibold text-ink">{dateLabel(item.tanggal)}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-muted">{item.kesalahan}</p>
+            <p className="mt-1 text-warning">{item.poin} poin · {idr.format(item.denda)}</p>
+          </div>)}
+          {result.violationDetails.length === 0 && <p className="mt-2 text-xs text-muted">Belum ada pelanggaran yang diperiksa pada periode ini.</p>}
         </section>
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
           <h2 className="text-sm font-semibold text-ink">Penyesuaian payroll</h2>

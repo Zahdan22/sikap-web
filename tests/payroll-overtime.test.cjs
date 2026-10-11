@@ -16,7 +16,7 @@ function setup() {
     payroll_senior_plus_rates: [{ level: 2, daily_bonus: 7500 }],
     attendance: [{ id: 1, user_id: 'crew-1', schedule_id: 1, jam_masuk_aktual: '2025-01-05T10:50:00Z', jam_pulang_aktual: '2025-01-05T17:00:00Z', status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 }],
     payroll_periods: [{ id: 1, period_start: '2025-01-01', period_end: '2025-01-31', status: 'draft' }],
-    payroll_adjustments: [], payroll_items: [],
+    payroll_adjustments: [], payroll_items: [], crew_violations: [],
     overtime_requests: [
       { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '00:00', jam_selesai: '02:30', jam_dibayar: 2, nominal: 16000, status: 'disetujui', keterangan: 'Ramai' },
       { id: 2, user_id: 'crew-1', tanggal: '2025-01-06', jam_dibayar: 1, nominal: 8000, status: 'pending' },
@@ -32,6 +32,7 @@ function setup() {
       const query = {
         select() { return query },
         eq(key, value) { rows = rows.filter((row) => row[key] === value); return query },
+        is(key, value) { rows = rows.filter((row) => row[key] === value); return query },
         gte(key, value) { rows = rows.filter((row) => row[key] >= value); return query },
         lte(key, value) { rows = rows.filter((row) => row[key] <= value); return query },
         not(key, op, value) { rows = rows.filter((row) => row[key] !== value); return query },
@@ -98,4 +99,51 @@ test('rekap tidak terpotong pada batas 1.000 baris Supabase', async () => {
   const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
   assert.equal(report.rows[0].overtimeHours, 1001)
   assert.equal(report.rows[0].overtimePay, 8008000)
+})
+
+function violation(overrides = {}) {
+  return { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', kesalahan: 'Salah input', poin: 3, denda: 10000, reviewed_at: '2025-01-06T00:00:00Z', reviewed_by: 'manager', version: 1, deleted_at: null, ...overrides }
+}
+
+test('denda diperiksa mengurangi gaji tepat sekali; pending, terhapus, dan luar periode diabaikan', async () => {
+  const { tables, actions } = setup()
+  tables.crew_violations = [violation(), violation({ id: 2, reviewed_at: null }), violation({ id: 3, deleted_at: '2025-01-07T00:00:00Z' }), violation({ id: 4, tanggal: '2025-02-01' })]
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.success, true)
+  assert.equal(report.rows[0].netPay, 54300)
+  assert.equal(report.rows[0].violationDeductions, 10000)
+  assert.equal(report.rows[0].violationPoints, 3)
+  const detail = await actions.loadPayrollCrewDetail('crew-1', '2025-01-01', '2025-01-31')
+  assert.equal(detail.violationDetails.length, 1)
+  assert.equal(detail.details.reduce((sum, shift) => sum + shift.totalPay, 0) + detail.overtimePay - detail.violationDeductions, report.rows[0].netPay)
+  assert.equal((await actions.savePayrollDraft('2025-01-01', '2025-01-31')).success, true)
+  assert.equal(tables.payroll_items[0].net_pay, 54300)
+  assert.equal(tables.payroll_items[0].calculation_snapshot.violation_points, 3)
+  assert.equal(tables.payroll_items[0].calculation_snapshot.violation_details.length, 1)
+})
+
+test('poin tidak dikonversi menjadi uang dan denda tidak dibebankan ke crew lain', async () => {
+  const { tables, actions } = setup()
+  tables.crew_violations = [violation({ denda: 0, poin: 100 }), violation({ id: 2, user_id: 'other-crew' })]
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.rows[0].netPay, 64300)
+  assert.equal(report.rows[0].violationPoints, 100)
+})
+
+test('denda melebihi penghasilan memblokir penyimpanan draf negatif', async () => {
+  const { tables, actions } = setup()
+  tables.crew_violations = [violation({ denda: 70000 })]
+  const saved = await actions.savePayrollDraft('2025-01-01', '2025-01-31')
+  assert.equal(saved.success, false)
+  assert.match(saved.message, /melebihi gaji/)
+  assert.equal(tables.payroll_items.length, 0)
+})
+
+test('pelanggaran lebih dari 1000 baris tetap terakumulasi', async () => {
+  const { tables, actions } = setup()
+  tables.crew_violations = Array.from({ length: 1001 }, (_, i) => violation({ id: i + 1, denda: 1, poin: 1 }))
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.rows[0].violationDeductions, 1001)
+  assert.equal(report.rows[0].violationPoints, 1001)
+  assert.equal(report.rows[0].netPay, 63299)
 })

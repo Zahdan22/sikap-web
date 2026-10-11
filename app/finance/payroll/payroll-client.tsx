@@ -15,6 +15,7 @@ type PayrollRow = {
   scheduledDays: number; completedDays: number; payableDays: number; excludedDays: number; unratedDays: number; hours: number; basePay: number
   seniorPlusPay: number; deductions: number; attendanceDeductions: number; attendancePoints: number; additions: number; netPay: number; adjustments: Adjustment[]
   overtimePay: number; overtimeHours: number
+  violationDeductions: number; violationPoints: number
 }
 type PayrollReport = { periodId: number | null; periodStatus: 'draft' | 'finalized' | null; rows: PayrollRow[] }
 type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
@@ -94,7 +95,7 @@ export default function PayrollClient() {
     bonus: sum.bonus + row.seniorPlusPay,
     overtime: sum.overtime + row.overtimePay,
     deductions: sum.deductions + row.deductions,
-    points: sum.points + row.attendancePoints,
+    points: sum.points + row.attendancePoints + row.violationPoints,
     additions: sum.additions + row.additions,
     net: sum.net + row.netPay,
     unrated: sum.unrated + row.unratedDays,
@@ -168,6 +169,8 @@ export default function PayrollClient() {
       'Jam lembur dibayar': row.overtimeHours,
       'Bonus lembur': row.overtimePay,
       'Potongan absensi': row.attendanceDeductions,
+      'Denda pelanggaran': row.violationDeductions,
+      'Poin pelanggaran': row.violationPoints,
       'Poin absensi': row.attendancePoints,
       Tambahan: row.additions,
       Potongan: row.deductions,
@@ -205,7 +208,7 @@ export default function PayrollClient() {
             <div><p className="font-bold text-ink">{totals.days}</p><p className="text-xs text-muted">Shift dibayar</p></div>
             <div><p className="font-bold text-ink">{hoursFormat.format(totals.hours)} jam</p><p className="text-xs text-muted">Total jam jadwal</p></div>
             <div><p className="font-bold text-ink">{idr.format(totals.deductions)}</p><p className="text-xs text-muted">Total potongan</p></div>
-            <div><p className="font-bold text-warning">{totals.points}</p><p className="text-xs text-muted">Total poin absensi</p></div>
+            <div><p className="font-bold text-warning">{totals.points}</p><p className="text-xs text-muted">Total poin absensi & pelanggaran</p></div>
             <div><p className="font-bold text-ink">{idr.format(totals.overtime)}</p><p className="text-xs text-muted">Bonus lembur</p></div>
             <div><p className="font-bold text-brand">{idr.format(totals.net)}</p><p className="text-xs text-muted">Perkiraan gaji bersih</p></div>
           </div>
@@ -238,6 +241,8 @@ export default function PayrollClient() {
               <p className="text-muted">Bonus lembur <b className="text-ink">{idr.format(row.overtimePay)} · {row.overtimeHours} jam</b></p>
               <p className="text-muted">Potongan absensi <b className="text-warning">{idr.format(row.attendanceDeductions)}</b></p>
               <p className="text-muted">Poin absensi <b className="text-warning">{row.attendancePoints}</b></p>
+              <p className="text-muted">Denda pelanggaran <b className="text-warning">{idr.format(row.violationDeductions)}</b></p>
+              <p className="text-muted">Poin pelanggaran <b className="text-warning">{row.violationPoints}</b></p>
               <p className="text-muted">Potongan <b className="text-warning">{idr.format(row.deductions)}</b></p>
               <p className="font-semibold text-brand">Gaji bersih {idr.format(row.netPay)}</p>
             </div>

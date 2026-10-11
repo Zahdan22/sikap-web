@@ -26,12 +26,23 @@ export default function OvertimeDashboardCard({ href }: { href: string }) {
     window.addEventListener('focus', load)
     return () => { active = false; window.clearInterval(interval); window.removeEventListener('focus', load) }
   }, [])
-  return <Link href={href} className="relative block rounded-2xl border border-cream-dim bg-cream-card p-4">
-    <div className="flex items-center justify-between gap-3">
-      <p className="text-sm font-semibold text-ink">Kelola Lembur</p>
-      {count !== null && count > 0 && <span className="rounded-full bg-brand px-2 py-1 text-[10px] font-bold text-white">{count} Menunggu</span>}
+  return <Link href={href} className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+      <svg aria-hidden="true" width="24" height="24" viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M27 22A13 13 0 1 1 14 9M11 6l3 3-3 3" />
+        <circle cx="14" cy="22" r="9" />
+        <path d="M14 17v5l-3 2M14 15v1M7 22h1M14 28v1M20 22h1" />
+        <circle cx="27" cy="9" r="6" />
+        <path d="M27 6v6M24 9h6" />
+      </svg>
+    </span>
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-ink">Kelola Lembur</p>
+        {count !== null && count > 0 && <span className="rounded-full bg-brand px-2 py-1 text-[10px] font-bold text-white">{count} Menunggu</span>}
+      </div>
+      <p className="text-xs text-muted">{error ? 'Notifikasi belum dapat dimuat. Buka untuk melihat detail.' : count === null ? 'Memuat pengajuan…' : count > 0 ? 'Ada pengajuan lembur untuk ditinjau.' : 'Tidak ada pengajuan menunggu.'}</p>
     </div>
-    <p className="mt-1 text-xs text-muted">{error ? 'Notifikasi belum dapat dimuat. Buka untuk melihat detail.' : count === null ? 'Memuat pengajuan…' : count > 0 ? 'Ada pengajuan lembur untuk ditinjau.' : 'Tidak ada pengajuan menunggu.'}</p>
-    <span className="mt-3 block text-xs font-semibold text-brand">Buka pengajuan →</span>
+    <span className="text-brand">→</span>
   </Link>
 }
