@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import PageHeader from './PageHeader'
+import CorrectionEvidenceInput from './CorrectionEvidenceInput'
 import { useDialog } from './ui/DialogProvider'
 import { correctionCrewOptions, correctionDetail, correctionSchedules, loadAttendanceCorrections, reviewAttendanceCorrection, submitAttendanceCorrection } from '@/app/actions/attendance-corrections'
 import { correctionReasons, correctionStatuses, jakartaInput, type Correction, type CorrectionEvent, type CorrectionSchedule } from '@/lib/attendance-corrections'
@@ -120,7 +121,7 @@ export default function AttendanceCorrectionsClient({ manager, userId, backHref 
           <label className="block text-sm text-muted">Jam absen seharusnya (WIB)<input name="clock" required type="time" className={input} /></label>
           <label className="block text-sm text-muted">Alasan koreksi<select name="reason" required className={input}><option value="">Pilih alasan</option>{Object.entries(correctionReasons).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
           <label className="block text-sm text-muted">Keterangan tambahan<textarea name="note" required maxLength={1000} rows={3} className={input} placeholder="Jelaskan kronologi kendala" /></label>
-          <label className="block text-sm text-muted">Bukti kendala (wajib)<input name="evidence" type="file" required accept="image/jpeg,image/png,image/webp" className={input} onChange={e => { const f = e.target.files?.[0]; e.target.setCustomValidity(f && f.size > 3_000_000 ? 'Ukuran bukti maksimal 3 MB.' : '') }} /><span className="mt-1 block text-xs">JPG, PNG, atau WebP. Maksimal 3 MB.</span></label>
+          <CorrectionEvidenceInput />
           {formError && <p role="alert" className="text-sm text-brand">{formError}</p>}
           <button className={button + ' w-full'} disabled={saving || !scheduleId || scheduleLoading}>{saving ? 'Mengirim…' : 'Ajukan Koreksi'}</button>
         </fieldset>
