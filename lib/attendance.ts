@@ -61,5 +61,7 @@ export async function getTodayStatus(userId: string) {
   const { data: attendance, error: attendanceError } = await supabase
     .from('attendance').select('*').eq('schedule_id', schedule.id).maybeSingle()
   if (attendanceError) throw new Error('Gagal membaca status absensi: ' + attendanceError.message)
-  return { schedule, attendance }
+  // Cancelling a correction can restore an empty attendance row.
+  // The crew must be offered check-in again until an entry time exists.
+  return { schedule, attendance: attendance?.jam_masuk_aktual ? attendance : null }
 }

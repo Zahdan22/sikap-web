@@ -427,10 +427,11 @@ export async function savePayrollDraft(start: string, end: string) {
   if (!access.ok) return { success: false as const, message: access.message }
   if (!validDate(start) || !validDate(end) || start > end) return { success: false as const, message: 'Rentang tanggal tidak valid.' }
 
-  const existing = await access.supabase.from('payroll_periods').select('id, status').eq('period_start', start).eq('period_end', end).maybeSingle()
+  const existing = await access.supabase.from('payroll_periods').select('id, status, attendance_revision').eq('period_start', start).eq('period_end', end).maybeSingle()
   if (existing.error) return { success: false as const, message: existing.error.message }
   if (existing.data?.status === 'finalized') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
   let periodId = existing.data?.id
+  const attendanceRevision = existing.data?.attendance_revision || 0
   if (!periodId) {
     const { data, error } = await access.supabase.from('payroll_periods').insert({ period_start: start, period_end: end, created_by: access.userId }).select('id').single()
     if (error || !data) return { success: false as const, message: error?.message || 'Gagal membuat periode payroll.' }
@@ -444,6 +445,7 @@ export async function savePayrollDraft(start: string, end: string) {
   if (negative) return { success: false as const, message: `Total potongan ${negative.nama} melebihi gaji. Periksa denda dan penyesuaian sebelum menyimpan draf.` }
   const records = report.rows.map((row) => ({
     payroll_period_id: periodId,
+    attendance_revision: attendanceRevision,
     user_id: row.userId,
     scheduled_hours: row.hours,
     completed_work_days: row.payableDays,
@@ -470,7 +472,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
   }
   if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000) return { success: false as const, message: 'Nominal harus lebih dari Rp0.' }
   if (cleanReason.length < 4 || cleanReason.length > 300) return { success: false as const, message: 'Alasan harus 4–300 karakter.' }
-  const { data: period, error: periodError } = await access.supabase.from('payroll_periods').select('id, period_start, period_end, status').eq('id', periodId).maybeSingle()
+  const { data: period, error: periodError } = await access.supabase.from('payroll_periods').select('id, period_start, period_end, status, attendance_revision').eq('id', periodId).maybeSingle()
   if (periodError || !period) return { success: false as const, message: periodError?.message || 'Periode payroll tidak ditemukan.' }
   if (period.status !== 'draft') return { success: false as const, message: 'Periode payroll sudah dikunci.' }
   const { data: targetCrew, error: targetError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').maybeSingle()
@@ -496,6 +498,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
   if (row) {
     const { error: updateError } = await access.supabase.from('payroll_items').upsert({
       payroll_period_id: periodId,
+      attendance_revision: period.attendance_revision,
       user_id: userId,
       scheduled_hours: row.hours,
       completed_work_days: row.payableDays,

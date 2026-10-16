@@ -4,6 +4,7 @@ import AccountMenu from '@/components/AccountMenu'
 import { createClient } from '@/lib/supabase/server'
 import OvertimeDashboardCard from '@/components/OvertimeDashboardCard'
 import ViolationDashboardCard from '@/components/ViolationDashboardCard'
+import CorrectionDashboardCard from '@/components/CorrectionDashboardCard'
 
 export default async function FinanceHomePage() {
   const supabase = await createClient()
@@ -16,6 +17,7 @@ export default async function FinanceHomePage() {
         <AccountMenu role="finance" />
       </DashboardHeader>
       <section className="mt-5 space-y-3 px-5">
+        <CorrectionDashboardCard href="/finance/koreksi-absensi" manager />
         <OvertimeDashboardCard href="/finance/lembur" />
         <ViolationDashboardCard href="/finance/pelanggaran" manager />
         <Link href="/finance/payroll" className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">

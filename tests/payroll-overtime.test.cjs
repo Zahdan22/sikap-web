@@ -101,6 +101,23 @@ test('lembur terbayar tetap masuk jika crew tidak memiliki jadwal reguler di per
   assert.equal(report.rows[0].hours, 0)
 })
 
+test('koreksi keterlambatan dan checkout menghitung ulang denda serta poin pada draf', async () => {
+  const { tables, actions } = setup()
+  Object.assign(tables.attendance[0], { status_masuk: 'telat', menit_telat: 30, jam_pulang_aktual: null, status_pulang: 'belum_absen' })
+  const before = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(before.rows[0].attendanceDeductions, 42000)
+  assert.equal(before.rows[0].attendancePoints, 10)
+  Object.assign(tables.attendance[0], { status_masuk: 'tepat_waktu', menit_telat: 0, jam_pulang_aktual: '2025-01-05T17:00:00Z', status_pulang: 'tepat_waktu' })
+  tables.payroll_periods[0].attendance_revision = 2
+  const after = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(after.rows[0].attendanceDeductions, 0)
+  assert.equal(after.rows[0].attendancePoints, 0)
+  assert.equal(after.rows[0].netPay - before.rows[0].netPay, 42000)
+  await actions.savePayrollDraft('2025-01-01', '2025-01-31')
+  assert.equal(tables.payroll_items[0].attendance_revision, 2)
+  assert.equal(tables.payroll_items[0].net_pay, after.rows[0].netPay)
+})
+
 test('rekap tidak terpotong pada batas 1.000 baris Supabase', async () => {
   const { tables, actions } = setup()
   tables.overtime_requests = Array.from({ length: 1001 }, (_, index) => ({ id: index + 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_dibayar: 1, nominal: 8000, status: 'disetujui' }))

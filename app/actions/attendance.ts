@@ -91,17 +91,22 @@ export async function submitCheckIn(latitude: number, longitude: number, imageDa
   }
 
   const { data: existing, error: existingError } = await supabase
-    .from('attendance').select('id').eq('schedule_id', schedule.id).maybeSingle()
+    .from('attendance').select('id, jam_masuk_aktual').eq('schedule_id', schedule.id).maybeSingle()
   if (existingError) return { success: false, message: 'Gagal memeriksa absensi: ' + existingError.message }
-  if (existing) return { success: false, message: 'Absensi masuk untuk jadwal ini sudah tercatat.' }
+  if (existing?.jam_masuk_aktual) return { success: false, message: 'Absensi masuk untuk jadwal ini sudah tercatat.' }
 
   const photo = await uploadPhoto(user.id, imageDataUrl, 'masuk')
   if ('error' in photo) return { success: false, message: photo.error || 'Upload foto absensi gagal.' }
-  const { error } = await supabaseAdmin.from('attendance').insert({
+  const values = {
     user_id: user.id, schedule_id: schedule.id, jam_masuk_aktual: now.toISOString(),
     foto_masuk: photo.path, lat_masuk: latitude, lng_masuk: longitude,
     menit_telat: attendanceStatus.menitTelat, status_masuk: attendanceStatus.status,
-  })
+  }
+  // A cancelled correction may leave a row with no check-in; fill it only if still empty.
+  const result = existing
+    ? await supabaseAdmin.from('attendance').update(values).eq('id', existing.id).eq('user_id', user.id).is('jam_masuk_aktual', null).select('id').maybeSingle()
+    : await supabaseAdmin.from('attendance').insert(values).select('id').single()
+  const error = result.error || (!result.data ? { message: 'Absensi sudah diubah di perangkat lain.' } : null)
   if (error) {
     const { error: cleanupError } = await supabaseAdmin.storage.from('attendance-photos').remove([photo.path])
     return { success: false, message: `Gagal menyimpan check-in: ${error.message}${cleanupError ? `. Foto sementara juga gagal dihapus: ${cleanupError.message}` : '. Foto sementara sudah dihapus.'}` }
