@@ -15,8 +15,9 @@ export async function updateProfile(nama: string, username: string) {
   if (cleanName.length < 2 || cleanName.length > 100) return { success: false, message: 'Nama harus 2–100 karakter.' }
 
   const { data: currentProfile, error: profileReadError } = await supabase
-    .from('users').select('username').eq('id', user.id).single()
+    .from('users').select('username, status_aktif').eq('id', user.id).single()
   if (profileReadError || !currentProfile) return { success: false, message: 'Gagal membaca profil: ' + (profileReadError?.message || 'Profil tidak ditemukan') }
+  if (!currentProfile.status_aktif) return { success: false, message: 'Akun tidak aktif.' }
 
   const oldEmail = user.email
   const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {

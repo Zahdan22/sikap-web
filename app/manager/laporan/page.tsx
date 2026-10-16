@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getEmployeeSummaries, getEmployeeDetail, EmployeeSummary } from '@/lib/laporan'
 import { getPhotoSignedUrl } from '@/lib/storage'
 import { formatDateWithDay, toDateString } from '@/lib/date-utils'
-import * as XLSX from 'xlsx'
+import { exportRowsToExcel } from '@/lib/export-excel'
 import PageHeader from '@/components/PageHeader'
 import PeriodeModal from '@/components/PeriodeModal'
 
@@ -179,10 +179,7 @@ export function LaporanPageClient({ finance = false }: { finance?: boolean }) {
       }
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(allRows)
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Laporan Absensi')
-    XLSX.writeFile(workbook, `Laporan_Absensi_${exportAll ? 'Semua' : 'Terfilter'}_${generatedRange.start}_${generatedRange.end}.xlsx`)
+    await exportRowsToExcel(allRows, 'Laporan Absensi', `Laporan_Absensi_${exportAll ? 'Semua' : 'Terfilter'}_${generatedRange.start}_${generatedRange.end}.xlsx`)
     setExporting(false)
   }
 

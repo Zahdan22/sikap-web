@@ -31,6 +31,17 @@ export async function loginWithUsername(formData: FormData) {
       return { ok: false as const, message: 'Login belum menghasilkan sesi. Coba lagi.' }
     }
 
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('status_aktif')
+      .eq('id', data.user.id)
+      .maybeSingle()
+
+    if (profileError || !profile?.status_aktif) {
+      await supabase.auth.signOut()
+      return { ok: false as const, message: 'Akun tidak aktif. Hubungi manager penjadwalan.' }
+    }
+
     return { ok: true as const }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'

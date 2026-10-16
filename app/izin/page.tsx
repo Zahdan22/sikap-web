@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { createLeaveRequest } from '@/app/actions/leave'
 import { useDialog } from '@/components/ui/DialogProvider'
-import BackArrow from '@/components/BackArrow'
 import PageHeader from '@/components/PageHeader'
 
 type LeaveRequest = {
@@ -70,41 +69,20 @@ export default function IzinPage() {
     e.preventDefault()
     setSubmitting(true)
 
-    let buktiPath: string | null = null
+    const formData = new FormData()
+    formData.set('jenis', jenis)
+    formData.set('tanggalMulai', tanggalMulai)
+    formData.set('tanggalSelesai', tanggalSelesai)
+    formData.set('alasan', alasan)
+    formData.set('penggantiType', penggantiType)
+    formData.set('penggantiUserId', penggantiType === 'crew' ? penggantiUserId : '')
+    formData.set('penggantiNamaManual', penggantiType === 'freelance' ? penggantiNamaManual : '')
+    if (buktiFile) formData.set('bukti', buktiFile)
 
-    if (buktiFile) {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setSubmitting(false); toast('Sesi login tidak ditemukan. Silakan login kembali.', 'error'); return }
-
-      const fileName = `${user.id}/${Date.now()}-${buktiFile.name}`
-      const { error: uploadError } = await supabase.storage.from('leave-attachments').upload(fileName, buktiFile)
-      if (uploadError) {
-        toast('Error upload bukti: ' + uploadError.message, 'error')
-        setSubmitting(false)
-        return
-      }
-      buktiPath = fileName
-    }
-
-    const result = await createLeaveRequest(
-      jenis,
-      tanggalMulai,
-      tanggalSelesai,
-      alasan,
-      penggantiType,
-      penggantiType === 'crew' ? penggantiUserId : null,
-      penggantiType === 'freelance' ? penggantiNamaManual : null,
-      buktiPath
-    )
+    const result = await createLeaveRequest(formData)
 
     setSubmitting(false)
     if (!result.success) {
-      if (buktiPath) {
-        const supabase = createClient()
-        const { error } = await supabase.storage.from('leave-attachments').remove([buktiPath])
-        if (error) { toast(`Error: ${result.message}. Bukti sementara gagal dihapus: ${error.message}`, 'error'); return }
-      }
       toast('Error: ' + result.message, 'error'); return
     }
     toast('Pengajuan berhasil dikirim', 'success')
@@ -155,7 +133,7 @@ export default function IzinPage() {
             <label className="mb-1 block text-xs font-medium text-muted">Jenis Izin</label>
             <select
               value={jenis}
-              onChange={(e) => setJenis(e.target.value as any)}
+              onChange={(e) => setJenis(e.target.value as 'sakit' | 'keperluan_pribadi')}
               className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
             >
               <option value="sakit">Sakit</option>
@@ -193,6 +171,8 @@ export default function IzinPage() {
               value={alasan}
               onChange={(e) => setAlasan(e.target.value)}
               rows={3}
+              required
+              maxLength={1000}
               className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
             />
           </div>
@@ -247,7 +227,7 @@ export default function IzinPage() {
             <label className="mb-1 block text-xs font-medium text-muted">Bukti Izin (opsional)</label>
             <input
               type="file"
-              accept="image/*,.pdf"
+              accept="image/jpeg,image/png,application/pdf"
               onChange={(e) => setBuktiFile(e.target.files?.[0] || null)}
               className="w-full text-xs text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-brand/10 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-brand"
             />

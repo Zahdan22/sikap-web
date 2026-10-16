@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { calculateDistance } from '@/lib/geo'
 import { evaluateCheckIn, evaluateCheckOut } from '@/lib/attendance-status'
 
@@ -53,14 +54,16 @@ async function validateActorAndLocation(latitude: number, longitude: number) {
   return { supabase, user, distance } as const
 }
 
-async function uploadPhoto(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, imageDataUrl: string, type: 'masuk' | 'pulang') {
+async function uploadPhoto(userId: string, imageDataUrl: string, type: 'masuk' | 'pulang') {
   const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+=*)$/.exec(imageDataUrl)
   if (!match) return { error: 'Foto absensi tidak valid.' } as const
   const bytes = Buffer.from(match[1], 'base64')
-  if (!bytes.length || bytes.length > 2_500_000) return { error: 'Ukuran foto terlalu besar. Ambil ulang foto absensi.' } as const
+  if (!bytes.length || bytes.length > 2_500_000 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+    return { error: 'Foto absensi tidak valid atau terlalu besar. Ambil ulang foto absensi.' } as const
+  }
 
   const path = `${userId}/${crypto.randomUUID()}-${type}.jpg`
-  const { error } = await supabase.storage.from('attendance-photos').upload(path, bytes, {
+  const { error } = await supabaseAdmin.storage.from('attendance-photos').upload(path, bytes, {
     contentType: 'image/jpeg', upsert: false,
   })
   if (error) return { error: 'Gagal upload foto: ' + error.message } as const
@@ -92,15 +95,15 @@ export async function submitCheckIn(latitude: number, longitude: number, imageDa
   if (existingError) return { success: false, message: 'Gagal memeriksa absensi: ' + existingError.message }
   if (existing) return { success: false, message: 'Absensi masuk untuk jadwal ini sudah tercatat.' }
 
-  const photo = await uploadPhoto(supabase, user.id, imageDataUrl, 'masuk')
+  const photo = await uploadPhoto(user.id, imageDataUrl, 'masuk')
   if ('error' in photo) return { success: false, message: photo.error || 'Upload foto absensi gagal.' }
-  const { error } = await supabase.from('attendance').insert({
+  const { error } = await supabaseAdmin.from('attendance').insert({
     user_id: user.id, schedule_id: schedule.id, jam_masuk_aktual: now.toISOString(),
     foto_masuk: photo.path, lat_masuk: latitude, lng_masuk: longitude,
     menit_telat: attendanceStatus.menitTelat, status_masuk: attendanceStatus.status,
   })
   if (error) {
-    const { error: cleanupError } = await supabase.storage.from('attendance-photos').remove([photo.path])
+    const { error: cleanupError } = await supabaseAdmin.storage.from('attendance-photos').remove([photo.path])
     return { success: false, message: `Gagal menyimpan check-in: ${error.message}${cleanupError ? `. Foto sementara juga gagal dihapus: ${cleanupError.message}` : '. Foto sementara sudah dihapus.'}` }
   }
 
@@ -147,14 +150,14 @@ export async function submitCheckOut(latitude: number, longitude: number, imageD
   if (attendance.jam_pulang_aktual) return { success: false, message: 'Check-out untuk jadwal ini sudah tercatat.' }
 
   const status = evaluateCheckOut({ tanggal: schedule.tanggal, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai }, now)
-  const photo = await uploadPhoto(supabase, user.id, imageDataUrl, 'pulang')
+  const photo = await uploadPhoto(user.id, imageDataUrl, 'pulang')
   if ('error' in photo) return { success: false, message: photo.error || 'Upload foto absensi gagal.' }
-  const { data: updated, error } = await supabase.from('attendance').update({
+  const { data: updated, error } = await supabaseAdmin.from('attendance').update({
     jam_pulang_aktual: now.toISOString(), foto_pulang: photo.path,
     lat_pulang: latitude, lng_pulang: longitude, status_pulang: status,
-  }).eq('id', attendance.id).is('jam_pulang_aktual', null).select('id').maybeSingle()
+  }).eq('id', attendance.id).eq('user_id', user.id).is('jam_pulang_aktual', null).select('id').maybeSingle()
   if (error || !updated) {
-    const { error: cleanupError } = await supabase.storage.from('attendance-photos').remove([photo.path])
+    const { error: cleanupError } = await supabaseAdmin.storage.from('attendance-photos').remove([photo.path])
     return { success: false, message: `Gagal menyimpan check-out: ${error?.message || 'Absensi sudah diubah di perangkat lain.'}${cleanupError ? `. Foto sementara juga gagal dihapus: ${cleanupError.message}` : '. Foto sementara sudah dihapus.'}` }
   }
 

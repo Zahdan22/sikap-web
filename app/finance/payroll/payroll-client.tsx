@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
+import { exportRowsToExcel } from '@/lib/export-excel'
 import { addPayrollAdjustment, finalizePayroll, loadPayrollReport, loadPayrollWorkPeriods, savePayrollDraft } from '@/app/actions/payroll'
 import PeriodeModal from '@/components/PeriodeModal'
 import { useDialog } from '@/components/ui/DialogProvider'
@@ -154,7 +154,7 @@ export default function PayrollClient() {
     await load()
   }
 
-  function exportExcel() {
+  async function exportExcel() {
     if (!report) return
     const rows = report.rows.map((row) => ({
       Crew: row.nama,
@@ -176,9 +176,7 @@ export default function PayrollClient() {
       Potongan: row.deductions,
       'Gaji bersih': row.netPay,
     }))
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Payroll')
-    XLSX.writeFile(workbook, `Payroll_${start}_${end}.xlsx`)
+    await exportRowsToExcel(rows, 'Payroll', `Payroll_${start}_${end}.xlsx`)
   }
 
   return (

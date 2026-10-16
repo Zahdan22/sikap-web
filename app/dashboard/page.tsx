@@ -12,10 +12,11 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('nama, role, username')
+    .select('nama, role, username, status_aktif')
     .eq('id', user.id)
     .single()
 
+  if (!profile?.status_aktif) redirect('/login')
   if (profile?.role === 'finance') redirect('/finance')
   return <DashboardClient nama={profile?.nama || ''} role={profile?.role || 'crew'} />
 }

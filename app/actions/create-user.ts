@@ -59,7 +59,21 @@ export async function setCrewActive(userId: string, active: boolean) {
   const { data: target, error: targetError } = await access.supabase.from('users').select('role').eq('id', userId).maybeSingle()
   if (targetError) return { success: false, message: 'Gagal memeriksa akun target: ' + targetError.message }
   if (!target || target.role !== 'crew') return { success: false, message: 'Akun target tidak ditemukan atau bukan akun crew.' }
-  const { error } = await access.supabase.from('users').update({ status_aktif: active }).eq('id', userId)
-  if (error) return { success: false, message: error.message }
+  if (active) {
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: 'none' })
+    if (authError) return { success: false, message: 'Gagal mengaktifkan login crew: ' + authError.message }
+
+    const { error } = await supabaseAdmin.from('users').update({ status_aktif: true }).eq('id', userId)
+    if (error) {
+      await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
+      return { success: false, message: 'Gagal mengaktifkan profil crew: ' + error.message }
+    }
+  } else {
+    const { error } = await supabaseAdmin.from('users').update({ status_aktif: false }).eq('id', userId)
+    if (error) return { success: false, message: error.message }
+
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
+    if (authError) return { success: false, message: 'Akun sudah diblokir dari data aplikasi, tetapi sesi Auth gagal dicabut: ' + authError.message }
+  }
   return { success: true }
 }

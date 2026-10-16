@@ -7,7 +7,7 @@ import { getPhotoSignedUrl } from '@/lib/storage'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
-import * as XLSX from 'xlsx'
+import { exportRowsToExcel } from '@/lib/export-excel'
 
 const statusStyle: Record<string, string> = {
   tepat_waktu: 'bg-success/10 text-success',
@@ -94,11 +94,8 @@ export function DetailKaryawanClient({ finance = false }: { finance?: boolean })
         'Foto Check-In Tersedia': detail.fotoMasuk ? 'Ya' : 'Tidak',
         'Foto Check-Out Tersedia': detail.fotoPulang ? 'Ya' : 'Tidak',
       }))
-      const worksheet = XLSX.utils.json_to_sheet(rows)
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Detail Absensi')
       const safeName = nama.replace(/[^a-z0-9_-]/gi, '_') || 'Crew'
-      XLSX.writeFile(workbook, `Laporan_${safeName}_${exportAll ? 'Semua' : attendanceFilter}_${start}_${end}.xlsx`)
+      await exportRowsToExcel(rows, 'Detail Absensi', `Laporan_${safeName}_${exportAll ? 'Semua' : attendanceFilter}_${start}_${end}.xlsx`)
     } finally {
       setExporting(false)
     }

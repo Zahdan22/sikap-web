@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { revalidatePath } from 'next/cache'
 
 function jakartaToday() {
@@ -81,7 +82,7 @@ export async function createSwapRequest(
     }
   }
 
-  const { error } = await supabase.from('shift_swap_request').insert({
+  const { error } = await supabaseAdmin.from('shift_swap_request').insert({
     tanggal,
     tanggal_target: targetType === 'crew' ? tanggalTarget : null,
     requester_id: user.id,
@@ -175,9 +176,9 @@ export async function respondSwapRequest(
     return { success: false, message: 'Data keputusan tukar shift tidak valid.' }
   }
 
-  const { data: profile, error: profileError } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const { data: profile, error: profileError } = await supabase.from('users').select('role, status_aktif').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
-  if (profile?.role !== 'manager') return { success: false, message: 'Hanya manager yang dapat memproses tukar shift' }
+  if (profile?.role !== 'manager' || !profile.status_aktif) return { success: false, message: 'Hanya manager aktif yang dapat memproses tukar shift' }
 
   const { data: swap, error: fetchError } = await supabase
     .from('shift_swap_request')
