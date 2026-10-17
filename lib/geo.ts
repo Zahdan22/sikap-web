@@ -63,9 +63,20 @@ export type LocationCheckResult = {
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<string> {
-  const res = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`)
-  const data = await res.json()
-  return data.address
+  // The address is descriptive; GPS coordinates remain required for attendance.
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 1500)
+  try {
+    const res = await fetch(`/api/reverse-geocode?lat=${lat}&lng=${lng}`, { signal: controller.signal })
+    if (!res.ok) return ''
+    const data: unknown = await res.json()
+    return typeof data === 'object' && data !== null && 'address' in data
+      && typeof data.address === 'string' ? data.address.slice(0, 2000) : ''
+  } catch {
+    return ''
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export async function checkLocationWithinRadius(): Promise<LocationCheckResult> {

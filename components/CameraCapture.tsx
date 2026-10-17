@@ -1,34 +1,51 @@
 'use client'
 
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 
 type CameraCaptureProps = {
-  onCapture: (imageDataUrl: string) => void
+  onCapture: (canvas: HTMLCanvasElement) => void
 }
 
 export default function CameraCapture({ onCapture }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const requestVersion = useRef(0)
   const [isReady, setIsReady] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => () => {
+    requestVersion.current += 1
+    streamRef.current?.getTracks().forEach(track => track.stop())
+  }, [])
 
   const startCamera = useCallback(async () => {
     setError('')
+    setStarting(true)
+    const version = ++requestVersion.current
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       })
+      if (version !== requestVersion.current) {
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         await videoRef.current.play()
-        setIsReady(true)
+        if (version === requestVersion.current) setIsReady(true)
       }
     } catch (err) {
+      if (version !== requestVersion.current) return
+      streamRef.current?.getTracks().forEach(track => track.stop())
       setError('Tidak bisa mengakses kamera. Pastikan izin kamera sudah diberikan.')
       console.error(err)
+    } finally {
+      if (version === requestVersion.current) setStarting(false)
     }
   }, [])
 
@@ -41,18 +58,18 @@ export default function CameraCapture({ onCapture }: CameraCaptureProps) {
   const takePhoto = useCallback(() => {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas) return
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) return
 
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    // Resize before encoding so large camera frames never become full-size JPEGs.
+    const scale = Math.min(1, 800 / Math.max(video.videoWidth, video.videoHeight))
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9)
-
     stopCamera()
-    onCapture(imageDataUrl)
+    onCapture(canvas)
   }, [onCapture, stopCamera])
 
   return (
@@ -62,9 +79,10 @@ export default function CameraCapture({ onCapture }: CameraCaptureProps) {
       {!isReady && (
         <button
           onClick={startCamera}
-          className="rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white"
+          disabled={starting}
+          className="rounded-xl bg-brand px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Buka Kamera
+          {starting ? 'Membuka kamera…' : 'Buka Kamera'}
         </button>
       )}
 

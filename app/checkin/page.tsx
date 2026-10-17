@@ -1,17 +1,26 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import CameraCapture from '@/components/CameraCapture'
 import { getTodayStatus } from '@/lib/attendance'
 import { submitCheckIn, submitCheckOut } from '@/app/actions/attendance'
 import { getCurrentPosition, reverseGeocode } from '@/lib/geo'
 import { applyWatermark } from '@/lib/watermark'
-import { getPhotoSignedUrl } from '@/lib/storage'
 import { createClient } from '@/lib/supabase/client'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
 
 type ViewState = 'loading' | 'error' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
+
+function prepareLocation() {
+  return getCurrentPosition().then(position => ({
+    position,
+    acquiredAt: Date.now(),
+    address: reverseGeocode(position.latitude, position.longitude),
+  })).catch((error: unknown) => ({
+    error: error instanceof Error ? error : new Error('Gagal mengambil lokasi.'),
+  }))
+}
 
 export default function CheckInOutPage() {
   const [userId, setUserId] = useState<string | null>(null)
@@ -20,16 +29,29 @@ export default function CheckInOutPage() {
   const [statusMessage, setStatusMessage] = useState('')
   const [showCamera, setShowCamera] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [processingMessage, setProcessingMessage] = useState('')
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const locationRequest = useRef<ReturnType<typeof prepareLocation> | null>(null)
+  const submitting = useRef(false)
+  const statusVersion = useRef(0)
 
-  async function loadStatus() {
+  async function loadStatus(background = false) {
+    const version = ++statusVersion.current
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setViewState('error'); setStatusMessage('Sesi login tidak ditemukan. Silakan login kembali.'); return }
+      if (version !== statusVersion.current) return
+      if (!user) {
+        if (!background) {
+          setViewState('error')
+          setStatusMessage('Sesi login tidak ditemukan. Silakan login kembali.')
+        }
+        return
+      }
       setUserId(user.id)
 
       const { schedule, attendance } = await getTodayStatus(user.id)
+      if (version !== statusVersion.current) return
       if (!schedule) {
         setViewState('no-schedule')
         return
@@ -40,46 +62,74 @@ export default function CheckInOutPage() {
       else if (!attendance.jam_pulang_aktual) setViewState('ready-checkout')
       else setViewState('done')
     } catch (error) {
+      // A failed refresh must not turn an already saved attendance into an error.
+      if (background || version !== statusVersion.current) return
       setViewState('error')
       setStatusMessage((error as Error).message || 'Gagal memuat status absensi.')
     }
   }
 
   useEffect(() => {
+    // Initial status fetch updates state after the request completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadStatus()
   }, [])
 
-  async function handleCapture(photo: string) {
-    if (!userId) return
+  function openCamera() {
+    statusVersion.current += 1
+    locationRequest.current = prepareLocation()
+    setStatusMessage('')
+    setPhotoUrl(null)
+    setShowCamera(true)
+  }
+
+  async function handleCapture(photo: HTMLCanvasElement) {
+    if (!userId || submitting.current || (viewState !== 'ready-checkin' && viewState !== 'ready-checkout')) return
+    submitting.current = true
+    const capturedAt = new Date()
     setProcessing(true)
+    setProcessingMessage('Memastikan lokasi…')
     setShowCamera(false)
     try {
-      const position = await getCurrentPosition()
-      const address = await reverseGeocode(position.latitude, position.longitude)
+      let prepared = await (locationRequest.current ?? prepareLocation())
+      // A camera left open must not submit a location from minutes earlier.
+      if (!('error' in prepared) && Date.now() - prepared.acquiredAt > 15_000) {
+        prepared = await prepareLocation()
+      }
+      locationRequest.current = null
+      if ('error' in prepared) throw prepared.error
+      const { position } = prepared
+      setProcessingMessage('Menyiapkan foto…')
+      const address = await prepared.address
       const watermarked = await applyWatermark(photo, {
-        timestamp: new Date(),
+        timestamp: capturedAt,
         latitude: position.latitude,
         longitude: position.longitude,
         address,
       })
 
+      setProcessingMessage('Menyimpan absensi…')
       if (viewState === 'ready-checkin') {
         const result = await submitCheckIn(position.latitude, position.longitude, watermarked)
         if (!result.success) throw new Error(result.message)
         setStatusMessage(
           `Check-in berhasil. ${result.status === 'telat' ? `Telat ${result.menitTelat} menit` : 'Tepat waktu'}`
         )
-        setPhotoUrl(await getPhotoSignedUrl(result.photoPath))
+        setViewState('ready-checkout')
       } else if (viewState === 'ready-checkout') {
         const result = await submitCheckOut(position.latitude, position.longitude, watermarked)
         if (!result.success) throw new Error(result.message)
         setStatusMessage(`Check-out berhasil. Status: ${result.status.replace('_', ' ')}`)
-        setPhotoUrl(await getPhotoSignedUrl(result.photoPath))
+        setViewState('done')
       }
-      await loadStatus()
+      // Show the exact submitted photo immediately after the server confirms saving.
+      setPhotoUrl(watermarked)
+      void loadStatus(true)
     } catch (err) {
       setStatusMessage('Error: ' + (err as Error).message)
     } finally {
+      locationRequest.current = null
+      submitting.current = false
       setProcessing(false)
     }
   }
@@ -134,15 +184,16 @@ export default function CheckInOutPage() {
               )}
               {showCamera && <CameraCapture onCapture={handleCapture} />}
               {processing && (
-                <div className="flex aspect-[3/4] items-center justify-center">
+                <div role="status" className="flex aspect-[3/4] flex-col items-center justify-center gap-3">
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-cream/20 border-t-cream" />
+                  <p className="text-sm text-cream">{processingMessage}</p>
                 </div>
               )}
             </div>
 
             {!showCamera && !processing && (
               <button
-                onClick={() => setShowCamera(true)}
+                onClick={openCamera}
                 className="mt-4 w-full rounded-xl bg-brand py-3.5 text-sm font-semibold text-white"
               >
                 {isCheckout ? 'Absen Pulang Sekarang' : 'Absen Masuk Sekarang'}
@@ -162,6 +213,8 @@ export default function CheckInOutPage() {
         )}
 
         {photoUrl && (
+          // The preview uses the local photo that the server has just accepted.
+          // eslint-disable-next-line @next/next/no-img-element
           <img src={photoUrl} alt="Foto absen" className="mt-4 w-full rounded-2xl border border-cream-dim" />
         )}
       </div>
