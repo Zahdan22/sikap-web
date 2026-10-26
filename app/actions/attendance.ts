@@ -33,13 +33,15 @@ async function validateActorAndLocation(latitude: number, longitude: number) {
   if (authError || !user) return { error: 'Sesi login tidak valid. Silakan login kembali.' } as const
   if (!validCoordinates(latitude, longitude)) return { error: 'Koordinat lokasi tidak valid.' } as const
 
-  const { data: profile, error: profileError } = await supabase
-    .from('users').select('role, status_aktif').eq('id', user.id).single()
+  const [profileResult, officeResult] = await Promise.all([
+    supabase.from('users').select('role, status_aktif').eq('id', user.id).single(),
+    supabase.from('office_location').select('latitude, longitude, radius_meter, nama_lokasi').limit(1).maybeSingle(),
+  ])
+  const { data: profile, error: profileError } = profileResult
   if (profileError) return { error: 'Gagal memeriksa akun: ' + profileError.message } as const
   if (profile.role !== 'crew' || !profile.status_aktif) return { error: 'Hanya crew aktif yang dapat melakukan absensi.' } as const
 
-  const { data: office, error: officeError } = await supabase
-    .from('office_location').select('latitude, longitude, radius_meter, nama_lokasi').limit(1).maybeSingle()
+  const { data: office, error: officeError } = officeResult
   if (officeError || !office) return { error: 'Gagal membaca lokasi kantor: ' + (officeError?.message || 'Lokasi belum dikonfigurasi') } as const
 
   const radius = Number(office.radius_meter)
@@ -54,10 +56,21 @@ async function validateActorAndLocation(latitude: number, longitude: number) {
   return { supabase, user, distance } as const
 }
 
-async function uploadPhoto(userId: string, imageDataUrl: string, type: 'masuk' | 'pulang') {
-  const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+=*)$/.exec(imageDataUrl)
-  if (!match) return { error: 'Foto absensi tidak valid.' } as const
-  const bytes = Buffer.from(match[1], 'base64')
+async function uploadPhoto(userId: string, imageDataUrl: string | FormData, type: 'masuk' | 'pulang') {
+  let bytes: Buffer
+  if (imageDataUrl instanceof FormData) {
+    const file = imageDataUrl.get('photo')
+    if (!(file instanceof File) || file.type !== 'image/jpeg' || !file.size || file.size > 2_500_000) {
+      return { error: 'Foto absensi tidak valid atau terlalu besar.' } as const
+    }
+    bytes = Buffer.from(await file.arrayBuffer())
+  } else {
+    // Support already open clients while the new binary upload is deployed.
+    if (typeof imageDataUrl !== 'string' || imageDataUrl.length > 3_400_000) return { error: 'Foto absensi tidak valid.' } as const
+    const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+=*)$/.exec(imageDataUrl)
+    if (!match) return { error: 'Foto absensi tidak valid.' } as const
+    bytes = Buffer.from(match[1], 'base64')
+  }
   if (!bytes.length || bytes.length > 2_500_000 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
     return { error: 'Foto absensi tidak valid atau terlalu besar. Ambil ulang foto absensi.' } as const
   }
@@ -70,7 +83,7 @@ async function uploadPhoto(userId: string, imageDataUrl: string, type: 'masuk' |
   return { path } as const
 }
 
-export async function submitCheckIn(latitude: number, longitude: number, imageDataUrl: string): Promise<AttendanceActionResult> {
+export async function submitCheckIn(latitude: number, longitude: number, imageDataUrl: string | FormData): Promise<AttendanceActionResult> {
   const context = await validateActorAndLocation(latitude, longitude)
   if ('error' in context) return { success: false, message: context.error || 'Validasi absensi gagal.' }
   const { supabase, user } = context
@@ -118,7 +131,7 @@ export async function submitCheckIn(latitude: number, longitude: number, imageDa
   return { success: true, status: attendanceStatus.status, menitTelat: attendanceStatus.menitTelat, photoPath: photo.path }
 }
 
-export async function submitCheckOut(latitude: number, longitude: number, imageDataUrl: string): Promise<AttendanceActionResult> {
+export async function submitCheckOut(latitude: number, longitude: number, imageDataUrl: string | FormData): Promise<AttendanceActionResult> {
   const context = await validateActorAndLocation(latitude, longitude)
   if ('error' in context) return { success: false, message: context.error || 'Validasi absensi gagal.' }
   const { supabase, user } = context

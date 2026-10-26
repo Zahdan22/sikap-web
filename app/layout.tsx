@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
-import SplashScreen from "@/components/SplashScreen";
 import DialogProvider from '@/components/ui/DialogProvider'
 import NavigationOverlay from '@/components/NavigationOverlay'
 import BottomNav from '@/components/BottomNav'
@@ -26,7 +25,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-cream text-ink font-sans">
-        <SplashScreen />
         <DialogProvider>
           {children}
           <BottomNav />

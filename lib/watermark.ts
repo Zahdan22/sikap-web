@@ -30,13 +30,18 @@ function wrapText(
 export function applyWatermark(
   canvas: HTMLCanvasElement,
   data: WatermarkData
-): Promise<string> {
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    const ctx = canvas.getContext('2d')
+    // Keep the captured source clean for retries and refreshed location stamps.
+    const output = document.createElement('canvas')
+    output.width = canvas.width
+    output.height = canvas.height
+    const ctx = output.getContext('2d')
     if (!ctx || !canvas.width || !canvas.height) {
       reject(new Error('Foto kamera belum siap. Ambil ulang foto.'))
       return
     }
+    ctx.drawImage(canvas, 0, 0)
 
     // Siapkan teks watermark
     const formattedDate = data.timestamp.toLocaleString('id-ID', {
@@ -75,16 +80,12 @@ export function applyWatermark(
     })
 
     // Encode only once, asynchronously, after adding the watermark.
-    canvas.toBlob(blob => {
+    output.toBlob(blob => {
       if (!blob) {
         reject(new Error('Gagal memproses foto. Ambil ulang foto.'))
         return
       }
-      const reader = new FileReader()
-      reader.onload = () => typeof reader.result === 'string'
-        ? resolve(reader.result) : reject(new Error('Gagal membaca foto.'))
-      reader.onerror = () => reject(new Error('Gagal membaca foto.'))
-      reader.readAsDataURL(blob)
+      resolve(blob)
     }, 'image/jpeg', 0.8)
   })
 }

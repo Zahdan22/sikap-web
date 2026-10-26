@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { loginWithUsername } from '@/app/actions/auth'
@@ -12,8 +12,13 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [loading, setLoading] = useState(false)
+  const [navigating, startTransition] = useTransition()
+  const submitting = useRef(false)
+  const busy = loading || navigating
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (submitting.current || busy) return
+    submitting.current = true
     const form = e.currentTarget as HTMLFormElement
     setLoading(true)
     setErrorMsg('')
@@ -25,11 +30,12 @@ export default function LoginPage() {
         return
       }
       // The Server Action response has applied the session cookie before navigation starts.
-      router.replace('/dashboard')
+      startTransition(() => router.replace(result.destination))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'
       setErrorMsg(`Tidak dapat menyelesaikan login: ${message}`)
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }
@@ -50,7 +56,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 px-6 pb-8 sm:px-8">
+        <form onSubmit={handleSubmit} aria-busy={busy} className="mt-6 px-6 pb-8 sm:px-8">
           <div className="h-px w-full bg-cream-dim" />
 
           <div className="mt-6">
@@ -108,15 +114,16 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={busy}
             className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
           >
-            {loading ? 'Memproses...' : (
+            {busy ? <><span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />{navigating ? 'Membuka dashboard…' : 'Memeriksa akun…'}</> : (
               <>
                 Masuk <span aria-hidden>→</span>
               </>
             )}
           </button>
+          {busy && <p role="status" className="mt-3 text-center text-sm text-muted">{navigating ? 'Login berhasil. Dashboard sedang dibuka…' : 'Sedang masuk ke akunmu…'}</p>}
         </form>
 
         <p className="pb-4 text-center text-[10px] tracking-wide text-muted/60">

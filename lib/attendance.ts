@@ -29,38 +29,32 @@ function getYesterdayDateString(date: Date): string {
   return yesterday.toISOString().slice(0, 10)
 }
 
-async function getOpenOvernightSchedule(userId: string, now: Date): Promise<Schedule | null> {
-  const supabase = createClient()
-  const yesterday = getYesterdayDateString(now)
-  const { data: schedule, error } = await supabase
-    .from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai')
-    .eq('user_id', userId).eq('tanggal', yesterday).maybeSingle()
-  if (error) throw new Error('Gagal membaca jadwal semalam: ' + error.message)
-  if (!schedule || !isOvernightShift(schedule)) return null
-
-  const { data: attendance, error: attendanceError } = await supabase
-    .from('attendance').select('jam_masuk_aktual, jam_pulang_aktual')
-    .eq('schedule_id', schedule.id).maybeSingle()
-  if (attendanceError) throw new Error('Gagal membaca status absensi: ' + attendanceError.message)
-  return attendance?.jam_masuk_aktual && !attendance.jam_pulang_aktual ? schedule : null
-}
-
 export async function getTodayStatus(userId: string) {
   const supabase = createClient()
   const now = new Date()
-  const overnightSchedule = await getOpenOvernightSchedule(userId, now)
   const today = getJakartaDateString(now)
-  const { data: todaySchedule, error: scheduleError } = await supabase
+  const yesterday = getYesterdayDateString(now)
+  const { data: schedules, error: scheduleError } = await supabase
     .from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai')
-    .eq('user_id', userId).eq('tanggal', today).maybeSingle()
+    .eq('user_id', userId).in('tanggal', [yesterday, today])
   if (scheduleError) throw new Error('Gagal membaca jadwal hari ini: ' + scheduleError.message)
-
-  const schedule = overnightSchedule || todaySchedule
-  if (!schedule) return { schedule: null, attendance: null }
-
-  const { data: attendance, error: attendanceError } = await supabase
-    .from('attendance').select('*').eq('schedule_id', schedule.id).maybeSingle()
+  if (!schedules?.length) return { schedule: null, attendance: null }
+  if ([today, yesterday].some(date => schedules.filter(row => row.tanggal === date).length > 1)) {
+    throw new Error('Terdapat jadwal ganda. Hubungi manager penjadwalan.')
+  }
+  const { data: attendances, error: attendanceError } = await supabase
+    .from('attendance').select('*').eq('user_id', userId).in('schedule_id', schedules.map(row => row.id))
   if (attendanceError) throw new Error('Gagal membaca status absensi: ' + attendanceError.message)
+  if (schedules.some(row => (attendances || []).filter(item => item.schedule_id === row.id).length > 1)) {
+    throw new Error('Terdapat data absensi ganda. Hubungi manager.')
+  }
+  const overnightSchedule = schedules.find(row => {
+    const attendance = attendances?.find(item => item.schedule_id === row.id)
+    return row.tanggal === yesterday && isOvernightShift(row) && attendance?.jam_masuk_aktual && !attendance.jam_pulang_aktual
+  })
+  const schedule = overnightSchedule || schedules.find(row => row.tanggal === today) || null
+  if (!schedule) return { schedule: null, attendance: null }
+  const attendance = attendances?.find(row => row.schedule_id === schedule.id)
   // Cancelling a correction can restore an empty attendance row.
   // The crew must be offered check-in again until an entry time exists.
   return { schedule, attendance: attendance?.jam_masuk_aktual ? attendance : null }

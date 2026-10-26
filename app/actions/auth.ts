@@ -33,16 +33,19 @@ export async function loginWithUsername(formData: FormData) {
 
     const { data: profile, error: profileError } = await supabase
       .from('users')
-      .select('status_aktif')
+      .select('status_aktif, role')
       .eq('id', data.user.id)
       .maybeSingle()
 
-    if (profileError || !profile?.status_aktif) {
+    if (profileError) {
+      return { ok: false as const, message: 'Data akun belum dapat dimuat. Coba masuk lagi sebentar.' }
+    }
+    if (!profile?.status_aktif) {
       await supabase.auth.signOut()
       return { ok: false as const, message: 'Akun tidak aktif. Hubungi manager penjadwalan.' }
     }
 
-    return { ok: true as const }
+    return { ok: true as const, destination: profile.role === 'finance' ? '/finance' : '/dashboard' }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'
     return { ok: false as const, message: `Tidak dapat menyelesaikan login: ${message}` }

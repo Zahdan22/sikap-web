@@ -25,6 +25,7 @@ export function calculateDistance(
 export type GeoPosition = {
   latitude: number
   longitude: number
+  accuracy?: number
 }
 
 export function getCurrentPosition(): Promise<GeoPosition> {
@@ -39,6 +40,7 @@ export function getCurrentPosition(): Promise<GeoPosition> {
         resolve({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
         })
       },
       (error) => {
