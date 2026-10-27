@@ -33,6 +33,14 @@ function dateLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`))
 }
 
+function timeLabel(value: string) {
+  return value.slice(0, 5).replace(':', '.')
+}
+
+function shiftLabel(schedule: ScheduleChoice) {
+  return `${timeLabel(schedule.jam_mulai)}–${timeLabel(schedule.jam_selesai)}`
+}
+
 const statusStyle: Record<string, string> = {
   pending: 'bg-warning/10 text-warning',
   disetujui: 'bg-success/10 text-success',
@@ -60,26 +68,27 @@ export default function TukarShiftPage() {
     if (!user) return
     setUserId(user.id)
 
-    const [{ data: profile }, { data: scheduleData }] = await Promise.all([
+    const [{ data: profile }, { data: scheduleData }, { data: swapData }, { data: crewData }] = await Promise.all([
       supabase.from('users').select('nama').eq('id', user.id).maybeSingle(),
       supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai').gte('tanggal', jakartaToday()).not('user_id', 'is', null).order('tanggal'),
+      supabase
+        .from('shift_swap_request')
+        .select('*, requester:requester_id (nama), target:target_id (nama)')
+        .or(`requester_id.eq.${user.id},target_id.eq.${user.id}`)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('users').select('id, nama').eq('role', 'crew').eq('status_aktif', true).neq('id', user.id).order('nama'),
     ])
     setMyName(profile?.nama || 'Kamu')
     setScheduleChoices((scheduleData || []) as ScheduleChoice[])
-
-    const { data: swapData } = await supabase
-      .from('shift_swap_request')
-      .select('*, requester:requester_id (nama), target:target_id (nama)')
-      .or(`requester_id.eq.${user.id},target_id.eq.${user.id}`)
-      .order('created_at', { ascending: false })
-    setList((swapData as any) || [])
-
-    const { data: crewData } = await supabase
-      .from('users').select('id, nama').eq('role', 'crew').eq('status_aktif', true).neq('id', user.id).order('nama')
+    setList((swapData || []) as unknown as SwapRequest[])
     setCrewOptions(crewData || [])
   }
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => { void loadData() }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -105,15 +114,25 @@ export default function TukarShiftPage() {
   }
 
   const myShiftDates = [...new Set(scheduleChoices.filter((item) => item.user_id === userId).map((item) => item.tanggal))]
-  const targetWorkDates = [...new Set(scheduleChoices.filter((item) => item.user_id === targetId && item.tanggal !== tanggal)
-    .filter((item) => !scheduleChoices.some((own) => own.user_id === userId && own.tanggal === item.tanggal))
-    .map((item) => item.tanggal))]
-  const eligibleCrewOptions = crewOptions.filter((crew) =>
-    scheduleChoices.some((shift) => shift.user_id === crew.id && shift.tanggal !== tanggal
-      && !scheduleChoices.some((own) => own.user_id === userId && own.tanggal === shift.tanggal))
-    && !scheduleChoices.some((shift) => shift.user_id === crew.id && shift.tanggal === tanggal)
-  )
+  const ownShift = scheduleChoices.find((item) => item.user_id === userId && item.tanggal === tanggal)
+  const targetWorkChoices = scheduleChoices.filter((item) => {
+    if (item.user_id !== targetId) return false
+    if (item.tanggal === tanggal) return true
+
+    const requesterAlreadyWorks = scheduleChoices.some((own) => own.user_id === userId && own.tanggal === item.tanggal)
+    const targetAlreadyWorksOnRequesterDate = scheduleChoices.some((shift) => shift.user_id === targetId && shift.tanggal === tanggal)
+    return !requesterAlreadyWorks && !targetAlreadyWorksOnRequesterDate
+  })
+  const eligibleCrewOptions = crewOptions.filter((crew) => scheduleChoices.some((item) => {
+    if (item.user_id !== crew.id) return false
+    if (item.tanggal === tanggal) return true
+
+    const requesterAlreadyWorks = scheduleChoices.some((own) => own.user_id === userId && own.tanggal === item.tanggal)
+    const targetAlreadyWorksOnRequesterDate = scheduleChoices.some((shift) => shift.user_id === crew.id && shift.tanggal === tanggal)
+    return !requesterAlreadyWorks && !targetAlreadyWorksOnRequesterDate
+  }))
   const targetName = targetType === 'crew' ? crewOptions.find((crew) => crew.id === targetId)?.nama : targetNamaFreelance
+  const selectedTargetShift = targetWorkChoices.find((item) => item.tanggal === tanggalTarget)
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-6">
@@ -165,11 +184,12 @@ export default function TukarShiftPage() {
                   className="mt-2 w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
                 >
                   <option value="">-- Pilih rekan yang bisa bertukar --</option>
-                  {eligibleCrewOptions.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nama}</option>
-                  ))}
+                  {eligibleCrewOptions.map((c) => {
+                    const sameDayShift = scheduleChoices.find((shift) => shift.user_id === c.id && shift.tanggal === tanggal)
+                    return <option key={c.id} value={c.id}>{c.nama}{sameDayShift ? ` · ${shiftLabel(sameDayShift)}` : ''}</option>
+                  })}
                 </select>
-                {tanggal && eligibleCrewOptions.length === 0 && <p className="mt-1 text-[11px] text-warning">Belum ada rekan yang memiliki pola jadwal berlawanan pada tanggal pilihanmu.</p>}
+                {tanggal && eligibleCrewOptions.length === 0 && <p className="mt-1 text-[11px] text-warning">Belum ada rekan dengan shift yang dapat ditukar pada tanggal pilihanmu.</p>}
               </>
             ) : (
               <input
@@ -187,16 +207,24 @@ export default function TukarShiftPage() {
               <label className="mb-1 block text-xs font-medium text-muted">Tanggal shift rekan</label>
               <select value={tanggalTarget} onChange={(e) => setTanggalTarget(e.target.value)} required disabled={!targetId} className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand disabled:opacity-60">
                 <option value="">-- Pilih tanggal rekan masuk --</option>
-                {targetWorkDates.map((date) => <option key={date} value={date}>{dateLabel(date)}</option>)}
+                {targetWorkChoices.map((shift) => (
+                  <option key={shift.id} value={shift.tanggal}>
+                    {dateLabel(shift.tanggal)} · {shiftLabel(shift)}{shift.tanggal === tanggal ? ' (hari yang sama)' : ''}
+                  </option>
+                ))}
               </select>
-              {targetId && targetWorkDates.length === 0 && <p className="mt-1 text-[11px] text-warning">Tidak ada tanggal shift rekan yang bisa ditukar karena kamu sudah memiliki jadwal pada tanggal-tanggal itu.</p>}
+              {targetId && targetWorkChoices.length === 0 && <p className="mt-1 text-[11px] text-warning">Tidak ada shift rekan yang dapat ditukar tanpa menimbulkan jadwal bentrok.</p>}
             </div>
           )}
 
           {targetType === 'crew' && tanggal && targetId && tanggalTarget && (
             <div className="mt-3 rounded-xl border border-success/20 bg-success/10 p-3 text-xs leading-relaxed text-ink">
               <p className="font-semibold">Perubahan setelah manager menyetujui</p>
-              <p className="mt-1">@{targetName} masuk pada {dateLabel(tanggal)}, @{myName} libur. @{myName} masuk pada {dateLabel(tanggalTarget)}, @{targetName} libur.</p>
+              {tanggalTarget === tanggal ? (
+                <p className="mt-1">@{targetName} menerima shift @{myName} ({ownShift ? shiftLabel(ownShift) : '-'}), sedangkan @{myName} menerima shift @{targetName} ({selectedTargetShift ? shiftLabel(selectedTargetShift) : '-'}).</p>
+              ) : (
+                <p className="mt-1">@{targetName} masuk pada {dateLabel(tanggal)}, @{myName} libur. @{myName} masuk pada {dateLabel(tanggalTarget)}, @{targetName} libur.</p>
+              )}
               <p className="mt-2 text-muted">Jam shift dan jobdesk ikut berpindah bersama jadwal. Kedua jadwal langsung diperbarui setelah disetujui manager.</p>
             </div>
           )}
@@ -236,9 +264,9 @@ export default function TukarShiftPage() {
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                {item.tanggal_target ? `${item.tanggal} ↔ ${item.tanggal_target}` : item.tanggal} · {item.requester_id === userId ? 'Kamu mengajukan' : 'Kamu diminta'}
+                {item.tanggal_target && item.tanggal_target !== item.tanggal ? `${item.tanggal} ↔ ${item.tanggal_target}` : item.tanggal} · {item.requester_id === userId ? 'Kamu mengajukan' : 'Kamu diminta'}
               </p>
-              {item.alasan && <p className="mt-0.5 text-xs text-muted">"{item.alasan}"</p>}
+              {item.alasan && <p className="mt-0.5 text-xs text-muted">&ldquo;{item.alasan}&rdquo;</p>}
             </div>
           ))}
         </div>

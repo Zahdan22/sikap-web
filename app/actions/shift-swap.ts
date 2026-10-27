@@ -25,8 +25,8 @@ export async function createSwapRequest(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !['crew', 'freelance'].includes(targetType)) {
     return { success: false, message: 'Tanggal atau jenis tukar shift tidak valid.' }
   }
-  if (targetType === 'crew' && (!tanggalTarget || !/^\d{4}-\d{2}-\d{2}$/.test(tanggalTarget) || tanggalTarget === tanggal)) {
-    return { success: false, message: 'Pilih dua tanggal shift yang berbeda.' }
+  if (targetType === 'crew' && (!tanggalTarget || !/^\d{4}-\d{2}-\d{2}$/.test(tanggalTarget))) {
+    return { success: false, message: 'Pilih tanggal shift rekan yang valid.' }
   }
   if (tanggal < jakartaToday() || (targetType === 'crew' && tanggalTarget! < jakartaToday())) {
     return { success: false, message: 'Pertukaran hanya dapat diajukan untuk jadwal hari ini atau mendatang.' }
@@ -49,12 +49,14 @@ export async function createSwapRequest(
       .select('id').eq('user_id', targetId).eq('tanggal', tanggalTarget!).maybeSingle()
     if (targetScheduleError) return { success: false, message: 'Gagal memeriksa jadwal rekan: ' + targetScheduleError.message }
     if (!targetSchedule) return { success: false, message: 'Rekan tidak memiliki shift pada tanggal kedua yang dipilih.' }
-    const { data: conflicts, error: conflictError } = await supabase.from('schedule')
-      .select('id, user_id, tanggal').in('user_id', [user.id, targetId]).in('tanggal', [tanggal, tanggalTarget!])
-    if (conflictError) return { success: false, message: 'Gagal memeriksa jadwal tujuan: ' + conflictError.message }
-    if ((conflicts || []).some((row) => (row.user_id === user.id && row.tanggal === tanggalTarget)
-      || (row.user_id === targetId && row.tanggal === tanggal))) {
-      return { success: false, message: 'Pertukaran tidak bisa dilakukan karena salah satu crew sudah memiliki shift pada tanggal tujuan.' }
+    if (tanggalTarget !== tanggal) {
+      const { data: conflicts, error: conflictError } = await supabase.from('schedule')
+        .select('id, user_id, tanggal').in('user_id', [user.id, targetId]).in('tanggal', [tanggal, tanggalTarget!])
+      if (conflictError) return { success: false, message: 'Gagal memeriksa jadwal tujuan: ' + conflictError.message }
+      if ((conflicts || []).some((row) => (row.user_id === user.id && row.tanggal === tanggalTarget)
+        || (row.user_id === targetId && row.tanggal === tanggal))) {
+        return { success: false, message: 'Pertukaran tidak bisa dilakukan karena salah satu crew sudah memiliki shift pada tanggal tujuan.' }
+      }
     }
     const { data: attendanceRows, error: attendanceError } = await supabase.from('attendance')
       .select('id').in('schedule_id', [ownSchedule.id, targetSchedule.id])

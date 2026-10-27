@@ -40,10 +40,13 @@ export default function ManagerTukarShiftPage() {
       .from('shift_swap_request')
       .select('*, requester:requester_id (nama), target:target_id (nama)')
       .order('created_at', { ascending: false })
-    setList((data as any) || [])
+    setList((data || []) as unknown as SwapRequest[])
   }
 
-  useEffect(() => { loadList() }, [])
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => { void loadList() }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [])
 
   async function handleRespond(id: number, status: 'disetujui' | 'ditolak') {
     const result = await respondSwapRequest(id, status, catatan[id] || '')
@@ -80,9 +83,15 @@ export default function ManagerTukarShiftPage() {
                   {item.status}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-muted">{item.tanggal_target ? `${dateLabel(item.tanggal)} ↔ ${dateLabel(item.tanggal_target)}` : dateLabel(item.tanggal)}</p>
-              {item.target_type === 'crew' && item.tanggal_target && <p className="mt-2 rounded-lg bg-success/10 px-3 py-2 text-xs leading-relaxed text-ink">Jika disetujui: @{item.target?.nama || 'Rekan'} masuk pada {dateLabel(item.tanggal)} dan libur pada {dateLabel(item.tanggal_target)}; @{item.requester?.nama || 'Pengaju'} masuk pada {dateLabel(item.tanggal_target)} dan libur pada {dateLabel(item.tanggal)}. Jam kerja dan jobdesk mengikuti shift masing-masing.</p>}
-              {item.alasan && <p className="mt-1 text-xs text-muted">"{item.alasan}"</p>}
+              <p className="mt-1 text-xs text-muted">{item.tanggal_target && item.tanggal_target !== item.tanggal ? `${dateLabel(item.tanggal)} ↔ ${dateLabel(item.tanggal_target)}` : dateLabel(item.tanggal)}</p>
+              {item.target_type === 'crew' && item.tanggal_target && (
+                <p className="mt-2 rounded-lg bg-success/10 px-3 py-2 text-xs leading-relaxed text-ink">
+                  {item.tanggal_target === item.tanggal
+                    ? `Jika disetujui: shift @${item.requester?.nama || 'Pengaju'} dan @${item.target?.nama || 'Rekan'} pada ${dateLabel(item.tanggal)} akan saling ditukar. Jam kerja dan jobdesk mengikuti shift masing-masing.`
+                    : `Jika disetujui: @${item.target?.nama || 'Rekan'} masuk pada ${dateLabel(item.tanggal)} dan libur pada ${dateLabel(item.tanggal_target)}; @${item.requester?.nama || 'Pengaju'} masuk pada ${dateLabel(item.tanggal_target)} dan libur pada ${dateLabel(item.tanggal)}. Jam kerja dan jobdesk mengikuti shift masing-masing.`}
+                </p>
+              )}
+              {item.alasan && <p className="mt-1 text-xs text-muted">&ldquo;{item.alasan}&rdquo;</p>}
 
               {openCatatanFor === item.id ? (
                 <div className="mt-3">
@@ -134,7 +143,7 @@ export default function ManagerTukarShiftPage() {
                   {item.status}
                 </span>
               </div>
-              <p className="mt-0.5 text-xs text-muted">{item.tanggal_target ? `${dateLabel(item.tanggal)} ↔ ${dateLabel(item.tanggal_target)}` : dateLabel(item.tanggal)}</p>
+              <p className="mt-0.5 text-xs text-muted">{item.tanggal_target && item.tanggal_target !== item.tanggal ? `${dateLabel(item.tanggal)} ↔ ${dateLabel(item.tanggal_target)}` : dateLabel(item.tanggal)}</p>
             </div>
           ))}
           {historyList.length === 0 && <p className="text-sm text-muted">Belum ada riwayat.</p>}
