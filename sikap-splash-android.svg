@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="412" height="917" viewBox="0 0 412 917">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FCF8F0"/>
+      <stop offset="1" stop-color="#F7F0E4"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="45%" r="60%">
+      <stop offset="0" stop-color="#EEDACB" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#EEDACB" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#D44B3D"/>
+      <stop offset="1" stop-color="#BD3428"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#9D392C" flood-opacity=".16"/>
+    </filter>
+  </defs>
+  <rect width="412" height="917" fill="url(#bg)"/>
+  <ellipse cx="206" cy="409" rx="186" ry="235" fill="url(#halo)"/>
+  <g text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif">
+    <g filter="url(#shadow)">
+      <rect x="164" y="303" width="84" height="84" rx="23" fill="url(#mark)"/>
+      <text x="206" y="365" text-anchor="middle" fill="#FFF8EF" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="57" font-weight="700">S</text>
+    </g>
+    <text x="206" y="443" fill="#272320" font-size="34" font-weight="700" letter-spacing="1.2">SIKAP</text>
+    <text x="206" y="477" fill="#70675F" font-size="13.5" font-weight="400">Sistem Informasi Kinerja &amp; Absensi Pegawai</text>
+  </g>
+  <g>
+    <rect x="146" y="681" width="120" height="4" rx="2" fill="#E7DCC8"/>
+    <rect x="146" y="681" width="45" height="4" rx="2" fill="#C83D2E"/>
+    <circle cx="206" cy="724" r="3.5" fill="#C83D2E"/>
+    <text x="206" y="756" text-anchor="middle" fill="#70675F" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="13" font-weight="500">Menyiapkan aplikasi…</text>
+  </g>
+</svg>
+

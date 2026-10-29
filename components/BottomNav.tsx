@@ -89,8 +89,8 @@ export default function BottomNav() {
   const items = role === 'finance'
     ? [
         { href: '/finance', label: 'Dashboard' },
-        { href: '/finance/crew', label: 'Tier Crew' },
-        { href: '/finance/payroll', label: 'Payroll' },
+        { href: '/finance/crew', label: 'Status Crew' },
+        { href: '/finance/payroll', label: 'Penggajian' },
         { href: '/finance/laporan', label: 'Laporan' },
       ]
     : role === 'manager'
@@ -101,7 +101,7 @@ export default function BottomNav() {
       ]
     : [
         { href: '/dashboard', label: 'Dashboard' },
-        { href: '/riwayat', label: 'History' },
+        { href: '/riwayat', label: 'Riwayat' },
         { href: '/jadwal-saya', label: 'Jadwal' },
       ]
 
