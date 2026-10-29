@@ -6,10 +6,25 @@ import { getCurrentPosition, reverseGeocode, type GeoPosition } from '@/lib/geo'
 import { applyWatermark } from '@/lib/watermark'
 import { submitCheckIn, submitCheckOut } from '@/app/actions/attendance'
 
-function prepareLocation() {
+type PreparedLocation = {
+  position: GeoPosition
+  acquiredAt: number
+  address: Promise<string>
+}
+
+function prepareLocation(): Promise<PreparedLocation | { error: string }> {
   return getCurrentPosition().then(position => ({
     position, acquiredAt: Date.now(), address: reverseGeocode(position.latitude, position.longitude),
   })).catch((error: unknown) => ({ error: error instanceof Error ? error.message : 'Gagal mengambil lokasi.' }))
+}
+
+async function addressForWatermark(address: Promise<string>) {
+  // Coordinates are the attendance evidence. The human-readable address is
+  // supplementary, so it must not hold up a crew member after taking a photo.
+  return Promise.race([
+    address,
+    new Promise<string>((resolve) => setTimeout(() => resolve(''), 300)),
+  ])
 }
 
 type Preview = { file: Blob; position: GeoPosition; acquiredAt: number; address: string }
@@ -64,7 +79,7 @@ export default function AttendancePhotoForm({ kind, onSaved }: {
       if (version !== operation.current) return
       if (!('error' in prepared) && Date.now() - prepared.acquiredAt > 15_000) prepared = await prepareLocation()
       if ('error' in prepared) throw new Error(prepared.error)
-      const address = await prepared.address
+      const address = await addressForWatermark(prepared.address)
       const file = await applyWatermark(photo, {
         timestamp: capturedAt.current, latitude: prepared.position.latitude, longitude: prepared.position.longitude, address,
       })
@@ -72,6 +87,14 @@ export default function AttendancePhotoForm({ kind, onSaved }: {
       setPhotoUrl(URL.createObjectURL(file))
       setPreview({ file, address, position: prepared.position, acquiredAt: prepared.acquiredAt })
       setStage('review')
+      // Keep enriching the on-screen location card when the address service
+      // replies, without delaying the photo preview or the upload action.
+      void prepared.address.then((resolvedAddress) => {
+        if (version !== operation.current || !resolvedAddress) return
+        setPreview((current) => current?.acquiredAt === prepared.acquiredAt
+          ? { ...current, address: resolvedAddress }
+          : current)
+      })
     } catch (failure) {
       if (version !== operation.current) return
       setError(failure instanceof Error ? failure.message : 'Foto belum dapat disiapkan.')

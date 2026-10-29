@@ -10,7 +10,7 @@ export type ApprovedOvertime = {
 export async function loadApprovedOvertime(supabase: Awaited<ReturnType<typeof createClient>>, start: string, end: string, userId?: string) {
   const { data, error } = await loadAllPayrollRows((from, to) => {
     let query = supabase.from('overtime_requests')
-      .select('id, user_id, tanggal, jam_mulai, jam_selesai, jam_dibayar, nominal, keterangan')
+      .select('id, user_id, tanggal, jam_mulai, jam_selesai, jam_dibayar, nominal, keterangan', { count: 'exact' })
       .eq('status', 'disetujui').gte('tanggal', start).lte('tanggal', end).order('id')
     if (userId) query = query.eq('user_id', userId)
     return query.range(from, to)
