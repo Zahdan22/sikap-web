@@ -123,14 +123,6 @@ export default function TukarShiftPage() {
     const targetAlreadyWorksOnRequesterDate = scheduleChoices.some((shift) => shift.user_id === targetId && shift.tanggal === tanggal)
     return !requesterAlreadyWorks && !targetAlreadyWorksOnRequesterDate
   })
-  const eligibleCrewOptions = crewOptions.filter((crew) => scheduleChoices.some((item) => {
-    if (item.user_id !== crew.id) return false
-    if (item.tanggal === tanggal) return true
-
-    const requesterAlreadyWorks = scheduleChoices.some((own) => own.user_id === userId && own.tanggal === item.tanggal)
-    const targetAlreadyWorksOnRequesterDate = scheduleChoices.some((shift) => shift.user_id === crew.id && shift.tanggal === tanggal)
-    return !requesterAlreadyWorks && !targetAlreadyWorksOnRequesterDate
-  }))
   const targetName = targetType === 'crew' ? crewOptions.find((crew) => crew.id === targetId)?.nama : targetNamaFreelance
   const selectedTargetShift = targetWorkChoices.find((item) => item.tanggal === tanggalTarget)
 
@@ -184,12 +176,12 @@ export default function TukarShiftPage() {
                   className="mt-2 w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand"
                 >
                   <option value="">-- Pilih rekan yang bisa bertukar --</option>
-                  {eligibleCrewOptions.map((c) => {
+                  {crewOptions.map((c) => {
                     const sameDayShift = scheduleChoices.find((shift) => shift.user_id === c.id && shift.tanggal === tanggal)
                     return <option key={c.id} value={c.id}>{c.nama}{sameDayShift ? ` · ${shiftLabel(sameDayShift)}` : ''}</option>
                   })}
                 </select>
-                {tanggal && eligibleCrewOptions.length === 0 && <p className="mt-1 text-[11px] text-warning">Belum ada rekan dengan shift yang dapat ditukar pada tanggal pilihanmu.</p>}
+                {tanggal && crewOptions.length === 0 && <p className="mt-1 text-[11px] text-warning">Belum ada crew aktif lain yang dapat dipilih.</p>}
               </>
             ) : (
               <input
