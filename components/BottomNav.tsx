@@ -46,14 +46,25 @@ function ReportIcon({ className }: { className?: string }) {
   )
 }
 
-function getIcon(label: string, className: string): ReactNode {
-  switch (label) {
-    case 'Dashboard': return <DashboardIcon className={className} />
-    case 'History': return <HistoryIcon className={className} />
-    case 'Jadwal': return <ScheduleIcon className={className} />
-    case 'Laporan': return <ReportIcon className={className} />
-    case 'Tier Crew': return <HistoryIcon className={className} />
-    case 'Payroll': return <ReportIcon className={className} />
+function PayrollIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.5" />
+      <path d="M7 10h.01M17 14h.01" />
+    </svg>
+  )
+}
+
+type NavIcon = 'dashboard' | 'history' | 'schedule' | 'payroll' | 'report'
+
+function getIcon(icon: NavIcon, className: string): ReactNode {
+  switch (icon) {
+    case 'dashboard': return <DashboardIcon className={className} />
+    case 'history': return <HistoryIcon className={className} />
+    case 'schedule': return <ScheduleIcon className={className} />
+    case 'payroll': return <PayrollIcon className={className} />
+    case 'report': return <ReportIcon className={className} />
     default: return null
   }
 }
@@ -86,23 +97,23 @@ export default function BottomNav() {
 
   if (isHidden || !loaded) return null
 
-  const items = role === 'finance'
+  const items: { href: string; label: string; icon: NavIcon }[] = role === 'finance'
     ? [
-        { href: '/finance', label: 'Dashboard' },
-        { href: '/finance/crew', label: 'Status Crew' },
-        { href: '/finance/payroll', label: 'Penggajian' },
-        { href: '/finance/laporan', label: 'Laporan' },
+        { href: '/finance', label: 'Beranda', icon: 'dashboard' },
+        { href: '/finance/crew', label: 'Status Kru', icon: 'history' },
+        { href: '/finance/payroll', label: 'Penggajian', icon: 'payroll' },
+        { href: '/finance/laporan', label: 'Laporan', icon: 'report' },
       ]
     : role === 'manager'
     ? [
-        { href: '/dashboard', label: 'Dashboard' },
-        { href: '/manager/jadwal', label: 'Jadwal' },
-        { href: '/manager/laporan', label: 'Laporan' },
+        { href: '/dashboard', label: 'Beranda', icon: 'dashboard' },
+        { href: '/manager/jadwal', label: 'Jadwal', icon: 'schedule' },
+        { href: '/manager/laporan', label: 'Laporan', icon: 'report' },
       ]
     : [
-        { href: '/dashboard', label: 'Dashboard' },
-        { href: '/riwayat', label: 'Riwayat' },
-        { href: '/jadwal-saya', label: 'Jadwal' },
+        { href: '/dashboard', label: 'Beranda', icon: 'dashboard' },
+        { href: '/riwayat', label: 'Riwayat', icon: 'history' },
+        { href: '/jadwal-saya', label: 'Jadwal', icon: 'schedule' },
       ]
 
   return (
@@ -118,7 +129,7 @@ export default function BottomNav() {
               active ? 'bg-brand text-white' : 'text-muted'
             }`}
           >
-            {getIcon(item.label, active ? 'text-white' : 'text-brand')}
+            {getIcon(item.icon, active ? 'text-white' : 'text-brand')}
             {item.label}
           </Link>
         )
