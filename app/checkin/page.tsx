@@ -7,7 +7,7 @@ import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
 import AttendancePhotoForm from '@/components/AttendancePhotoForm'
 
-type ViewState = 'loading' | 'error' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'done'
+type ViewState = 'loading' | 'error' | 'no-schedule' | 'ready-checkin' | 'ready-checkout' | 'checkout-expired' | 'done'
 
 export default function CheckInOutPage() {
   const [viewState, setViewState] = useState<ViewState>('loading')
@@ -22,11 +22,11 @@ export default function CheckInOutPage() {
       const { data: { user }, error } = await supabase.auth.getUser()
       if (version !== statusVersion.current) return
       if (error || !user) throw new Error('Sesi login belum dapat diperiksa. Muat ulang atau masuk kembali.')
-      const { schedule, attendance } = await getTodayStatus(user.id)
+      const { schedule, attendance, checkoutGraceExpired } = await getTodayStatus(user.id)
       if (version !== statusVersion.current) return
       if (!schedule) { setViewState('no-schedule'); return }
       setScheduleInfo({ id: schedule.id, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })
-      setViewState(!attendance ? 'ready-checkin' : !attendance.jam_pulang_aktual ? 'ready-checkout' : 'done')
+      setViewState(!attendance ? 'ready-checkin' : !attendance.jam_pulang_aktual ? checkoutGraceExpired ? 'checkout-expired' : 'ready-checkout' : 'done')
     } catch (error) {
       if (background || version !== statusVersion.current) return
       setViewState('error')
@@ -52,6 +52,7 @@ export default function CheckInOutPage() {
         {statusMessage && <p role={viewState === 'error' ? 'alert' : 'status'} className="mt-4 rounded-xl bg-brand/10 px-4 py-3 text-sm text-brand">{statusMessage}</p>}
         {viewState === 'error' && <button onClick={() => { setViewState('loading'); setStatusMessage(''); void loadStatus() }} className="mt-3 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white">Coba lagi</button>}
         {viewState === 'no-schedule' && <p className="mt-6 rounded-2xl border border-cream-dim bg-cream-card p-5 text-center text-sm text-muted">Tidak ada jadwal kerja untuk hari ini.</p>}
+        {viewState === 'checkout-expired' && <p role="alert" className="mt-6 rounded-2xl border border-brand/20 bg-brand/10 p-5 text-center text-sm leading-relaxed text-brand">Batas absen pulang sudah lewat 45 menit dari jam kerja selesai. Absensi tercatat sebagai telat absen pulang. Hubungi manager jika ada kendala teknis.</p>}
         {(viewState === 'ready-checkin' || viewState === 'ready-checkout') && <>
           {scheduleInfo && <p className="mt-4 text-sm text-muted">Jadwal: {scheduleInfo.jamMulai.slice(0, 5)} – {scheduleInfo.jamSelesai.slice(0, 5)}</p>}
           <AttendancePhotoForm key={`${scheduleInfo?.id}-${kind}`} kind={kind} onSaved={message => {

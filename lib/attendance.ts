@@ -1,5 +1,6 @@
 // Read-only attendance queries for the authenticated crew UI.
 import { createClient } from '@/lib/supabase/client'
+import { isCheckOutGraceExpired } from '@/lib/attendance-status'
 
 function getJakartaDateString(date: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -57,5 +58,12 @@ export async function getTodayStatus(userId: string) {
   const attendance = attendances?.find(row => row.schedule_id === schedule.id)
   // Cancelling a correction can restore an empty attendance row.
   // The crew must be offered check-in again until an entry time exists.
-  return { schedule, attendance: attendance?.jam_masuk_aktual ? attendance : null }
+  const activeAttendance = attendance?.jam_masuk_aktual ? attendance : null
+  return {
+    schedule,
+    attendance: activeAttendance,
+    checkoutGraceExpired: Boolean(activeAttendance && !activeAttendance.jam_pulang_aktual && isCheckOutGraceExpired({
+      tanggal: schedule.tanggal, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai,
+    })),
+  }
 }

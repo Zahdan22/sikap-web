@@ -1,7 +1,8 @@
 export type CheckInStatus = 'tepat_waktu' | 'telat' | 'belum_absen'
 export type CheckOutStatus = 'tepat_waktu' | 'lebih_awal' | 'lewat_batas' | 'belum_absen'
+export const CHECK_OUT_GRACE_MINUTES = 45
 
-type ShiftTime = {
+export type ShiftTime = {
   tanggal: string // format 'YYYY-MM-DD'
   jamMulai: string // format 'HH:MM:SS'
   jamSelesai: string // format 'HH:MM:SS'
@@ -12,6 +13,18 @@ function combineDateTime(tanggal: string, jam: string): Date {
   const [hour, minute = 0, second = 0] = jam.split(':').map(Number)
   // Jadwal SI-KAP memakai waktu Asia/Jakarta (UTC+7), terlepas dari timezone server/device.
   return new Date(Date.UTC(year, month - 1, day, hour - 7, minute, second))
+}
+
+export function getShiftEndAt(shift: ShiftTime): Date {
+  const shiftStart = combineDateTime(shift.tanggal, shift.jamMulai)
+  const shiftEnd = combineDateTime(shift.tanggal, shift.jamSelesai)
+  // Kalau jam selesai <= jam mulai, berarti shift lintas hari (misal 18:00 - 01:00).
+  if (shiftEnd <= shiftStart) shiftEnd.setTime(shiftEnd.getTime() + 24 * 60 * 60 * 1000)
+  return shiftEnd
+}
+
+export function isCheckOutGraceExpired(shift: ShiftTime, currentTime = new Date()) {
+  return currentTime.getTime() > getShiftEndAt(shift).getTime() + CHECK_OUT_GRACE_MINUTES * 60 * 1000
 }
 
 export function evaluateCheckIn(
@@ -40,15 +53,8 @@ export function evaluateCheckOut(
   shift: ShiftTime,
   checkOutTime: Date
 ): CheckOutStatus {
-  const shiftStart = combineDateTime(shift.tanggal, shift.jamMulai)
-  let shiftEnd = combineDateTime(shift.tanggal, shift.jamSelesai)
-
-  // Kalau jam selesai <= jam mulai, berarti shift lintas hari (misal 18:00 - 01:00)
-  if (shiftEnd <= shiftStart) {
-    shiftEnd = new Date(shiftEnd.getTime() + 24 * 60 * 60 * 1000)
-  }
-
-  const graceDeadline = new Date(shiftEnd.getTime() + 45 * 60 * 1000)
+  const shiftEnd = getShiftEndAt(shift)
+  const graceDeadline = new Date(shiftEnd.getTime() + CHECK_OUT_GRACE_MINUTES * 60 * 1000)
 
   if (checkOutTime < shiftEnd) {
     throw new Error(
@@ -56,9 +62,11 @@ export function evaluateCheckOut(
     )
   }
 
-  if (checkOutTime <= graceDeadline) {
-    return 'tepat_waktu'
+  if (isCheckOutGraceExpired(shift, checkOutTime)) {
+    throw new Error(
+      `Batas check-out pukul ${graceDeadline.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} sudah lewat. Absensi tercatat sebagai telat absen pulang; hubungi manager jika ada kendala.`
+    )
   }
 
-  return 'lewat_batas'
+  return 'tepat_waktu'
 }

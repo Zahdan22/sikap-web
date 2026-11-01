@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { loadApprovedOvertime } from '@/lib/overtime-payroll'
 import { loadPayrollViolations } from '@/lib/violation-payroll'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
+import { getShiftEndAt, isCheckOutGraceExpired } from '@/lib/attendance-status'
 
 type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
 type AdjustmentType = 'sp_deduction' | 'other_deduction' | 'addition'
@@ -34,20 +35,8 @@ function jakartaToday() {
   return `${values.year}-${values.month}-${values.day}`
 }
 
-function jakartaNowDateTime() {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date())
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`
-}
-
 function hasShiftEnded(tanggal: string, jamMulai: string, jamSelesai: string) {
-  let endDate = tanggal
-  if (jamSelesai <= jamMulai) {
-    const [year, month, day] = tanggal.split('-').map(Number)
-    endDate = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10)
-  }
-  const endTime = jamSelesai.length === 5 ? `${jamSelesai}:00` : jamSelesai
-  return `${endDate} ${endTime}` <= jakartaNowDateTime()
+  return getShiftEndAt({ tanggal, jamMulai, jamSelesai }) <= new Date()
 }
 
 function getLatePenalty(minutesLate: number): AttendancePenalty | null {
@@ -112,6 +101,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     total.scheduledDays += 1
     const attendance = attendanceBySchedule.get(schedule.id)
     const shiftEnded = hasShiftEnded(schedule.tanggal, schedule.jam_mulai, schedule.jam_selesai)
+    const checkoutGraceExpired = isCheckOutGraceExpired({ tanggal: schedule.tanggal, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })
     const applicableHistory = (historyByUser.get(schedule.user_id) || []).filter((entry) => entry.effective_on <= schedule.tanggal)
     const tierEntry = applicableHistory[applicableHistory.length - 1]
     const hours = Number(schedule.durasi_jam) || 0
@@ -132,8 +122,8 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
           } else penalties.push(latePenalty)
         }
       }
-      if ((shiftEnded && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas') {
-        penalties.push({ reason: !attendance?.jam_pulang_aktual ? 'Tidak checkout' : 'Telat checkout', amount: 2_000, points: 4 })
+      if ((checkoutGraceExpired && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas') {
+        penalties.push({ reason: !attendance?.jam_pulang_aktual ? 'Telat absen pulang (>45 menit)' : 'Telat absen pulang', amount: 2_000, points: 4 })
       }
     }
     const attendanceDeduction = penalties.reduce((sum, penalty) => sum + penalty.amount, 0)
@@ -152,7 +142,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       status: !hasCheckIn ? shiftEnded ? 'Kerja Ikhlas · tidak absen masuk' : 'Belum check-in'
         : ikhlas ? 'Kerja Ikhlas · shift tidak dibayar'
         : minutesLate >= 30 ? 'Telat ≥30 menit · potongan Rp40.000'
-        : !attendance?.jam_pulang_aktual ? 'Belum check-out'
+        : !attendance?.jam_pulang_aktual ? checkoutGraceExpired ? 'Telat absen pulang (>45 menit)' : 'Belum check-out'
         : !tierEntry ? 'Tarif belum diketahui' : 'Hadir lengkap',
     }
     if (payable) { total.hours += hours; total.payableDays += 1 }
