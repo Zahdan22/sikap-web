@@ -17,6 +17,7 @@ function setup({ rowLimit = 1000, failPageOf = null } = {}) {
     attendance: [{ id: 1, user_id: 'crew-1', schedule_id: 1, jam_masuk_aktual: '2025-01-05T10:50:00Z', jam_pulang_aktual: '2025-01-05T17:00:00Z', status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 }],
     payroll_periods: [{ id: 1, period_start: '2025-01-01', period_end: '2025-01-31', status: 'draft' }],
     payroll_adjustments: [], payroll_items: [], crew_violations: [],
+    crew_payroll_manual_components: [], crew_management_titles: [],
     overtime_requests: [
       { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '00:00', jam_selesai: '02:30', jam_dibayar: 2, nominal: 16000, status: 'disetujui', keterangan: 'Ramai' },
       { id: 2, user_id: 'crew-1', tanggal: '2025-01-06', jam_dibayar: 1, nominal: 8000, status: 'pending' },
@@ -32,6 +33,7 @@ function setup({ rowLimit = 1000, failPageOf = null } = {}) {
       let rows = [...tables[name]]
       let single = false
       let pageStart = 0
+      let pendingUpdate = null
       const orders = []
       const query = {
         select() { return query },
@@ -49,7 +51,11 @@ function setup({ rowLimit = 1000, failPageOf = null } = {}) {
         },
         maybeSingle() { single = true; return query },
         upsert(records) { tables[name] = structuredClone(Array.isArray(records) ? records : [records]); return query },
-        then(resolve, reject) { return Promise.resolve(name === failPageOf && pageStart >= 500 ? { data: null, error: { message: 'Page unavailable' } } : { data: single ? rows[0] || null : rows.slice(0, rowLimit), error: null }).then(resolve, reject) },
+        update(payload) { pendingUpdate = payload; return query },
+        then(resolve, reject) {
+          if (pendingUpdate) rows.forEach((row) => Object.assign(row, pendingUpdate))
+          return Promise.resolve(name === failPageOf && pageStart >= 500 ? { data: null, error: { message: 'Page unavailable' } } : { data: single ? rows[0] || null : rows.slice(0, rowLimit), error: null }).then(resolve, reject)
+        },
       }
       return query
     },
@@ -64,6 +70,7 @@ function setup({ rowLimit = 1000, failPageOf = null } = {}) {
       if (id === 'next/cache') return { revalidatePath() {} }
       if (id === '@/lib/finance-auth') return { requireFinance: async () => ({ ok: true, supabase: client, userId: 'finance' }) }
       if (id === '@/lib/supabase/server') return { createClient: async () => client }
+      if (id === '@/lib/supabase-admin') return { supabaseAdmin: client }
       if (id.startsWith('@/')) return load(`${id.slice(2)}.ts`)
       throw new Error(`Unexpected dependency: ${id}`)
     }, module, module.exports)
@@ -99,6 +106,43 @@ test('lembur terbayar tetap masuk jika crew tidak memiliki jadwal reguler di per
   const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
   assert.equal(report.rows[0].netPay, 16000)
   assert.equal(report.rows[0].hours, 0)
+})
+
+test('bonus manual, kasbon, dan gelar management masuk payroll serta snapshot draf', async () => {
+  const { tables, actions } = setup()
+  tables.crew_payroll_manual_components = [
+    { id: 1, payroll_period_id: 1, user_id: 'crew-1', component_type: 'referral_bonus', amount: 10000 },
+    { id: 2, payroll_period_id: 1, user_id: 'crew-1', component_type: 'operational_bonus', amount: 20000 },
+    { id: 3, payroll_period_id: 1, user_id: 'crew-1', component_type: 'no_late_reward', amount: 5000 },
+    { id: 4, payroll_period_id: 1, user_id: 'crew-1', component_type: 'cash_advance', amount: 7000 },
+  ]
+  tables.crew_management_titles = [
+    { id: 1, payroll_period_id: 1, user_id: 'crew-1', title: 'Trainer', starts_on: '2025-01-01', ends_on: '2025-01-10', daily_amount: 5000, total_amount: 50000 },
+  ]
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  const row = report.rows[0]
+  assert.equal(row.referralBonus, 10000)
+  assert.equal(row.operationalBonus, 20000)
+  assert.equal(row.noLateReward, 5000)
+  assert.equal(row.cashAdvance, 7000)
+  assert.equal(row.managementTitlePay, 50000)
+  assert.equal(row.netPay, 142300)
+  assert.equal((await actions.savePayrollDraft('2025-01-01', '2025-01-31')).success, true)
+  assert.equal(tables.payroll_items[0].net_pay, 142300)
+  assert.equal(tables.payroll_items[0].calculation_snapshot.report_row.managementTitles[0].title, 'Trainer')
+})
+
+test('finalisasi menghitung ulang snapshot draf sebelum mengunci periode', async () => {
+  const { tables, actions } = setup()
+  assert.equal((await actions.savePayrollDraft('2025-01-01', '2025-01-31')).success, true)
+  tables.crew_payroll_manual_components = [
+    { id: 1, payroll_period_id: 1, user_id: 'crew-1', component_type: 'referral_bonus', amount: 10000 },
+  ]
+  const finalized = await actions.finalizePayroll(1)
+  assert.equal(finalized.success, true)
+  assert.equal(tables.payroll_periods[0].status, 'finalized')
+  assert.equal(tables.payroll_items[0].net_pay, 74300)
+  assert.equal(tables.payroll_items[0].calculation_snapshot.report_row.referralBonus, 10000)
 })
 
 test('koreksi keterlambatan dan checkout menghitung ulang denda serta poin pada draf', async () => {

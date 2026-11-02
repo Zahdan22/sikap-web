@@ -269,7 +269,6 @@ function ManagerDashboard({ nama }: { nama: string }) {
 function CrewDashboard({ nama }: { nama: string }) {
   const [statusLabel, setStatusLabel] = useState('Memuat...')
   const [statusTone, setStatusTone] = useState<'default' | 'action'>('default')
-  const [monthStats, setMonthStats] = useState({ totalHours: 0, daysPresent: 0, lateCount: 0 })
   const [todaySchedules, setTodaySchedules] = useState<DailySchedule[]>([])
   const [loadingTimeline, setLoadingTimeline] = useState(true)
 
@@ -286,21 +285,6 @@ function CrewDashboard({ nama }: { nama: string }) {
       else if (!attendance.jam_pulang_aktual) { setStatusLabel('Sudah Absen Masuk'); setStatusTone('action') }
       else { setStatusLabel('Selesai Bekerja'); setStatusTone('default') }
 
-      const now = new Date()
-      const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-      const { data: monthAttendance } = await supabase
-        .from('attendance')
-        .select('status_masuk, jam_masuk_aktual, schedule:schedule_id(jam_mulai, jam_selesai, durasi_jam, tanggal)')
-        .eq('user_id', user.id)
-        .gte('schedule.tanggal', startOfMonth)
-        .lte('schedule.tanggal', toDateString(now))
-
-      const rows = (monthAttendance || []).filter((r: any) => r.schedule !== null)
-      setMonthStats({
-        totalHours: rows.reduce((total: number, r: any) => total + (r.jam_masuk_aktual ? Number(r.schedule.durasi_jam || 0) : 0), 0),
-        daysPresent: rows.filter((r: any) => r.jam_masuk_aktual).length,
-        lateCount: rows.filter((r: any) => r.status_masuk === 'telat').length,
-      })
     }
     load()
   }, [])
@@ -425,22 +409,16 @@ function CrewDashboard({ nama }: { nama: string }) {
       </div>
 
       <div className="mt-6 px-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Bulan Ini</p>
-        <div className="mt-2 space-y-2">
-          <StatRow label="Total Hours" value={`${monthStats.totalHours}h`} />
-          <StatRow label="Days Present" value={String(monthStats.daysPresent)} />
-          <StatRow label="Late Arrivals" value={String(monthStats.lateCount)} warn={monthStats.lateCount > 0} />
-        </div>
+        <Link href="/penggajian" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4 transition-colors hover:border-brand/40">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M7 10h.01M17 14h.01" /></svg>
+            </div>
+            <div><p className="text-sm font-semibold text-ink">Slip Gaji Saya</p><p className="text-xs text-muted">Lihat rincian gaji per periode kerja</p></div>
+          </div>
+          <span className="text-brand">→</span>
+        </Link>
       </div>
-    </div>
-  )
-}
-
-function StatRow({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
-      <span className="text-sm text-ink">{label}</span>
-      <span className={`text-sm font-semibold ${warn ? 'text-warning' : 'text-ink'}`}>{value}</span>
     </div>
   )
 }

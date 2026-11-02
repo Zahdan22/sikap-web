@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { exportRowsToExcel } from '@/lib/export-excel'
 import { addPayrollAdjustment, finalizePayroll, loadPayrollReport, loadPayrollWorkPeriods, savePayrollDraft } from '@/app/actions/payroll'
 import PeriodeModal from '@/components/PeriodeModal'
@@ -16,6 +16,7 @@ type PayrollRow = {
   seniorPlusPay: number; deductions: number; attendanceDeductions: number; attendancePoints: number; additions: number; netPay: number; adjustments: Adjustment[]
   overtimePay: number; overtimeHours: number
   violationDeductions: number; violationPoints: number
+  referralBonus: number; operationalBonus: number; noLateReward: number; cashAdvance: number; managementTitlePay: number
 }
 type PayrollReport = { periodId: number | null; periodStatus: 'draft' | 'finalized' | null; rows: PayrollRow[] }
 type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
@@ -43,7 +44,7 @@ export default function PayrollClient() {
   const [showPeriodModal, setShowPeriodModal] = useState(false)
   const [adjustmentDrafts, setAdjustmentDrafts] = useState<Record<string, { type: Adjustment['adjustment_type']; amount: string; reason: string }>>({})
 
-  async function refreshPeriods(preferredId?: number) {
+  const refreshPeriods = useCallback(async (preferredId?: number) => {
     const result = await loadPayrollWorkPeriods()
     if (result.success) {
       const list = result.periods as WorkPeriod[]
@@ -52,23 +53,9 @@ export default function PayrollClient() {
       const nextId = preferredId && list.some((period) => period.id === preferredId) ? preferredId : list[0]?.id
       if (nextId) setSelectedPeriodId(nextId)
     } else setPeriodLoadError(result.message)
-  }
+  }, [])
 
-  useEffect(() => {
-    const params = new URLSearchParams(queryString)
-    const restoredPeriod = Number(params.get('periode'))
-    if (restoredPeriod > 0) setSelectedPeriodId(restoredPeriod)
-    const requestedStart = params.get('start')
-    const requestedEnd = params.get('end')
-    if (requestedStart && requestedEnd) {
-      setStart(requestedStart)
-      setEnd(requestedEnd)
-      void load(requestedStart, requestedEnd)
-    }
-    void refreshPeriods(restoredPeriod > 0 ? restoredPeriod : undefined)
-  }, [queryString])
-
-  async function load(from = start, through = end) {
+  const load = useCallback(async (from: string, through: string) => {
     if (!from || !through) return
     setLoading(true)
     setLoadError('')
@@ -82,11 +69,28 @@ export default function PayrollClient() {
         ? 'Struktur riwayat tier belum dipasang di Supabase. Jalankan migration 202610080002_payroll_progression.sql di SQL Editor, lalu muat ulang halaman.'
         : isMissingEffectiveDate
           ? 'Struktur tanggal berlaku tier belum dipasang di Supabase. Jalankan migration 202610080003_payroll_effective_dates.sql setelah migration 002, lalu muat ulang halaman.'
-        : 'Gagal memuat payroll: ' + result.message)
+          : 'Gagal memuat payroll: ' + result.message)
       return
     }
     setReport(result as PayrollReport)
-  }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(queryString)
+      const restoredPeriod = Number(params.get('periode'))
+      if (restoredPeriod > 0) setSelectedPeriodId(restoredPeriod)
+      const requestedStart = params.get('start')
+      const requestedEnd = params.get('end')
+      if (requestedStart && requestedEnd) {
+        setStart(requestedStart)
+        setEnd(requestedEnd)
+        void load(requestedStart, requestedEnd)
+      }
+      void refreshPeriods(restoredPeriod > 0 ? restoredPeriod : undefined)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [load, queryString, refreshPeriods])
 
   const totals = useMemo(() => (report?.rows || []).reduce((sum, row) => ({
     hours: sum.hours + row.hours,
@@ -97,9 +101,14 @@ export default function PayrollClient() {
     deductions: sum.deductions + row.deductions,
     points: sum.points + row.attendancePoints + row.violationPoints,
     additions: sum.additions + row.additions,
+    referralBonus: sum.referralBonus + row.referralBonus,
+    operationalBonus: sum.operationalBonus + row.operationalBonus,
+    noLateReward: sum.noLateReward + row.noLateReward,
+    cashAdvance: sum.cashAdvance + row.cashAdvance,
+    managementTitlePay: sum.managementTitlePay + row.managementTitlePay,
     net: sum.net + row.netPay,
     unrated: sum.unrated + row.unratedDays,
-  }), { hours: 0, days: 0, base: 0, bonus: 0, overtime: 0, deductions: 0, points: 0, additions: 0, net: 0, unrated: 0 }), [report])
+  }), { hours: 0, days: 0, base: 0, bonus: 0, overtime: 0, deductions: 0, points: 0, additions: 0, referralBonus: 0, operationalBonus: 0, noLateReward: 0, cashAdvance: 0, managementTitlePay: 0, net: 0, unrated: 0 }), [report])
 
   async function saveDraft() {
     setSaving(true)
@@ -107,7 +116,7 @@ export default function PayrollClient() {
     setSaving(false)
     if (!result.success) { toast('Gagal menyimpan draf: ' + result.message, 'error'); return }
     toast('Draf payroll tersimpan.', 'success')
-    await load()
+    await load(start, end)
   }
 
   function selectedRange() {
@@ -136,7 +145,7 @@ export default function PayrollClient() {
     if (!result.success) { toast('Gagal mencatat penyesuaian: ' + result.message, 'error'); return }
     toast('Penyesuaian payroll dicatat.', 'success')
     setAdjustmentDrafts((previous) => ({ ...previous, [row.userId]: { ...draft, amount: '', reason: '' } }))
-    await load()
+    await load(start, end)
   }
 
   async function finalize() {
@@ -151,7 +160,7 @@ export default function PayrollClient() {
     const result = await finalizePayroll(report.periodId)
     if (!result.success) { toast('Gagal finalisasi: ' + result.message, 'error'); return }
     toast('Payroll berhasil difinalisasi.', 'success')
-    await load()
+    await load(start, end)
   }
 
   async function exportExcel() {
@@ -172,6 +181,11 @@ export default function PayrollClient() {
       'Denda pelanggaran': row.violationDeductions,
       'Poin pelanggaran': row.violationPoints,
       'Poin absensi': row.attendancePoints,
+      'Bonus bawa teman': row.referralBonus,
+      'Bonus operasional': row.operationalBonus,
+      'Reward tidak telat': row.noLateReward,
+      Kasbon: row.cashAdvance,
+      'Bonus gelar management': row.managementTitlePay,
       Tambahan: row.additions,
       Potongan: row.deductions,
       'Gaji bersih': row.netPay,
@@ -208,6 +222,7 @@ export default function PayrollClient() {
             <div><p className="font-bold text-ink">{idr.format(totals.deductions)}</p><p className="text-xs text-muted">Total potongan</p></div>
             <div><p className="font-bold text-warning">{totals.points}</p><p className="text-xs text-muted">Total poin absensi & pelanggaran</p></div>
             <div><p className="font-bold text-ink">{idr.format(totals.overtime)}</p><p className="text-xs text-muted">Bonus lembur</p></div>
+            <div><p className="font-bold text-ink">{idr.format(totals.referralBonus + totals.operationalBonus + totals.noLateReward + totals.managementTitlePay)}</p><p className="text-xs text-muted">Bonus manual & gelar</p></div>
             <div><p className="font-bold text-brand">{idr.format(totals.net)}</p><p className="text-xs text-muted">Perkiraan gaji bersih</p></div>
           </div>
         </div>
@@ -242,6 +257,11 @@ export default function PayrollClient() {
               <p className="text-muted">Denda pelanggaran <b className="text-warning">{idr.format(row.violationDeductions)}</b></p>
               <p className="text-muted">Poin pelanggaran <b className="text-warning">{row.violationPoints}</b></p>
               <p className="text-muted">Potongan <b className="text-warning">{idr.format(row.deductions)}</b></p>
+              <p className="text-muted">Bonus bawa teman <b className="text-success">{idr.format(row.referralBonus)}</b></p>
+              <p className="text-muted">Bonus operasional <b className="text-success">{idr.format(row.operationalBonus)}</b></p>
+              <p className="text-muted">Reward tidak telat <b className="text-success">{idr.format(row.noLateReward)}</b></p>
+              <p className="text-muted">Kasbon <b className="text-warning">{idr.format(row.cashAdvance)}</b></p>
+              <p className="text-muted">Gelar management <b className="text-success">{idr.format(row.managementTitlePay)}</b></p>
               <p className="font-semibold text-brand">Gaji bersih {idr.format(row.netPay)}</p>
             </div>
             {row.adjustments.length > 0 && <div className="mt-3 space-y-1 border-t border-cream-dim pt-2">{row.adjustments.map((adjustment) => <p key={adjustment.id} className="text-xs text-muted">{adjustmentLabel[adjustment.adjustment_type]} · {idr.format(adjustment.amount)} · {adjustment.reason}</p>)}</div>}

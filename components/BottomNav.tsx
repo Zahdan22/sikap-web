@@ -100,7 +100,7 @@ export default function BottomNav() {
   const items: { href: string; label: string; icon: NavIcon }[] = role === 'finance'
     ? [
         { href: '/finance', label: 'Beranda', icon: 'dashboard' },
-        { href: '/finance/crew', label: 'Status Kru', icon: 'history' },
+        { href: '/finance/crew', label: 'Manajemen Crew', icon: 'history' },
         { href: '/finance/payroll', label: 'Penggajian', icon: 'payroll' },
         { href: '/finance/laporan', label: 'Laporan', icon: 'report' },
       ]

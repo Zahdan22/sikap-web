@@ -33,27 +33,30 @@ export default function PayrollCrewDetailClient() {
 
   useEffect(() => {
     let active = true
-    if (!start || !end) {
-      setError('Rentang periode tidak tersedia. Kembali ke payroll dan pilih periode terlebih dahulu.')
-      setLoading(false)
-      return () => { active = false }
-    }
-    setLoading(true)
-    setResult(null)
-    setError('')
-    void loadPayrollCrewDetail(params.userId, start, end)
-      .then((response) => {
+    const timer = window.setTimeout(() => {
+      if (!start || !end) {
         if (!active) return
-        if (!response.success) setError(response.message)
-        else setResult(response as Detail)
+        setError('Rentang periode tidak tersedia. Kembali ke payroll dan pilih periode terlebih dahulu.')
         setLoading(false)
-      })
-      .catch((reason: unknown) => {
-        if (!active) return
-        setError(reason instanceof Error ? reason.message : 'Gagal memuat rincian payroll.')
-        setLoading(false)
-      })
-    return () => { active = false }
+        return
+      }
+      setLoading(true)
+      setResult(null)
+      setError('')
+      void loadPayrollCrewDetail(params.userId, start, end)
+        .then((response) => {
+          if (!active) return
+          if (!response.success) setError(response.message)
+          else setResult(response as Detail)
+          setLoading(false)
+        })
+        .catch((reason: unknown) => {
+          if (!active) return
+          setError(reason instanceof Error ? reason.message : 'Gagal memuat rincian payroll.')
+          setLoading(false)
+        })
+    }, 0)
+    return () => { active = false; window.clearTimeout(timer) }
   }, [params.userId, start, end])
 
   return <div className="min-h-full bg-cream pb-24">
@@ -114,6 +117,25 @@ export default function PayrollCrewDetailClient() {
           </div>)}
           {result.violationDetails.length === 0 && <p className="mt-2 text-xs text-muted">Belum ada pelanggaran yang diperiksa pada periode ini.</p>}
         </section>
+        <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+          <h2 className="text-sm font-semibold text-ink">Komponen manual</h2>
+          <div className="mt-2 grid grid-cols-2 gap-y-2 text-xs">
+            <p className="text-muted">Bonus bawa teman <b className="text-success">{idr.format(result.summary.referralBonus)}</b></p>
+            <p className="text-muted">Bonus operasional <b className="text-success">{idr.format(result.summary.operationalBonus)}</b></p>
+            <p className="text-muted">Reward tidak telat <b className="text-success">{idr.format(result.summary.noLateReward)}</b></p>
+            <p className="text-muted">Kasbon <b className="text-warning">{idr.format(result.summary.cashAdvance)}</b></p>
+          </div>
+        </section>
+        {result.managementTitles.length > 0 && <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+          <h2 className="text-sm font-semibold text-ink">Gelar management</h2>
+          {result.managementTitles.map((title) => <div key={title.id} className="mt-3 border-t border-cream-dim pt-3 first:mt-2">
+            <p className="font-semibold text-ink">{title.title}</p>
+            <p className="mt-1 text-xs text-muted">{dateLabel(title.startsOn)} s.d. {dateLabel(title.endsOn)}</p>
+            <p className="mt-1 text-xs text-muted">{idr.format(title.dailyAmount)} per hari</p>
+            <p className="mt-1 text-sm font-semibold text-brand">Total {idr.format(title.totalAmount)}</p>
+          </div>)}
+          <p className="mt-3 border-t border-cream-dim pt-3 text-sm font-semibold text-brand">Total gelar management {idr.format(result.managementTitlePay)}</p>
+        </section>}
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
           <h2 className="text-sm font-semibold text-ink">Penyesuaian payroll</h2>
           {result.adjustments.length ? <div className="mt-2 space-y-2">{result.adjustments.map((item) => <p key={item.id} className="text-xs text-muted">{adjustmentLabels[item.adjustment_type]} · {idr.format(item.amount)} · {item.reason}</p>)}</div> : <p className="mt-1 text-xs text-muted">Belum ada penyesuaian untuk crew ini pada periode tersebut.</p>}
