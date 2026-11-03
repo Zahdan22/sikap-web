@@ -57,7 +57,7 @@ export default function PayrollSayaClient() {
     <div className="min-h-full bg-cream pb-24">
       <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
         <BackArrow href="/dashboard" />
-        <div><h1 className="text-lg font-bold">Slip Gaji Saya</h1><p className="text-xs text-white/80">Rincian payroll berdasarkan periode kerja</p></div>
+        <h1 className="text-lg font-bold">Slip Gaji Saya</h1>
       </header>
       <main className="space-y-4 px-5 pt-4">
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
