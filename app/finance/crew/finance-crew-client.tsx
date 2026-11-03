@@ -6,20 +6,12 @@ import { loadCrewPayrollStatus } from '@/app/actions/payroll'
 import { useDialog } from '@/components/ui/DialogProvider'
 import BackArrow from '@/components/BackArrow'
 
-type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
 type CrewRow = {
   id: string
   username: string
   nama: string
   status_aktif: boolean
-  payroll: { tier: Tier; completed_days_in_tier: number; senior_plus_level: number; effective_on: string } | null
-}
-
-const tierLabels: Record<Tier, string> = {
-  pra_training: 'Pra-Training',
-  training: 'Training',
-  junior: 'Junior',
-  senior: 'Senior',
+  payroll: { tier: string; tierLabel?: string; completed_days_in_tier: number; senior_plus_level: number; effective_on: string } | null
 }
 
 export default function FinanceCrewClient() {
@@ -27,6 +19,7 @@ export default function FinanceCrewClient() {
   const [crew, setCrew] = useState<CrewRow[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showMenu, setShowMenu] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -49,9 +42,18 @@ export default function FinanceCrewClient() {
 
   return (
     <div className="min-h-full bg-cream pb-24">
-      <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
-        <BackArrow href="/finance" />
-        <div><h1 className="text-lg font-bold">Manajemen Crew</h1><p className="text-xs text-white/80">Status, kasbon, bonus, dan gelar management</p></div>
+      <header className="relative flex items-center justify-between gap-3 bg-brand px-5 py-5 text-white">
+        <div className="flex items-center gap-3">
+          <BackArrow href="/finance" />
+          <div><h1 className="text-lg font-bold">Manajemen Crew</h1><p className="text-xs text-white/80">Status, kasbon, bonus, dan gelar management</p></div>
+        </div>
+        <button onClick={() => setShowMenu((value) => !value)} className="px-2 text-xl leading-none" aria-label="Pengaturan manajemen crew" aria-expanded={showMenu}>⋮</button>
+        {showMenu && <>
+          <button aria-label="Tutup menu" onClick={() => setShowMenu(false)} className="fixed inset-0 z-30 cursor-default" />
+          <div className="absolute right-5 top-16 z-40 w-56 rounded-xl border border-cream-dim bg-cream-card p-2 text-ink shadow-md">
+            <Link href="/finance/crew/tarif" onClick={() => setShowMenu(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-cream-dim">Kelola tarif & status</Link>
+          </div>
+        </>}
       </header>
       <div className="px-5 pt-4">
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama crew..." className="w-full rounded-xl border border-cream-dim bg-cream-card px-4 py-3 text-sm outline-none focus:border-brand" />
@@ -60,7 +62,7 @@ export default function FinanceCrewClient() {
         {loading && <p className="py-8 text-center text-sm text-muted">Memuat data crew…</p>}
         {!loading && filtered.length === 0 && <p className="py-8 text-center text-sm text-muted">Tidak ada crew yang cocok.</p>}
         {filtered.map((person) => {
-          const tier = person.payroll ? tierLabels[person.payroll.tier] : null
+          const tier = person.payroll ? person.payroll.tierLabel || person.payroll.tier.replaceAll('_', ' ') : null
           const plus = person.payroll?.senior_plus_level ? ` +${person.payroll.senior_plus_level}` : ''
           return (
             <Link key={person.id} href={`/finance/crew/${person.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card p-4 transition-colors hover:border-brand/40">

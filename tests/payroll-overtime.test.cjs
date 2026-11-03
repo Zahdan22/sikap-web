@@ -12,8 +12,20 @@ function setup({ rowLimit = 1000, failPageOf = null, failMessage = 'Page unavail
     schedule: [{ id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 }],
     crew_payroll_tier_history: [{ id: 1, user_id: 'crew-1', tier: 'senior', senior_plus_level: 2, effective_on: '2025-01-01' }],
     crew_payroll_status: [{ user_id: 'crew-1', tier: 'senior', senior_plus_level: 2 }],
-    payroll_tier_rates: [{ tier: 'senior', hourly_rate: 6800 }],
-    payroll_senior_plus_rates: [{ level: 2, daily_bonus: 7500 }],
+    payroll_tier_rates: [
+      { tier: 'pra_training', label: 'Pra-Training', is_active: true, supports_senior_plus: false, hourly_rate: 5000 },
+      { tier: 'training', label: 'Training', is_active: true, supports_senior_plus: false, hourly_rate: 5000 },
+      { tier: 'junior', label: 'Junior', is_active: true, supports_senior_plus: false, hourly_rate: 6000 },
+      { tier: 'senior', label: 'Senior', is_active: true, supports_senior_plus: true, hourly_rate: 6800 },
+    ],
+    payroll_senior_plus_rates: [{ level: 2, label: 'Senior +2', is_active: true, daily_bonus: 7500 }],
+    payroll_tier_rate_history: [
+      { id: 1, tier: 'pra_training', hourly_rate: 5000, supports_senior_plus: false, effective_on: '1900-01-01' },
+      { id: 2, tier: 'training', hourly_rate: 5000, supports_senior_plus: false, effective_on: '1900-01-01' },
+      { id: 3, tier: 'junior', hourly_rate: 6000, supports_senior_plus: false, effective_on: '1900-01-01' },
+      { id: 4, tier: 'senior', hourly_rate: 6800, supports_senior_plus: true, effective_on: '1900-01-01' },
+    ],
+    payroll_senior_plus_rate_history: [{ id: 1, level: 2, daily_bonus: 7500, effective_on: '1900-01-01' }],
     attendance: [{ id: 1, user_id: 'crew-1', schedule_id: 1, jam_masuk_aktual: '2025-01-05T10:50:00Z', jam_pulang_aktual: '2025-01-05T17:00:00Z', status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 }],
     payroll_periods: [{ id: 1, period_start: '2025-01-01', period_end: '2025-01-31', status: 'draft' }],
     periode_kerja: [],
@@ -126,6 +138,77 @@ test('tier manual memakai tarif sesuai tanggal berlaku tanpa memanggil kenaikan 
   assert.equal(report.rows[0].shiftDetails[0].tier, 'training')
   assert.equal(report.rows[0].shiftDetails[1].tier, 'junior')
   assert.equal(calls.includes('rpc:sync_crew_payroll_tier_progress'), false)
+})
+
+test('riwayat tarif status mengganti nominal tepat pada tanggal berlaku', async () => {
+  const { tables, actions } = setup()
+  tables.schedule = [
+    { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+    { id: 2, user_id: 'crew-1', tanggal: '2025-01-06', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+  ]
+  tables.attendance = tables.schedule.map((shift) => ({ id: shift.id, user_id: 'crew-1', schedule_id: shift.id, jam_masuk_aktual: `${shift.tanggal}T10:50:00Z`, jam_pulang_aktual: `${shift.tanggal}T17:00:00Z`, status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 }))
+  tables.crew_payroll_tier_history = [{ id: 1, user_id: 'crew-1', tier: 'junior', senior_plus_level: 0, effective_on: '2025-01-01' }]
+  tables.crew_payroll_status = [{ user_id: 'crew-1', tier: 'junior', senior_plus_level: 0 }]
+  tables.payroll_tier_rate_history = [
+    { id: 1, tier: 'junior', hourly_rate: 5000, effective_on: '1900-01-01' },
+    { id: 2, tier: 'junior', hourly_rate: 6000, effective_on: '2025-01-06' },
+  ]
+  tables.overtime_requests = []
+
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.success, true)
+  assert.equal(report.rows[0].basePay, 66000)
+  assert.deepEqual(report.rows[0].shiftDetails.map((shift) => shift.hourlyRate), [5000, 6000])
+})
+
+test('riwayat tunjangan Senior+ mengganti nominal per shift pada tanggal berlaku', async () => {
+  const { tables, actions } = setup()
+  tables.schedule = [
+    { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+    { id: 2, user_id: 'crew-1', tanggal: '2025-01-06', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+  ]
+  tables.attendance = tables.schedule.map((shift) => ({ id: shift.id, user_id: 'crew-1', schedule_id: shift.id, jam_masuk_aktual: `${shift.tanggal}T10:50:00Z`, jam_pulang_aktual: `${shift.tanggal}T17:00:00Z`, status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 }))
+  tables.payroll_senior_plus_rate_history = [
+    { id: 1, level: 2, daily_bonus: 7500, effective_on: '1900-01-01' },
+    { id: 2, level: 2, daily_bonus: 10000, effective_on: '2025-01-06' },
+  ]
+  tables.overtime_requests = []
+
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.success, true)
+  assert.equal(report.rows[0].seniorPlusPay, 17500)
+  assert.deepEqual(report.rows[0].shiftDetails.map((shift) => shift.seniorPlusBonus), [7500, 10000])
+})
+
+test('hak Senior+ dan aturan telat mengikuti tanggal berlaku tanpa mengubah shift lama', async () => {
+  const { tables, actions } = setup()
+  tables.schedule = [
+    { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+    { id: 2, user_id: 'crew-1', tanggal: '2025-01-06', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+  ]
+  tables.attendance = tables.schedule.map((shift) => ({ id: shift.id, user_id: 'crew-1', schedule_id: shift.id, jam_masuk_aktual: `${shift.tanggal}T10:50:00Z`, jam_pulang_aktual: `${shift.tanggal}T17:00:00Z`, status_masuk: 'telat', status_pulang: 'tepat_waktu', menit_telat: 30 }))
+  tables.payroll_tier_rate_history.push({ id: 9, tier: 'senior', hourly_rate: 6800, supports_senior_plus: false, effective_on: '2025-01-06' })
+  tables.overtime_requests = []
+
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.success, true)
+  assert.deepEqual(report.rows[0].shiftDetails.map((shift) => shift.basePay), [40800, 0])
+  assert.deepEqual(report.rows[0].shiftDetails.map((shift) => shift.seniorPlusBonus), [7500, 0])
+  assert.deepEqual(report.rows[0].shiftDetails.map((shift) => shift.ikhlas), [false, true])
+})
+
+test('status baru yang dibuat manager tetap dapat dihitung dari tarif riwayatnya', async () => {
+  const { tables, actions } = setup()
+  tables.payroll_tier_rates.push({ tier: 'intern', label: 'Intern', is_active: true, supports_senior_plus: false, hourly_rate: 4500 })
+  tables.payroll_tier_rate_history.push({ id: 9, tier: 'intern', hourly_rate: 4500, effective_on: '1900-01-01' })
+  tables.crew_payroll_tier_history = [{ id: 1, user_id: 'crew-1', tier: 'intern', senior_plus_level: 0, effective_on: '2025-01-01' }]
+  tables.crew_payroll_status = [{ user_id: 'crew-1', tier: 'intern', senior_plus_level: 0 }]
+  tables.overtime_requests = []
+
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.success, true)
+  assert.equal(report.rows[0].basePay, 27000)
+  assert.equal(report.rows[0].shiftDetails[0].tierLabel, 'Intern')
 })
 
 test('Admin 2 dapat menyimpan perubahan tier manual tanpa progres hari', async () => {
@@ -272,6 +355,8 @@ test('payroll final memakai arsip: perubahan jadwal, tier, absensi, tarif, dan c
   tables.schedule[0].durasi_jam = 7
   tables.attendance[0].menit_telat = 30
   tables.payroll_tier_rates[0].hourly_rate = 100000
+  tables.payroll_tier_rate_history.find((rate) => rate.tier === 'senior').hourly_rate = 100000
+  tables.payroll_senior_plus_rate_history[0].daily_bonus = 100000
   tables.crew_payroll_tier_history = []
   tables.crew_payroll_status = []
   tables.overtime_requests = []

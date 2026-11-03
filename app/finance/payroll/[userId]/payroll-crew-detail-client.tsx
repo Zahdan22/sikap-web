@@ -94,7 +94,7 @@ export default function PayrollCrewDetailClient() {
           <div className="mt-3 grid grid-cols-2 gap-y-2 text-xs">
             <p className="text-muted">Check-in <b className="text-ink">{shift.jamMasukAktual ? new Date(shift.jamMasukAktual).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</b></p>
             <p className="text-muted">Check-out <b className="text-ink">{shift.jamPulangAktual ? new Date(shift.jamPulangAktual).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</b></p>
-            <p className="text-muted">Tier berlaku <b className="text-ink">{shift.tier?.replace('_', '-') || '—'}{shift.seniorPlusLevel ? ` +${shift.seniorPlusLevel}` : ''}</b></p>
+            <p className="text-muted">Status berlaku <b className="text-ink">{shift.tierLabel || shift.tier?.replaceAll('_', ' ') || '—'}{shift.seniorPlusLevel ? ` · ${shift.seniorPlusLabel || `Senior +${shift.seniorPlusLevel}`}` : ''}</b></p>
             <p className="text-muted">Tarif per jam <b className="text-ink">{shift.hourlyRate ? idr.format(shift.hourlyRate) : '—'}</b></p>
             <p className="text-muted">Gaji dasar <b className="text-ink">{idr.format(shift.basePay)}</b></p>
             <p className="text-muted">Tunjangan Senior+ <b className="text-ink">{idr.format(shift.seniorPlusBonus)}</b></p>

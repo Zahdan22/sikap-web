@@ -14,15 +14,8 @@ import { manualPayrollComponentLabels, type ManualPayrollComponentType } from '@
 import { useDialog } from '@/components/ui/DialogProvider'
 import BackArrow from '@/components/BackArrow'
 
-type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
 type Result = Extract<Awaited<ReturnType<typeof loadCrewManagementDetail>>, { success: true }>
 
-const tierLabels: Record<Tier, string> = {
-  pra_training: 'Pra-Training',
-  training: 'Training',
-  junior: 'Junior',
-  senior: 'Senior',
-}
 const componentTypes: ManualPayrollComponentType[] = ['referral_bonus', 'operational_bonus', 'no_late_reward', 'cash_advance']
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
 
@@ -36,6 +29,15 @@ function dateLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value + 'T00:00:00Z'))
 }
 
+function formatTierCode(value: string) {
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function supportsSeniorPlusOn(config: { supportsSeniorPlus: boolean; rateHistory?: { effectiveOn: string; supportsSeniorPlus: boolean }[] } | undefined, effectiveOn: string) {
+  const datedSetting = config?.rateHistory?.find((rate) => rate.effectiveOn <= effectiveOn)
+  return datedSetting ? datedSetting.supportsSeniorPlus : Boolean(config?.supportsSeniorPlus)
+}
+
 export default function FinanceCrewDetailClient() {
   const params = useParams<{ userId: string }>()
   const { toast, confirm } = useDialog()
@@ -43,7 +45,7 @@ export default function FinanceCrewDetailClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedWorkPeriodId, setSelectedWorkPeriodId] = useState<number | null>(null)
-  const [statusDraft, setStatusDraft] = useState({ tier: 'pra_training' as Tier, plus: '0', effectiveOn: jakartaToday() })
+  const [statusDraft, setStatusDraft] = useState({ tier: '', plus: '0', effectiveOn: jakartaToday() })
   const [componentDrafts, setComponentDrafts] = useState<Record<ManualPayrollComponentType, string>>({
     referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
   })
@@ -63,11 +65,19 @@ export default function FinanceCrewDetailClient() {
       const next = response as Result
       setResult(next)
       setSelectedWorkPeriodId(next.selectedWorkPeriod?.id || null)
-      setStatusDraft({
-        tier: (next.payroll?.tier || 'pra_training') as Tier,
-        plus: String(next.payroll?.senior_plus_level || 0),
-        effectiveOn: next.payroll?.effective_on || jakartaToday(),
-      })
+      const activeTiers = next.tierConfigs.filter((config) => config.isActive)
+      const currentTier = next.payroll?.tier || ''
+      const currentTierConfig = next.tierConfigs.find((config) => config.tier === currentTier)
+      // Keep an inactive current status visible. Replacing it with the first
+      // active option would make a normal save silently move the crew.
+      const preferredTier = currentTierConfig ? currentTier : activeTiers[0]?.tier || ''
+      const preferredConfig = next.tierConfigs.find((config) => config.tier === preferredTier)
+      const currentLevel = Number(next.payroll?.senior_plus_level || 0)
+      const currentLevelConfig = next.seniorPlusConfigs.find((config) => config.level === currentLevel)
+      const preferredLevel = supportsSeniorPlusOn(preferredConfig, next.payroll?.effective_on || jakartaToday()) && currentLevelConfig
+        ? String(currentLevel)
+        : '0'
+      setStatusDraft({ tier: preferredTier, plus: preferredLevel, effectiveOn: next.payroll?.effective_on || jakartaToday() })
       const values: Record<ManualPayrollComponentType, string> = {
         referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
       }
@@ -183,6 +193,18 @@ export default function FinanceCrewDetailClient() {
   }
 
   const locked = result?.payrollPeriodStatus === 'finalized'
+  const activeTiers = result?.tierConfigs.filter((config) => config.isActive) || []
+  const selectedTierConfig = result?.tierConfigs.find((config) => config.tier === statusDraft.tier)
+  const activeSeniorPlusLevels = result?.seniorPlusConfigs.filter((config) => config.isActive) || []
+  const selectedPlusConfig = result?.seniorPlusConfigs.find((config) => config.level === Number(statusDraft.plus))
+  const selectedTierSupportsSeniorPlus = supportsSeniorPlusOn(selectedTierConfig, statusDraft.effectiveOn)
+  const hasInactiveSelectedTier = Boolean(statusDraft.tier && (!selectedTierConfig || !selectedTierConfig.isActive))
+  const hasInactiveSelectedPlus = Boolean(
+    selectedTierSupportsSeniorPlus
+      && Number(statusDraft.plus) > 0
+      && (!selectedPlusConfig || !selectedPlusConfig.isActive),
+  )
+  const statusSelectionBlocked = hasInactiveSelectedTier || hasInactiveSelectedPlus
   return (
     <div className="min-h-full bg-cream pb-24">
       <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
@@ -201,25 +223,40 @@ export default function FinanceCrewDetailClient() {
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
             <h2 className="text-sm font-semibold text-ink">Status crew</h2>
             <p className="mt-1 text-xs leading-relaxed text-muted">Pilih tier dan tanggal mulai berlakunya. Tarif payroll mengikuti riwayat tier pada setiap tanggal shift.</p>
-            <label className="mt-3 block text-xs text-muted">Tier
-              <select value={statusDraft.tier} onChange={(event) => setStatusDraft((previous) => ({ ...previous, tier: event.target.value as Tier, plus: event.target.value === 'senior' ? previous.plus : '0' }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">{Object.entries(tierLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            <label className="mt-3 block text-xs text-muted">Status
+              <select value={statusDraft.tier} onChange={(event) => {
+                const nextTier = event.target.value
+                const nextConfig = result.tierConfigs.find((config) => config.tier === nextTier)
+                setStatusDraft((previous) => ({ ...previous, tier: nextTier, plus: supportsSeniorPlusOn(nextConfig, previous.effectiveOn) ? previous.plus : '0' }))
+              }} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">
+                {activeTiers.length === 0 && <option value="">Belum ada status aktif</option>}
+                {hasInactiveSelectedTier && <option value={statusDraft.tier} disabled>{selectedTierConfig?.label || formatTierCode(statusDraft.tier)} (nonaktif · status saat ini)</option>}
+                {activeTiers.map((config) => <option key={config.tier} value={config.tier}>{config.label}</option>)}
+              </select>
             </label>
             <label className="mt-3 block text-xs text-muted">Tanggal mulai berlaku
-              <input type="date" value={statusDraft.effectiveOn} max={jakartaToday()} onChange={(event) => setStatusDraft((previous) => ({ ...previous, effectiveOn: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+              <input type="date" value={statusDraft.effectiveOn} max={jakartaToday()} onChange={(event) => setStatusDraft((previous) => ({ ...previous, effectiveOn: event.target.value, plus: supportsSeniorPlusOn(selectedTierConfig, event.target.value) ? previous.plus : '0' }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
             </label>
-            {statusDraft.tier === 'senior' && <label className="mt-3 block text-xs text-muted">Tingkat Senior+
+            {selectedTierSupportsSeniorPlus && <label className="mt-3 block text-xs text-muted">Tingkat Senior+
               <select value={statusDraft.plus} onChange={(event) => setStatusDraft((previous) => ({ ...previous, plus: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">
-                <option value="0">Senior biasa</option><option value="1">Senior +1</option><option value="2">Senior +2</option><option value="3">Senior +3</option><option value="4">Senior +4</option><option value="5">Senior +5</option>
+                <option value="0">Senior biasa</option>
+                {hasInactiveSelectedPlus && <option value={statusDraft.plus} disabled>{selectedPlusConfig?.label || `Senior +${statusDraft.plus}`} (nonaktif · level saat ini)</option>}
+                {activeSeniorPlusLevels.map((config) => <option key={config.level} value={config.level}>{config.label}</option>)}
               </select>
             </label>}
-            <button disabled={saving === 'status'} onClick={() => void saveStatus()} className="mt-3 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving === 'status' ? 'Menyimpan…' : 'Simpan status'}</button>
+            {statusSelectionBlocked && <p className="mt-3 rounded-xl bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">Status atau level yang tersimpan sudah dinonaktifkan. Pilih pilihan aktif lain jika ingin mengubah status crew.</p>}
+            <button disabled={saving === 'status' || !statusDraft.tier || statusSelectionBlocked} onClick={() => void saveStatus()} className="mt-3 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving === 'status' ? 'Menyimpan…' : 'Simpan status'}</button>
             {result.tierHistory.length > 0 && <div className="mt-4 border-t border-cream-dim pt-3">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat tier</h3>
               <div className="mt-2 space-y-2">
-                {result.tierHistory.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 text-xs">
-                  <p className="font-medium text-ink">{tierLabels[entry.tier]}{entry.seniorPlusLevel ? ` +${entry.seniorPlusLevel}` : ''}</p>
+                {result.tierHistory.map((entry) => {
+                  const config = result.tierConfigs.find((item) => item.tier === entry.tier)
+                  const plusConfig = result.seniorPlusConfigs.find((item) => item.level === entry.seniorPlusLevel)
+                  return <div key={entry.id} className="flex items-center justify-between gap-3 text-xs">
+                  <p className="font-medium text-ink">{config?.label || formatTierCode(entry.tier)}{entry.seniorPlusLevel ? ` · ${plusConfig?.label || `Senior +${entry.seniorPlusLevel}`}` : ''}</p>
                   <p className="shrink-0 text-muted">Mulai {dateLabel(entry.effectiveOn)}</p>
-                </div>)}
+                </div>
+                })}
               </div>
             </div>}
           </section>

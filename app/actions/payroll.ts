@@ -10,20 +10,21 @@ import { getShiftEndAt, isCheckOutGraceExpired } from '@/lib/attendance-status'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isManualPayrollComponentType, type ManualPayrollComponentType } from '@/lib/payroll-manual'
 
-type Tier = 'pra_training' | 'training' | 'junior' | 'senior'
+type Tier = string
 type AdjustmentType = 'sp_deduction' | 'other_deduction' | 'addition'
 type ManualComponent = { id: number; componentType: ManualPayrollComponentType; amount: number }
 type ManagementTitle = { id: number; title: string; startsOn: string; endsOn: string; dailyAmount: number; totalAmount: number }
 type AttendancePenalty = { reason: string; amount: number; points: number }
 type PayrollPeriod = { id: number; status: 'draft' | 'finalized' }
+type TierConfig = { tier: string; label: string; isActive: boolean; supportsSeniorPlus: boolean; hourlyRate: number; rateHistory?: { effectiveOn: string; supportsSeniorPlus: boolean }[] }
+type SeniorPlusConfig = { level: number; label: string; isActive: boolean; dailyBonus: number }
 type ShiftCalculation = {
-  tanggal: string; jam: number; tier: Tier | null; hourlyRate: number; seniorPlusLevel: number; seniorPlusBonus: number
+  tanggal: string; jam: number; tier: Tier | null; tierLabel?: string | null; hourlyRate: number; seniorPlusLevel: number; seniorPlusLabel?: string | null; seniorPlusBonus: number
   basePay: number; attendanceComplete: boolean; ikhlas: boolean; penalties: AttendancePenalty[]
   scheduleId?: number; jamMulai?: string; jamSelesai?: string; jamMasukAktual?: string | null; jamPulangAktual?: string | null
   menitTelat?: number; payable?: boolean; status?: string
 }
 
-const tiers: Tier[] = ['pra_training', 'training', 'junior', 'senior']
 const adjustmentTypes: AdjustmentType[] = ['sp_deduction', 'other_deduction', 'addition']
 
 function validDate(value: string) {
@@ -36,6 +37,32 @@ function jakartaToday() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
   return `${values.year}-${values.month}-${values.day}`
+}
+
+function tierLabel(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function activeRateOn<T extends { effective_on: string }>(rows: T[], date: string) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index].effective_on <= date) return rows[index]
+  }
+  return null
+}
+
+function toWholeRupiah(value: number) {
+  return Number.isFinite(value) ? Math.round(value) : NaN
+}
+
+function makeTierCode(label: string) {
+  const normalized = label
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48)
+  return /^[a-z]/.test(normalized) && normalized.length >= 2 ? normalized : `tier_${normalized || 'baru'}`.slice(0, 48)
 }
 
 // Supabase/Postgres errors are useful in server logs, but names of tables,
@@ -90,7 +117,7 @@ function getLatePenalty(minutesLate: number): AttendancePenalty | null {
 // data of every other person just to view their own period. Tier movement is
 // deliberately manual; payroll only reads the effective-date history.
 async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient>>, start: string, end: string, period: PayrollPeriod | null, crewId?: string) {
-  const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: rates, error: ratesError }, { data: plusRates, error: plusRatesError }, { data: states, error: stateError }, overtime, violations, { data: adjustments, error: adjustmentsError }, { data: manualComponents, error: manualComponentsError }, { data: managementTitles, error: managementTitlesError }] = await Promise.all([
+  const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: tierConfigs, error: tierConfigsError }, { data: plusConfigs, error: plusConfigsError }, { data: tierRateHistory, error: tierRateHistoryError }, { data: plusRateHistory, error: plusRateHistoryError }, { data: states, error: stateError }, overtime, violations, { data: adjustments, error: adjustmentsError }, { data: manualComponents, error: manualComponentsError }, { data: managementTitles, error: managementTitlesError }] = await Promise.all([
     loadAllPayrollRows((from, to) => {
       let query = supabase.from('users').select('id, username, nama, status_aktif', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true)
       if (crewId) query = query.eq('id', crewId)
@@ -106,8 +133,14 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       if (crewId) query = query.eq('user_id', crewId)
       return query.order('effective_on').order('id').range(from, to)
     }),
-    supabase.from('payroll_tier_rates').select('tier, hourly_rate, work_days_to_next_tier'),
-    supabase.from('payroll_senior_plus_rates').select('level, daily_bonus'),
+    supabase.from('payroll_tier_rates').select('tier, label, is_active, supports_senior_plus, hourly_rate'),
+    supabase.from('payroll_senior_plus_rates').select('level, label, is_active, daily_bonus'),
+    loadAllPayrollRows((from, to) => supabase.from('payroll_tier_rate_history')
+      .select('id, tier, hourly_rate, supports_senior_plus, effective_on', { count: 'exact' }).lte('effective_on', end)
+      .order('tier').order('effective_on').order('id').range(from, to)),
+    loadAllPayrollRows((from, to) => supabase.from('payroll_senior_plus_rate_history')
+      .select('id, level, daily_bonus, effective_on', { count: 'exact' }).lte('effective_on', end)
+      .order('level').order('effective_on').order('id').range(from, to)),
     loadAllPayrollRows((from, to) => {
       let query = supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level', { count: 'exact' })
       if (crewId) query = query.eq('user_id', crewId)
@@ -137,7 +170,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       })
       : Promise.resolve({ data: [], error: null }),
   ])
-  const problem = usersError || schedulesError || historyError || ratesError || plusRatesError || stateError || adjustmentsError || manualComponentsError || managementTitlesError
+  const problem = usersError || schedulesError || historyError || tierConfigsError || plusConfigsError || tierRateHistoryError || plusRateHistoryError || stateError || adjustmentsError || manualComponentsError || managementTitlesError
   if (problem) return { success: false as const, message: problem.message }
   if (!overtime.success) return overtime
   if (!violations.success) return violations
@@ -156,8 +189,34 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     const existing = historyByUser.get(row.user_id) || []
     historyByUser.set(row.user_id, [...existing, row])
   }
-  const rateByTier = new Map((rates || []).map((row) => [row.tier, Number(row.hourly_rate)]))
-  const bonusByLevel = new Map((plusRates || []).map((row) => [Number(row.level), Number(row.daily_bonus)]))
+  const tierConfigById = new Map((tierConfigs || []).map((row) => [row.tier, {
+    tier: row.tier,
+    label: row.label || tierLabel(row.tier),
+    isActive: row.is_active !== false,
+    supportsSeniorPlus: Boolean(row.supports_senior_plus),
+    hourlyRate: Number(row.hourly_rate),
+  } satisfies TierConfig]))
+  const plusConfigByLevel = new Map((plusConfigs || []).map((row) => [Number(row.level), {
+    level: Number(row.level),
+    label: row.label || `Senior +${row.level}`,
+    isActive: row.is_active !== false,
+    dailyBonus: Number(row.daily_bonus),
+  } satisfies SeniorPlusConfig]))
+  const tierRateHistoryByTier = new Map<string, typeof tierRateHistory>()
+  for (const row of tierRateHistory || []) {
+    const existing = tierRateHistoryByTier.get(row.tier) || []
+    tierRateHistoryByTier.set(row.tier, [...existing, row])
+  }
+  const plusRateHistoryByLevel = new Map<number, typeof plusRateHistory>()
+  for (const row of plusRateHistory || []) {
+    const level = Number(row.level)
+    const existing = plusRateHistoryByLevel.get(level) || []
+    plusRateHistoryByLevel.set(level, [...existing, row])
+  }
+  // Legacy fallback keeps calculations safe on older local/test data that has not
+  // been migrated yet. Production always has dated history seeded at 1900-01-01.
+  const useLegacyTierRates = (tierRateHistory || []).length === 0
+  const useLegacyPlusRates = (plusRateHistory || []).length === 0
   const stateByUser = new Map((states || []).map((row) => [row.user_id, row]))
 
   const attendanceBySchedule = new Map((attendances || []).map((row) => [row.schedule_id, row]))
@@ -176,6 +235,13 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     const checkoutGraceExpired = isCheckOutGraceExpired({ tanggal: schedule.tanggal, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })
     const applicableHistory = (historyByUser.get(schedule.user_id) || []).filter((entry) => entry.effective_on <= schedule.tanggal)
     const tierEntry = applicableHistory[applicableHistory.length - 1]
+    const selectedTierConfig = tierEntry ? tierConfigById.get(tierEntry.tier) : null
+    const tierRate = tierEntry ? activeRateOn(tierRateHistoryByTier.get(tierEntry.tier) || [], schedule.tanggal) : null
+    // Whether a tier may use Senior+ is itself date-effective. Otherwise, a
+    // checkbox changed today could rewrite old draft shifts retroactively.
+    const supportsSeniorPlus = tierRate
+      ? Boolean(tierRate.supports_senior_plus)
+      : useLegacyTierRates && Boolean(selectedTierConfig?.supportsSeniorPlus)
     const hours = Number(schedule.durasi_jam) || 0
     const belongsToCrew = attendance?.user_id === schedule.user_id
     const hasCheckIn = Boolean(belongsToCrew && attendance?.jam_masuk_aktual)
@@ -188,7 +254,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       if (attendance?.status_masuk === 'telat' || minutesLate > 0) {
         const latePenalty = getLatePenalty(minutesLate)
         if (latePenalty) {
-          if (minutesLate >= 30 && tierEntry?.tier !== 'senior') {
+          if (minutesLate >= 30 && !supportsSeniorPlus) {
             ikhlas = true
             penalties.push({ reason: 'Telat ≥30 menit · Kerja Ikhlas, upah shift tidak dibayar', amount: 0, points: 6 })
           } else penalties.push(latePenalty)
@@ -219,28 +285,42 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     }
     if (payable) { total.hours += hours; total.payableDays += 1 }
     if (!payable) {
-      shiftDetails.get(schedule.user_id)!.push({ ...metadata, tanggal: schedule.tanggal, jam: hours, tier: tierEntry?.tier as Tier || null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
+      shiftDetails.get(schedule.user_id)!.push({ ...metadata, tanggal: schedule.tanggal, jam: hours, tier: tierEntry?.tier || null, tierLabel: tierEntry ? selectedTierConfig?.label || tierLabel(tierEntry.tier) : null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusLabel: null, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
       continue
     }
     if (!tierEntry) {
       total.unratedDays += 1
-      shiftDetails.get(schedule.user_id)!.push({ ...metadata, tanggal: schedule.tanggal, jam: hours, tier: null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
+      shiftDetails.get(schedule.user_id)!.push({ ...metadata, tanggal: schedule.tanggal, jam: hours, tier: null, tierLabel: null, hourlyRate: 0, seniorPlusLevel: 0, seniorPlusLabel: null, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
       continue
     }
-    const tier = tierEntry.tier as Tier
-    const hourlyRate = rateByTier.get(tier) || 0
+    const tier = tierEntry.tier
+    const hasTierRate = Boolean(tierRate) || useLegacyTierRates
+    if (!hasTierRate) {
+      total.unratedDays += 1
+      shiftDetails.get(schedule.user_id)!.push({ ...metadata, status: 'Tarif status belum ditetapkan', tanggal: schedule.tanggal, jam: hours, tier, tierLabel: selectedTierConfig?.label || tierLabel(tier), hourlyRate: 0, seniorPlusLevel: 0, seniorPlusLabel: null, seniorPlusBonus: 0, basePay: 0, attendanceComplete, ikhlas, penalties })
+      continue
+    }
+    const hourlyRate = tierRate ? Number(tierRate.hourly_rate) : Number(selectedTierConfig?.hourlyRate || 0)
     const basePay = hours * hourlyRate
     total.basePay += basePay
-    const plusLevel = tier === 'senior' ? Number(tierEntry.senior_plus_level) : 0
-    const plusBonus = plusLevel > 0 ? (bonusByLevel.get(plusLevel) || 0) : 0
+    const plusLevel = supportsSeniorPlus ? Number(tierEntry.senior_plus_level) : 0
+    const selectedPlusConfig = plusLevel > 0 ? plusConfigByLevel.get(plusLevel) : null
+    const plusRate = plusLevel > 0 ? activeRateOn(plusRateHistoryByLevel.get(plusLevel) || [], schedule.tanggal) : null
+    const hasPlusRate = plusLevel === 0 || Boolean(plusRate) || useLegacyPlusRates
+    if (!hasPlusRate) total.unratedDays += 1
+    const plusBonus = plusLevel > 0 && hasPlusRate
+      ? (plusRate ? Number(plusRate.daily_bonus) : Number(selectedPlusConfig?.dailyBonus || 0))
+      : 0
     total.seniorPlusPay += plusBonus
     shiftDetails.get(schedule.user_id)!.push({
       ...metadata,
       tanggal: schedule.tanggal,
       jam: hours,
       tier,
+      tierLabel: selectedTierConfig?.label || tierLabel(tier),
       hourlyRate,
       seniorPlusLevel: plusLevel,
+      seniorPlusLabel: plusLevel > 0 ? selectedPlusConfig?.label || `Senior +${plusLevel}` : null,
       seniorPlusBonus: plusBonus,
       basePay,
       attendanceComplete,
@@ -313,7 +393,9 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         username: person.username,
         statusAktif: person.status_aktif,
         tier: state?.tier || null,
+        tierLabel: state?.tier ? tierConfigById.get(state.tier)?.label || tierLabel(state.tier) : null,
         seniorPlusLevel: Number(state?.senior_plus_level || 0),
+        seniorPlusLabel: Number(state?.senior_plus_level || 0) > 0 ? plusConfigByLevel.get(Number(state?.senior_plus_level))?.label || `Senior +${state?.senior_plus_level}` : null,
         shiftDetails: shiftDetails.get(person.id) || [],
         scheduledDays: total.scheduledDays,
         completedDays: total.completedDays,
@@ -418,6 +500,7 @@ async function loadFinalPayroll(supabase: Awaited<ReturnType<typeof createClient
       userId: item.user_id, nama: saved?.nama || person.nama,
       username: saved?.username || person.username, statusAktif: true,
       tier: saved?.tier ?? snapshot.tier ?? null, seniorPlusLevel: Number(saved?.seniorPlusLevel ?? snapshot.senior_plus_level ?? 0),
+      tierLabel: saved?.tierLabel ?? null, seniorPlusLabel: saved?.seniorPlusLabel ?? null,
       shiftDetails: shifts,
       scheduledDays: Number(saved?.scheduledDays ?? snapshot.scheduled_days ?? item.completed_work_days),
       completedDays: Number(saved?.completedDays ?? (shifts.length ? shifts.filter((shift) => shift.attendanceComplete).length : item.completed_work_days)),
@@ -443,43 +526,68 @@ async function loadFinalPayroll(supabase: Awaited<ReturnType<typeof createClient
 export async function loadCrewPayrollStatus() {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  const [{ data: crew, error: crewError }, { data: statuses, error: statusError }] = await Promise.all([
+  const [{ data: crew, error: crewError }, { data: statuses, error: statusError }, { data: tierConfigs, error: tierConfigsError }] = await Promise.all([
     loadAllPayrollRows((from, to) => access.supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').eq('status_aktif', true).order('nama').order('id').range(from, to)),
     loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on').order('user_id').range(from, to)),
+    access.supabase.from('payroll_tier_rates').select('tier, label'),
   ])
-  if (crewError || statusError) return payrollFailure(crewError || statusError, 'Daftar status crew belum dapat dimuat. Coba lagi beberapa saat.')
+  if (crewError || statusError || tierConfigsError) return payrollFailure(crewError || statusError || tierConfigsError, 'Daftar status crew belum dapat dimuat. Coba lagi beberapa saat.')
   const statusByUser = new Map((statuses || []).map((status) => [status.user_id, status]))
+  const labelsByTier = new Map((tierConfigs || []).map((config) => [config.tier, config.label || tierLabel(config.tier)]))
   return {
     success: true as const,
-    crew: (crew || []).map((person) => ({ ...person, payroll: statusByUser.get(person.id) || null })),
+    crew: (crew || []).map((person) => {
+      const payroll = statusByUser.get(person.id) || null
+      return { ...person, payroll: payroll ? { ...payroll, tierLabel: labelsByTier.get(payroll.tier) || tierLabel(payroll.tier) } : null }
+    }),
   }
 }
 
 export async function loadCrewManagementDetail(userId: string, preferredWorkPeriodId?: number) {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  const [{ data: crew, error: crewError }, { data: payroll, error: payrollError }, { data: periods, error: periodsError }, { data: tierHistory, error: tierHistoryError }] = await Promise.all([
+  const [{ data: crew, error: crewError }, { data: payroll, error: payrollError }, { data: periods, error: periodsError }, { data: tierHistory, error: tierHistoryError }, { data: tierConfigs, error: tierConfigsError }, { data: seniorPlusConfigs, error: seniorPlusConfigsError }, { data: tierRateHistory, error: tierRateHistoryError }] = await Promise.all([
     access.supabase.from('users').select('id, nama, username, status_aktif').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle(),
     access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on').eq('user_id', userId).maybeSingle(),
     loadAllPayrollRows((from, to) => access.supabase.from('periode_kerja').select('id, nama, tanggal_mulai, tanggal_selesai', { count: 'exact' }).order('tanggal_mulai', { ascending: false }).order('id').range(from, to)),
     loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_tier_history').select('id, tier, senior_plus_level, effective_on, changed_by', { count: 'exact' }).eq('user_id', userId).order('effective_on').order('id').range(from, to)),
+    access.supabase.from('payroll_tier_rates').select('tier, label, is_active, supports_senior_plus, hourly_rate').order('label'),
+    access.supabase.from('payroll_senior_plus_rates').select('level, label, is_active, daily_bonus').order('level'),
+    loadAllPayrollRows((from, to) => access.supabase.from('payroll_tier_rate_history').select('tier, effective_on, supports_senior_plus', { count: 'exact' }).order('tier').order('effective_on', { ascending: false }).range(from, to)),
   ])
   if (crewError || !crew) return payrollFailure(crewError, 'Crew tidak ditemukan.')
-  if (payrollError || periodsError || tierHistoryError) return payrollFailure(payrollError || periodsError || tierHistoryError, 'Detail manajemen crew belum dapat dimuat. Coba lagi beberapa saat.')
-  const manualTierHistory = (tierHistory || []).flatMap((entry) => tiers.includes(entry.tier as Tier)
-    ? [{ id: Number(entry.id), tier: entry.tier as Tier, seniorPlusLevel: Number(entry.senior_plus_level || 0), effectiveOn: entry.effective_on, changedBy: entry.changed_by }]
-    : [])
+  if (payrollError || periodsError || tierHistoryError || tierConfigsError || seniorPlusConfigsError || tierRateHistoryError) return payrollFailure(payrollError || periodsError || tierHistoryError || tierConfigsError || seniorPlusConfigsError || tierRateHistoryError, 'Detail manajemen crew belum dapat dimuat. Coba lagi beberapa saat.')
+  const catalog = (tierConfigs || []).map((config) => ({
+    tier: config.tier,
+    label: config.label || tierLabel(config.tier),
+    isActive: config.is_active !== false,
+    supportsSeniorPlus: Boolean(config.supports_senior_plus),
+    hourlyRate: Number(config.hourly_rate),
+    rateHistory: (tierRateHistory || []).filter((rate) => rate.tier === config.tier).map((rate) => ({
+      effectiveOn: rate.effective_on,
+      supportsSeniorPlus: Boolean(rate.supports_senior_plus),
+    })),
+  } satisfies TierConfig))
+  const seniorCatalog = (seniorPlusConfigs || []).map((config) => ({
+    level: Number(config.level),
+    label: config.label || `Senior +${config.level}`,
+    isActive: config.is_active !== false,
+    dailyBonus: Number(config.daily_bonus),
+  } satisfies SeniorPlusConfig))
+  const manualTierHistory = (tierHistory || []).map((entry) => ({
+    id: Number(entry.id), tier: entry.tier, seniorPlusLevel: Number(entry.senior_plus_level || 0), effectiveOn: entry.effective_on, changedBy: entry.changed_by,
+  }))
   const workPeriods = (periods || []) as WorkPeriod[]
   const selectedWorkPeriod = workPeriods.find((period) => period.id === preferredWorkPeriodId) || workPeriods[0] || null
   if (!selectedWorkPeriod) return {
-    success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, workPeriods, selectedWorkPeriod: null,
+    success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, tierConfigs: catalog, seniorPlusConfigs: seniorCatalog, workPeriods, selectedWorkPeriod: null,
     payrollPeriodStatus: null, components: [] as ManualComponent[], managementTitles: [] as ManagementTitle[],
   }
 
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, selectedWorkPeriod.id, false)
   if (!resolved.success) return payrollFailure(resolved.message, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (!resolved.period) return {
-    success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, workPeriods, selectedWorkPeriod,
+    success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, tierConfigs: catalog, seniorPlusConfigs: seniorCatalog, workPeriods, selectedWorkPeriod,
     payrollPeriodStatus: null, components: [] as ManualComponent[], managementTitles: [] as ManagementTitle[],
   }
   const [{ data: components, error: componentsError }, { data: titles, error: titlesError }] = await Promise.all([
@@ -494,6 +602,8 @@ export async function loadCrewManagementDetail(userId: string, preferredWorkPeri
     crew,
     payroll: payroll || null,
     tierHistory: manualTierHistory,
+    tierConfigs: catalog,
+    seniorPlusConfigs: seniorCatalog,
     workPeriods,
     selectedWorkPeriod,
     payrollPeriodStatus: resolved.period.status,
@@ -635,10 +745,35 @@ export async function deleteCrewManagementTitle(userId: string, workPeriodId: nu
 export async function saveCrewPayrollStatus(userId: string, tier: string, seniorPlusLevel: number, effectiveOn: string) {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  if (!userId || !tiers.includes(tier as Tier)) return { success: false as const, message: 'Data crew atau tier tidak valid.' }
-  if (!Number.isInteger(seniorPlusLevel) || seniorPlusLevel < 0 || seniorPlusLevel > 5) return { success: false as const, message: 'Level Senior+ harus 0–5.' }
+  if (!userId || !tier.trim()) return { success: false as const, message: 'Data crew atau status tidak valid.' }
+  if (!Number.isInteger(seniorPlusLevel) || seniorPlusLevel < 0) return { success: false as const, message: 'Level Senior+ tidak valid.' }
   if (!validDate(effectiveOn) || effectiveOn > jakartaToday()) return { success: false as const, message: 'Tanggal mulai berlaku tier tidak valid atau berada di masa depan.' }
-  if (tier !== 'senior' && seniorPlusLevel !== 0) return { success: false as const, message: 'Senior+ hanya dapat dipilih untuk crew Senior.' }
+
+  const [{ data: tierConfig, error: tierConfigError }, { data: plusConfig, error: plusConfigError }] = await Promise.all([
+    access.supabase.from('payroll_tier_rates').select('tier, label, is_active, supports_senior_plus').eq('tier', tier).maybeSingle(),
+    seniorPlusLevel > 0
+      ? access.supabase.from('payroll_senior_plus_rates').select('level, label, is_active').eq('level', seniorPlusLevel).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ])
+  if (tierConfigError || !tierConfig) return payrollFailure(tierConfigError, 'Status crew tidak ditemukan.')
+  if (!tierConfig.is_active) return { success: false as const, message: 'Status ini sudah dinonaktifkan dan tidak dapat dipilih untuk perubahan baru.' }
+  if (seniorPlusLevel > 0 && (plusConfigError || !plusConfig || !plusConfig.is_active)) {
+    return payrollFailure(plusConfigError, 'Level Senior+ tidak tersedia atau sudah dinonaktifkan.')
+  }
+
+  const [{ data: effectiveTierRates, error: effectiveTierRatesError }, { data: effectivePlusRates, error: effectivePlusRatesError }] = await Promise.all([
+    loadAllPayrollRows((from, to) => access.supabase.from('payroll_tier_rate_history')
+      .select('effective_on, supports_senior_plus', { count: 'exact' }).eq('tier', tier).lte('effective_on', effectiveOn).order('effective_on').range(from, to)),
+    seniorPlusLevel > 0
+      ? loadAllPayrollRows((from, to) => access.supabase.from('payroll_senior_plus_rate_history')
+        .select('effective_on', { count: 'exact' }).eq('level', seniorPlusLevel).lte('effective_on', effectiveOn).order('effective_on').range(from, to))
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (effectiveTierRatesError || effectivePlusRatesError) return payrollFailure(effectiveTierRatesError || effectivePlusRatesError, 'Tarif status belum dapat diperiksa. Coba lagi beberapa saat.')
+  const effectiveTierRate = activeRateOn(effectiveTierRates || [], effectiveOn)
+  if (!effectiveTierRate) return { success: false as const, message: 'Atur tarif status yang berlaku pada tanggal tersebut sebelum menyimpan status crew.' }
+  if (!effectiveTierRate.supports_senior_plus && seniorPlusLevel !== 0) return { success: false as const, message: 'Senior+ hanya dapat dipilih pada status Senior yang berlaku di tanggal tersebut.' }
+  if (seniorPlusLevel > 0 && !(effectivePlusRates || []).length) return { success: false as const, message: 'Atur tunjangan Senior+ yang berlaku pada tanggal tersebut sebelum menyimpan status crew.' }
 
   const { data: crew, error: crewError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
   if (crewError || !crew) return payrollFailure(crewError, 'Crew tidak ditemukan.')
@@ -682,6 +817,201 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, senior
     if (!synced.success) return { success: false as const, message: 'Status crew sudah tersimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   }
   revalidateManualPayrollPaths(userId)
+  return { success: true as const }
+}
+
+async function syncDraftPayrollsFrom(access: FinanceAccess, effectiveOn: string) {
+  const { data: draftPeriods, error: draftPeriodsError } = await loadAllPayrollRows((from, to) => access.supabase
+    .from('payroll_periods')
+    .select('id, period_start, period_end, status, attendance_revision', { count: 'exact' })
+    .eq('status', 'draft').gte('period_end', effectiveOn).order('period_start').order('id').range(from, to))
+  if (draftPeriodsError) return payrollFailure(draftPeriodsError, 'Draf payroll belum dapat diperbarui. Coba lagi beberapa saat.')
+
+  for (const draftPeriod of draftPeriods || []) {
+    const period: DraftPayrollPeriod = {
+      id: Number(draftPeriod.id),
+      period_start: draftPeriod.period_start,
+      period_end: draftPeriod.period_end,
+      status: 'draft',
+      attendance_revision: Number(draftPeriod.attendance_revision || 0),
+    }
+    const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' })
+    if (!report.success) return payrollFailure(report.message, 'Draf payroll belum dapat diperbarui. Coba lagi beberapa saat.')
+    const records = report.rows.map((row) => payrollItemRecord(period, row))
+    if (!records.length) continue
+    const { error } = await access.supabase.from('payroll_items').upsert(records, { onConflict: 'payroll_period_id,user_id' })
+    if (error) return payrollFailure(error, 'Draf payroll belum dapat diperbarui. Coba lagi beberapa saat.')
+  }
+  return { success: true as const }
+}
+
+function revalidatePayrollRatePaths() {
+  revalidatePath('/finance/crew')
+  revalidatePath('/finance/crew/tarif')
+  revalidatePath('/finance/payroll')
+  revalidatePath('/penggajian')
+}
+
+async function nextAvailableTierCode(access: FinanceAccess, label: string) {
+  const base = makeTierCode(label)
+  for (let index = 0; index < 100; index += 1) {
+    const suffix = index === 0 ? '' : `_${index + 1}`
+    const candidate = `${base.slice(0, 48 - suffix.length)}${suffix}`
+    const { data, error } = await access.supabase.from('payroll_tier_rates').select('tier').eq('tier', candidate).maybeSingle()
+    if (error) return { success: false as const, message: payrollActionMessage(error, 'Kode status belum dapat dibuat.') }
+    if (!data) return { success: true as const, code: candidate }
+  }
+  return { success: false as const, message: 'Nama status terlalu mirip dengan banyak status yang sudah ada. Gunakan nama lain.' }
+}
+
+async function assertSeniorTierAvailability(access: FinanceAccess, tier: string, supportsSeniorPlus: boolean) {
+  if (!supportsSeniorPlus) return { success: true as const }
+  const { data, error } = await loadAllPayrollRows((from, to) => access.supabase.from('payroll_tier_rates')
+    .select('tier, is_active, supports_senior_plus', { count: 'exact' }).order('tier').range(from, to))
+  if (error) return payrollFailure(error, 'Status Senior belum dapat diperiksa.')
+  const existing = (data || []).find((row) => row.tier !== tier && row.is_active !== false && Boolean(row.supports_senior_plus))
+  return existing
+    ? { success: false as const, message: 'Hanya satu status aktif yang dapat memakai level Senior+. Nonaktifkan atau ubah status Senior yang lama terlebih dahulu.' }
+    : { success: true as const }
+}
+
+export async function loadPayrollRateSettings() {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  const [{ data: tiers, error: tiersError }, { data: seniorLevels, error: seniorLevelsError }, { data: tierRateHistory, error: tierRateHistoryError }, { data: seniorRateHistory, error: seniorRateHistoryError }] = await Promise.all([
+    access.supabase.from('payroll_tier_rates').select('tier, label, is_active, supports_senior_plus, hourly_rate').order('label'),
+    access.supabase.from('payroll_senior_plus_rates').select('level, label, is_active, daily_bonus').order('level'),
+    loadAllPayrollRows((from, to) => access.supabase.from('payroll_tier_rate_history')
+      .select('id, tier, hourly_rate, supports_senior_plus, effective_on, created_at', { count: 'exact' }).order('tier').order('effective_on', { ascending: false }).order('id', { ascending: false }).range(from, to)),
+    loadAllPayrollRows((from, to) => access.supabase.from('payroll_senior_plus_rate_history')
+      .select('id, level, daily_bonus, effective_on, created_at', { count: 'exact' }).order('level').order('effective_on', { ascending: false }).order('id', { ascending: false }).range(from, to)),
+  ])
+  if (tiersError || seniorLevelsError || tierRateHistoryError || seniorRateHistoryError) return payrollFailure(tiersError || seniorLevelsError || tierRateHistoryError || seniorRateHistoryError, 'Pengaturan tarif belum dapat dimuat. Coba lagi beberapa saat.')
+  return {
+    success: true as const,
+    tiers: (tiers || []).map((row) => ({
+      tier: row.tier,
+      label: row.label || tierLabel(row.tier),
+      isActive: row.is_active !== false,
+      supportsSeniorPlus: Boolean(row.supports_senior_plus),
+      hourlyRate: Number(row.hourly_rate),
+      rateHistory: (tierRateHistory || []).filter((history) => history.tier === row.tier).map((history) => ({
+        id: Number(history.id), amount: Number(history.hourly_rate), supportsSeniorPlus: Boolean(history.supports_senior_plus), effectiveOn: history.effective_on, createdAt: history.created_at,
+      })),
+    })),
+    seniorPlusLevels: (seniorLevels || []).map((row) => ({
+      level: Number(row.level),
+      label: row.label || `Senior +${row.level}`,
+      isActive: row.is_active !== false,
+      dailyBonus: Number(row.daily_bonus),
+      rateHistory: (seniorRateHistory || []).filter((history) => Number(history.level) === Number(row.level)).map((history) => ({
+        id: Number(history.id), amount: Number(history.daily_bonus), effectiveOn: history.effective_on, createdAt: history.created_at,
+      })),
+    })),
+  }
+}
+
+export async function savePayrollTierConfig(tier: string | null, label: string, hourlyRate: number, effectiveOn: string, supportsSeniorPlus: boolean) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  const cleanLabel = label.trim()
+  const amount = toWholeRupiah(hourlyRate)
+  if (cleanLabel.length < 1 || cleanLabel.length > 80) return { success: false as const, message: 'Nama status harus 1–80 karakter.' }
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > 100_000_000) return { success: false as const, message: 'Tarif per jam harus berupa angka bulat dari Rp0 sampai Rp100.000.000.' }
+  if (!validDate(effectiveOn)) return { success: false as const, message: 'Tanggal berlaku tarif tidak valid.' }
+
+  const codeResult = tier ? { success: true as const, code: tier } : await nextAvailableTierCode(access, cleanLabel)
+  if (!codeResult.success) return codeResult
+  const code = codeResult.code
+  const seniorCheck = await assertSeniorTierAvailability(access, code, supportsSeniorPlus)
+  if (!seniorCheck.success) return seniorCheck
+  const now = new Date().toISOString()
+
+  if (tier) {
+    const { data: existing, error: existingError } = await access.supabase.from('payroll_tier_rates').select('tier, supports_senior_plus').eq('tier', code).maybeSingle()
+    if (existingError || !existing) return payrollFailure(existingError, 'Status crew tidak ditemukan.')
+    const { error: masterError } = await access.supabase.from('payroll_tier_rates')
+      .update({ label: cleanLabel, hourly_rate: amount, supports_senior_plus: supportsSeniorPlus, updated_at: now })
+      .eq('tier', code)
+    if (masterError) return payrollFailure(masterError, 'Status crew belum dapat diperbarui. Coba lagi beberapa saat.')
+  } else {
+    const { error: masterError } = await access.supabase.from('payroll_tier_rates').insert({
+      tier: code, label: cleanLabel, is_active: true, supports_senior_plus: supportsSeniorPlus,
+      hourly_rate: amount, work_days_to_next_tier: null, updated_at: now,
+    })
+    if (masterError) return payrollFailure(masterError, 'Status crew belum dapat ditambahkan. Coba lagi beberapa saat.')
+  }
+
+  const { error: rateError } = await access.supabase.from('payroll_tier_rate_history').upsert({
+    tier: code, hourly_rate: amount, supports_senior_plus: supportsSeniorPlus, effective_on: effectiveOn, recorded_by: access.userId,
+    updated_by: access.userId, updated_at: now,
+  }, { onConflict: 'tier,effective_on' })
+  if (rateError) return payrollFailure(rateError, 'Tarif status belum dapat disimpan. Coba lagi beberapa saat.')
+  // Rate and Senior capability are both stored with the effective date, so
+  // only overlapping draft periods need recalculating.
+  const synced = await syncDraftPayrollsFrom(access, effectiveOn)
+  if (!synced.success) return { success: false as const, message: 'Tarif berhasil disimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa payroll.' }
+  revalidatePayrollRatePaths()
+  return { success: true as const, tier: code }
+}
+
+export async function setPayrollTierActive(tier: string, isActive: boolean) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  if (!tier.trim()) return { success: false as const, message: 'Status crew tidak valid.' }
+  const { data: existing, error: existingError } = await access.supabase.from('payroll_tier_rates')
+    .select('tier, supports_senior_plus').eq('tier', tier).maybeSingle()
+  if (existingError || !existing) return payrollFailure(existingError, 'Status crew tidak ditemukan.')
+  if (isActive) {
+    const seniorCheck = await assertSeniorTierAvailability(access, tier, Boolean(existing.supports_senior_plus))
+    if (!seniorCheck.success) return seniorCheck
+  }
+  const { error } = await access.supabase.from('payroll_tier_rates')
+    .update({ is_active: isActive, updated_at: new Date().toISOString() }).eq('tier', tier)
+  if (error) return payrollFailure(error, 'Status crew belum dapat diperbarui. Coba lagi beberapa saat.')
+  revalidatePayrollRatePaths()
+  return { success: true as const }
+}
+
+export async function saveSeniorPlusRateConfig(level: number | null, label: string, dailyBonus: number, effectiveOn: string) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  const cleanLabel = label.trim()
+  const amount = toWholeRupiah(dailyBonus)
+  const cleanLevel = Number(level)
+  if (!Number.isInteger(cleanLevel) || cleanLevel < 1 || cleanLevel > 32_767) return { success: false as const, message: 'Level Senior+ harus berupa angka bulat minimal 1.' }
+  if (cleanLabel.length < 1 || cleanLabel.length > 80) return { success: false as const, message: 'Nama level Senior+ harus 1–80 karakter.' }
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > 100_000_000) return { success: false as const, message: 'Tunjangan per shift harus berupa angka bulat dari Rp0 sampai Rp100.000.000.' }
+  if (!validDate(effectiveOn)) return { success: false as const, message: 'Tanggal berlaku tunjangan tidak valid.' }
+  const now = new Date().toISOString()
+  const { data: existing, error: existingError } = await access.supabase.from('payroll_senior_plus_rates').select('level').eq('level', cleanLevel).maybeSingle()
+  if (existingError) return payrollFailure(existingError, 'Level Senior+ belum dapat diperiksa.')
+  const mutation = existing
+    ? access.supabase.from('payroll_senior_plus_rates').update({ label: cleanLabel, daily_bonus: amount, updated_at: now }).eq('level', cleanLevel)
+    : access.supabase.from('payroll_senior_plus_rates').insert({ level: cleanLevel, label: cleanLabel, is_active: true, daily_bonus: amount, updated_at: now })
+  const { error: masterError } = await mutation
+  if (masterError) return payrollFailure(masterError, 'Level Senior+ belum dapat disimpan. Coba lagi beberapa saat.')
+  const { error: rateError } = await access.supabase.from('payroll_senior_plus_rate_history').upsert({
+    level: cleanLevel, daily_bonus: amount, effective_on: effectiveOn, recorded_by: access.userId,
+    updated_by: access.userId, updated_at: now,
+  }, { onConflict: 'level,effective_on' })
+  if (rateError) return payrollFailure(rateError, 'Tunjangan Senior+ belum dapat disimpan. Coba lagi beberapa saat.')
+  const synced = await syncDraftPayrollsFrom(access, effectiveOn)
+  if (!synced.success) return { success: false as const, message: 'Tunjangan Senior+ berhasil disimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa payroll.' }
+  revalidatePayrollRatePaths()
+  return { success: true as const, level: cleanLevel }
+}
+
+export async function setSeniorPlusRateActive(level: number, isActive: boolean) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  if (!Number.isInteger(level) || level < 1) return { success: false as const, message: 'Level Senior+ tidak valid.' }
+  const { data: existing, error: existingError } = await access.supabase.from('payroll_senior_plus_rates').select('level').eq('level', level).maybeSingle()
+  if (existingError || !existing) return payrollFailure(existingError, 'Level Senior+ tidak ditemukan.')
+  const { error } = await access.supabase.from('payroll_senior_plus_rates')
+    .update({ is_active: isActive, updated_at: new Date().toISOString() }).eq('level', level)
+  if (error) return payrollFailure(error, 'Level Senior+ belum dapat diperbarui. Coba lagi beberapa saat.')
+  revalidatePayrollRatePaths()
   return { success: true as const }
 }
 
@@ -823,7 +1153,7 @@ export async function loadPayrollCrewDetail(userId: string, start: string, end: 
       hours: shift.jam, attendanceComplete: shift.attendanceComplete, payable: shift.payable ?? false,
       ikhlas: shift.ikhlas, status: shift.status || 'Rincian tersimpan',
       jamMasukAktual: shift.jamMasukAktual ?? null, jamPulangAktual: shift.jamPulangAktual ?? null,
-      menitTelat: shift.menitTelat ?? 0, tier: shift.tier, seniorPlusLevel: shift.seniorPlusLevel,
+      menitTelat: shift.menitTelat ?? 0, tier: shift.tier, tierLabel: shift.tierLabel ?? null, seniorPlusLevel: shift.seniorPlusLevel, seniorPlusLabel: shift.seniorPlusLabel ?? null,
       hourlyRate: shift.hourlyRate, basePay: shift.basePay, seniorPlusBonus: shift.seniorPlusBonus,
       attendanceDeductions, attendancePoints: penalties.reduce((sum, penalty) => sum + penalty.points, 0),
       penalties, totalPay: Math.round(shift.basePay + shift.seniorPlusBonus - attendanceDeductions),
@@ -892,7 +1222,7 @@ export async function loadOwnPayrollSlip(workPeriodId: number) {
       hours: shift.jam, attendanceComplete: shift.attendanceComplete, payable: shift.payable ?? false,
       ikhlas: shift.ikhlas, status: shift.status || 'Rincian tersimpan',
       jamMasukAktual: shift.jamMasukAktual ?? null, jamPulangAktual: shift.jamPulangAktual ?? null,
-      menitTelat: shift.menitTelat ?? 0, tier: shift.tier, seniorPlusLevel: shift.seniorPlusLevel,
+      menitTelat: shift.menitTelat ?? 0, tier: shift.tier, tierLabel: shift.tierLabel ?? null, seniorPlusLevel: shift.seniorPlusLevel, seniorPlusLabel: shift.seniorPlusLabel ?? null,
       hourlyRate: shift.hourlyRate, basePay: shift.basePay, seniorPlusBonus: shift.seniorPlusBonus,
       attendanceDeductions, attendancePoints: penalties.reduce((sum, penalty) => sum + penalty.points, 0),
       penalties, totalPay: Math.round(shift.basePay + shift.seniorPlusBonus - attendanceDeductions),

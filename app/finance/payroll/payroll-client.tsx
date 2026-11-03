@@ -11,7 +11,7 @@ import BackArrow from '@/components/BackArrow'
 
 type Adjustment = { id: number; adjustment_type: 'sp_deduction' | 'other_deduction' | 'addition'; amount: number; reason: string }
 type PayrollRow = {
-  userId: string; nama: string; username: string; statusAktif: boolean; tier: string | null; seniorPlusLevel: number
+  userId: string; nama: string; username: string; statusAktif: boolean; tier: string | null; tierLabel?: string | null; seniorPlusLevel: number; seniorPlusLabel?: string | null
   scheduledDays: number; completedDays: number; payableDays: number; excludedDays: number; unratedDays: number; hours: number; basePay: number
   seniorPlusPay: number; deductions: number; attendanceDeductions: number; attendancePoints: number; additions: number; netPay: number; adjustments: Adjustment[]
   overtimePay: number; overtimeHours: number
@@ -242,7 +242,7 @@ export default function PayrollClient() {
           const isLocked = report.periodStatus === 'finalized'
           return <section key={row.userId} className="rounded-2xl border border-cream-dim bg-cream-card p-4">
             <div className="flex items-start justify-between gap-3">
-              <Link href={detailHref(row.userId)} className="min-w-0 flex-1"><h2 className="font-semibold text-ink">{row.nama} <span className="text-brand">→</span></h2><p className="text-xs text-muted">{row.tier ? `${row.tier.replace('_', '-')} · ${row.seniorPlusLevel ? `Senior +${row.seniorPlusLevel}` : 'tanpa Senior+'}` : 'Tier belum diatur'}</p></Link>
+              <Link href={detailHref(row.userId)} className="min-w-0 flex-1"><h2 className="font-semibold text-ink">{row.nama} <span className="text-brand">→</span></h2><p className="text-xs text-muted">{row.tier ? `${row.tierLabel || row.tier.replaceAll('_', ' ')} · ${row.seniorPlusLevel ? row.seniorPlusLabel || `Senior +${row.seniorPlusLevel}` : 'tanpa Senior+'}` : 'Tier belum diatur'}</p></Link>
               <span className="rounded-full bg-cream px-2 py-1 text-[10px] text-muted">{row.payableDays}/{row.scheduledDays} hari dibayar</span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-y-2 text-xs sm:grid-cols-3">
