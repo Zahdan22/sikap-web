@@ -390,6 +390,15 @@ function CrewDashboard({ nama }: { nama: string }) {
           </div>
           <span className="text-brand">→</span>
         </Link>
+        <Link href="/penggajian" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4 transition-colors hover:border-brand/40">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M7 10h.01M17 14h.01" /></svg>
+            </div>
+            <div><p className="text-sm font-semibold text-ink">Slip Gaji Saya</p><p className="text-xs text-muted">Lihat rincian gaji per periode kerja</p></div>
+          </div>
+          <span className="text-brand">→</span>
+        </Link>
       </div>
 
       <div className="px-5">
@@ -408,17 +417,6 @@ function CrewDashboard({ nama }: { nama: string }) {
         />
       </div>
 
-      <div className="mt-6 px-5">
-        <Link href="/penggajian" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4 transition-colors hover:border-brand/40">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M7 10h.01M17 14h.01" /></svg>
-            </div>
-            <div><p className="text-sm font-semibold text-ink">Slip Gaji Saya</p><p className="text-xs text-muted">Lihat rincian gaji per periode kerja</p></div>
-          </div>
-          <span className="text-brand">→</span>
-        </Link>
-      </div>
     </div>
   )
 }
