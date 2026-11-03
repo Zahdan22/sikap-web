@@ -282,6 +282,7 @@ function ManagerDashboard({ nama }: { nama: string }) {
 function CrewDashboard({ nama }: { nama: string }) {
   const [statusLabel, setStatusLabel] = useState('Memuat...')
   const [statusTone, setStatusTone] = useState<'default' | 'action'>('default')
+  const [todayShift, setTodayShift] = useState('Memuat jadwal...')
   const [todaySchedules, setTodaySchedules] = useState<DailySchedule[]>([])
   const [loadingTimeline, setLoadingTimeline] = useState(true)
 
@@ -293,10 +294,17 @@ function CrewDashboard({ nama }: { nama: string }) {
 
       const { schedule, attendance } = await getTodayStatus(user.id)
 
-      if (!schedule) { setStatusLabel('Tidak Ada Jadwal'); setStatusTone('default') }
-      else if (!attendance) { setStatusLabel('Belum Absen'); setStatusTone('action') }
-      else if (!attendance.jam_pulang_aktual) { setStatusLabel('Sudah Absen Masuk'); setStatusTone('action') }
-      else { setStatusLabel('Selesai Bekerja'); setStatusTone('default') }
+      if (!schedule) {
+        setTodayShift('Tidak ada jadwal shift hari ini')
+        setStatusLabel('Tidak Ada Jadwal'); setStatusTone('default')
+      } else {
+        const start = schedule.jam_mulai.slice(0, 5)
+        const end = schedule.jam_selesai.slice(0, 5)
+        setTodayShift(`${start}–${end}${schedule.jam_selesai <= schedule.jam_mulai ? ' · selesai besok' : ''}`)
+        if (!attendance) { setStatusLabel('Belum Absen'); setStatusTone('action') }
+        else if (!attendance.jam_pulang_aktual) { setStatusLabel('Sudah Absen Masuk'); setStatusTone('action') }
+        else { setStatusLabel('Selesai Bekerja'); setStatusTone('default') }
+      }
 
     }
     load()
@@ -327,6 +335,9 @@ function CrewDashboard({ nama }: { nama: string }) {
       <div className="mt-6 px-5">
         <div className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div>
+            <p className="text-xs uppercase tracking-wide text-muted">Jadwal shift hari ini</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{todayShift}</p>
+            <div className="my-3 border-t border-cream-dim" />
             <p className="text-xs uppercase tracking-wide text-muted">Status Hari Ini</p>
             <p className="mt-1 text-lg font-semibold text-ink">{statusLabel}</p>
           </div>
@@ -409,15 +420,6 @@ function CrewDashboard({ nama }: { nama: string }) {
               <p className="text-sm font-semibold text-ink">Tukar Shift</p>
               <p className="text-xs text-muted">Shift Swap</p>
             </div>
-          </div>
-          <span className="text-brand">→</span>
-        </Link>
-        <Link href="/penggajian" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4 transition-colors hover:border-brand/40">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M7 10h.01M17 14h.01" /></svg>
-            </div>
-            <div><p className="text-sm font-semibold text-ink">Slip Gaji Saya</p><p className="text-xs text-muted">Lihat rincian gaji per periode kerja</p></div>
           </div>
           <span className="text-brand">→</span>
         </Link>

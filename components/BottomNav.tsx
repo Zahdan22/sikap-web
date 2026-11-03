@@ -114,6 +114,7 @@ export default function BottomNav() {
         { href: '/dashboard', label: 'Beranda', icon: 'dashboard' },
         { href: '/riwayat', label: 'Riwayat', icon: 'history' },
         { href: '/jadwal-saya', label: 'Jadwal', icon: 'schedule' },
+        { href: '/penggajian', label: 'Slip Gaji', icon: 'payroll' },
       ]
 
   return (
