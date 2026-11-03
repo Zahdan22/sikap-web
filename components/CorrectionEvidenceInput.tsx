@@ -2,7 +2,17 @@
 
 import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react'
 
-export default function CorrectionEvidenceInput() {
+type Props = {
+  required?: boolean
+  label?: string
+  help?: string
+}
+
+export default function CorrectionEvidenceInput({
+  required = true,
+  label = 'Bukti kendala (wajib)',
+  help = 'JPG, PNG, atau WebP. Maksimal 3 MB.',
+}: Props) {
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const previewRef = useRef<string | null>(null)
@@ -48,20 +58,21 @@ export default function CorrectionEvidenceInput() {
 
   return (
     <div className="space-y-2">
-      <label htmlFor={id} className="block text-sm text-muted">Bukti kendala (wajib)</label>
+      <label htmlFor={id} className="block text-sm text-muted">{label}</label>
       <div className="relative rounded-xl border border-cream-dim bg-white p-4 focus-within:ring-2 focus-within:ring-brand focus-within:ring-offset-2">
         <input
           ref={inputRef}
           id={id}
           name="evidence"
           type="file"
-          required
+          required={required}
           accept="image/jpeg,image/png,image/webp"
           className="peer sr-only"
           aria-describedby={`${id}-help${error ? ` ${id}-error` : ''}`}
           aria-invalid={error ? true : undefined}
           onChange={chooseFile}
           onInvalid={event => {
+            if (!required) return
             event.currentTarget.setCustomValidity('Pilih bukti kendala terlebih dahulu.')
             setError('Pilih bukti kendala terlebih dahulu.')
           }}
@@ -88,7 +99,7 @@ export default function CorrectionEvidenceInput() {
           </button>
         )}
       </div>
-      <p id={`${id}-help`} className="text-xs text-muted">JPG, PNG, atau WebP. Maksimal 3 MB.</p>
+      <p id={`${id}-help`} className="text-xs text-muted">{help}</p>
       {error && <p id={`${id}-error`} role="alert" className="text-sm text-brand">{error}</p>}
     </div>
   )

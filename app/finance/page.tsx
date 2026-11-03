@@ -4,6 +4,7 @@ import AccountMenu from '@/components/AccountMenu'
 import { createClient } from '@/lib/supabase/server'
 import OvertimeDashboardCard from '@/components/OvertimeDashboardCard'
 import ViolationDashboardCard from '@/components/ViolationDashboardCard'
+import ViolationAppealDashboardCard from '@/components/ViolationAppealDashboardCard'
 import CorrectionDashboardCard from '@/components/CorrectionDashboardCard'
 
 export default async function FinanceHomePage() {
@@ -20,6 +21,7 @@ export default async function FinanceHomePage() {
         <CorrectionDashboardCard href="/finance/koreksi-absensi" manager />
         <OvertimeDashboardCard href="/finance/lembur" />
         <ViolationDashboardCard href="/finance/pelanggaran" manager />
+        <ViolationAppealDashboardCard href="/finance/banding-pelanggaran" />
         <Link href="/finance/payroll" className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
             <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

@@ -358,6 +358,15 @@ function CrewDashboard({ nama }: { nama: string }) {
       <div className="mt-4 space-y-3 px-5">
         <CorrectionDashboardCard href="/koreksi-absensi" />
         <ViolationDashboardCard href="/pelanggaran" />
+        <Link href="/banding-pelanggaran" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a9 9 0 1 0 9 9" /><path d="m12 7 4 4-4 4M16 11H3" /><path d="M17 3h4v4" /></svg>
+            </div>
+            <div><p className="text-sm font-semibold text-ink">Banding Pelanggaran</p><p className="text-xs text-muted">Ajukan keberatan atas pelanggaran yang sudah diperiksa</p></div>
+          </div>
+          <span className="text-brand">→</span>
+        </Link>
         <Link href="/lembur" className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">

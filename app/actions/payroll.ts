@@ -1051,6 +1051,26 @@ function revalidateManualPayrollPaths(userId: string) {
   revalidatePath('/penggajian')
 }
 
+// Used after a Manager Keuangan changes an approved violation through a
+// violation appeal. The function deliberately does not create a new payroll
+// period: only an existing draft needs its saved item refreshed.
+export async function syncDraftPayrollForViolation(userId: string, violationDate: string) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  if (!userId || !validDate(violationDate)) return { success: false as const, message: 'Data pelanggaran tidak valid.' }
+  const { data: workPeriod, error: workPeriodError } = await access.supabase.from('periode_kerja')
+    .select('id').lte('tanggal_mulai', violationDate).gte('tanggal_selesai', violationDate)
+    .order('tanggal_mulai', { ascending: false }).limit(1).maybeSingle()
+  if (workPeriodError) return payrollFailure(workPeriodError, 'Periode kerja belum dapat diperiksa.')
+  if (!workPeriod) return { success: true as const }
+  const resolved = await resolvePayrollPeriodForWorkPeriod(access, workPeriod.id, false)
+  if (!resolved.success) return resolved
+  if (!resolved.period || resolved.period.status === 'finalized') return { success: true as const }
+  const synced = await syncDraftPayrollItem(access, resolved.period, userId)
+  if (synced.success) revalidateManualPayrollPaths(userId)
+  return synced
+}
+
 async function resolvePayrollPeriodForWorkPeriod(access: FinanceAccess, workPeriodId: number, createIfMissing: boolean) {
   if (!Number.isInteger(workPeriodId) || workPeriodId <= 0) return { success: false as const, message: 'Periode kerja tidak valid.' }
   const { data: workPeriod, error: workPeriodError } = await access.supabase
