@@ -21,6 +21,7 @@ export default function KaryawanPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
 
   async function loadList() {
     const supabase = createClient()
@@ -32,7 +33,11 @@ export default function KaryawanPage() {
     setList(data || [])
   }
 
-  useEffect(() => { loadList() }, [])
+  useEffect(() => {
+    // Jalankan setelah effect terpasang agar pembaruan state berasal dari proses asinkron.
+    const loadTimer = window.setTimeout(() => { void loadList() }, 0)
+    return () => window.clearTimeout(loadTimer)
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -91,6 +96,44 @@ export default function KaryawanPage() {
     loadList()
   }
 
+  function renderKaryawan(k: Karyawan) {
+    return <div key={k.id} className="flex items-center justify-between rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/10 text-xs font-semibold text-brand">
+          {k.nama.charAt(0).toUpperCase()}
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-ink">{k.nama}</p>
+          <p className="text-xs text-muted">@{k.username}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${k.status_aktif ? 'bg-success/10 text-success' : 'bg-muted/10 text-muted'}`}>
+          {k.status_aktif ? 'Aktif' : 'Nonaktif'}
+        </span>
+        <button onClick={() => handleToggleActive(k.id, k.status_aktif)} className="text-xs font-semibold text-brand">
+          {k.status_aktif ? 'Nonaktifkan' : 'Aktifkan'}
+        </button>
+        <button
+          onClick={() => handleDelete(k.id, k.nama)}
+          aria-label="Hapus karyawan"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-brand/10 hover:text-brand"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            <line x1="10" y1="11" x2="10" y2="17" />
+            <line x1="14" y1="11" x2="14" y2="17" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  }
+
+  const activeList = list.filter((karyawan) => karyawan.status_aktif)
+  const inactiveList = list.filter((karyawan) => !karyawan.status_aktif)
+
   return (
     <div className="flex min-h-full flex-col bg-cream pb-24">
       <PageHeader title="Manajemen Karyawan" backHref="/dashboard" />
@@ -130,41 +173,14 @@ export default function KaryawanPage() {
       )}
 
       <div className="mt-5 space-y-2 px-5">
-        {list.map((k) => (
-          <div key={k.id} className="flex items-center justify-between rounded-xl border border-cream-dim bg-cream-card px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/10 text-xs font-semibold text-brand">
-                {k.nama.charAt(0).toUpperCase()}
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-ink">{k.nama}</p>
-                <p className="text-xs text-muted">@{k.username}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${k.status_aktif ? 'bg-success/10 text-success' : 'bg-muted/10 text-muted'}`}>
-                {k.status_aktif ? 'Aktif' : 'Nonaktif'}
-              </span>
-              <button onClick={() => handleToggleActive(k.id, k.status_aktif)} className="text-xs font-semibold text-brand">
-                {k.status_aktif ? 'Nonaktifkan' : 'Aktifkan'}
-              </button>
-              <button
-                onClick={() => handleDelete(k.id, k.nama)}
-                aria-label="Hapus karyawan"
-                className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-brand/10 hover:text-brand"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 6h18" />
-                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  <line x1="10" y1="11" x2="10" y2="17" />
-                  <line x1="14" y1="11" x2="14" y2="17" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        ))}
-        {list.length === 0 && <p className="text-sm text-muted">Belum ada karyawan.</p>}
+        {activeList.map(renderKaryawan)}
+        {activeList.length === 0 && <p className="text-sm text-muted">Belum ada karyawan aktif.</p>}
+        {inactiveList.length > 0 && <section className="pt-3">
+          <button onClick={() => setShowInactive((value) => !value)} className="flex w-full items-center justify-between rounded-xl border border-cream-dim bg-cream-card px-4 py-3 text-left text-xs font-semibold text-muted">
+            <span>Akun nonaktif ({inactiveList.length})</span><span>{showInactive ? '⌃' : '⌄'}</span>
+          </button>
+          {showInactive && <div className="mt-2 space-y-2">{inactiveList.map(renderKaryawan)}</div>}
+        </section>}
       </div>
     </div>
   )

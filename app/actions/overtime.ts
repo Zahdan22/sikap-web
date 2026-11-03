@@ -43,7 +43,7 @@ export async function loadOvertimeRequests(managerView = false) {
   const access = await accessOvertime()
   if (!access.ok) return { success: false as const, message: access.message }
   if (managerView && !['manager', 'finance'].includes(access.role)) return { success: false as const, message: 'Akses khusus manager.' }
-  const select = 'id, user_id, tanggal, jam_mulai, jam_selesai, durasi_menit, jam_dibayar, nominal, keterangan, status, catatan_manajer, reviewed_by, reviewed_at, created_at, crew:users!user_id(nama, username), reviewer:users!reviewed_by(nama)'
+  const select = 'id, user_id, tanggal, jam_mulai, jam_selesai, durasi_menit, jam_dibayar, nominal, keterangan, status, catatan_manajer, reviewed_by, reviewed_at, created_at, crew:users!user_id(nama, username, status_aktif), reviewer:users!reviewed_by(nama)'
   // Page through both lists so older requests cannot silently disappear.
   const fetchRows = async (pending: boolean) => {
     const rows: OvertimeRequest[] = []
@@ -65,6 +65,7 @@ export async function loadOvertimeRequests(managerView = false) {
   const [pending, history] = await Promise.all([fetchRows(true), fetchRows(false)])
   if (pending.error || history.error) return { success: false as const, message: overtimeError((pending.error || history.error)!.message) }
   const rows = [...pending.rows, ...history.rows]
+    .filter((row) => !managerView || row.crew?.status_aktif === true)
   return { success: true as const, rows }
 }
 
@@ -83,7 +84,7 @@ export async function countPendingOvertime() {
   const access = await accessOvertime()
   if (!access.ok) return { success: false as const, message: access.message }
   if (!['manager', 'finance'].includes(access.role)) return { success: false as const, message: 'Akses khusus manager.' }
-  const { count, error } = await access.supabase.from('overtime_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
-  if (error) return { success: false as const, message: overtimeError(error.message) }
-  return { success: true as const, count: count || 0 }
+  const result = await loadOvertimeRequests(true)
+  if (!result.success) return result
+  return { success: true as const, count: result.rows.filter((row) => row.status === 'pending').length }
 }

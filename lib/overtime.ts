@@ -16,7 +16,7 @@ export type OvertimeRequest = {
   reviewed_by: string | null
   reviewed_at: string | null
   created_at: string
-  crew: { nama: string; username: string } | null
+  crew: { nama: string; username: string; status_aktif?: boolean } | null
   reviewer: { nama: string } | null
 }
 

@@ -16,8 +16,8 @@ type SwapRequest = {
   target_id: string | null
   target_type: string
   target_nama_freelance: string | null
-  requester: { nama: string } | null
-  target: { nama: string } | null
+  requester: { nama: string; status_aktif: boolean } | null
+  target: { nama: string; status_aktif: boolean } | null
 }
 
 type CrewOption = { id: string; nama: string }
@@ -70,18 +70,21 @@ export default function TukarShiftPage() {
 
     const [{ data: profile }, { data: scheduleData }, { data: swapData }, { data: crewData }] = await Promise.all([
       supabase.from('users').select('nama').eq('id', user.id).maybeSingle(),
-      supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai').gte('tanggal', jakartaToday()).not('user_id', 'is', null).order('tanggal'),
+      supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai, crew:users!user_id(status_aktif)').gte('tanggal', jakartaToday()).not('user_id', 'is', null).order('tanggal'),
       supabase
         .from('shift_swap_request')
-        .select('*, requester:requester_id (nama), target:target_id (nama)')
+        .select('*, requester:requester_id!inner(nama, status_aktif), target:target_id(nama, status_aktif)')
+        .eq('requester.status_aktif', true)
         .or(`requester_id.eq.${user.id},target_id.eq.${user.id}`)
         .order('created_at', { ascending: false }),
       supabase
         .from('users').select('id, nama').eq('role', 'crew').eq('status_aktif', true).neq('id', user.id).order('nama'),
     ])
     setMyName(profile?.nama || 'Kamu')
-    setScheduleChoices((scheduleData || []) as ScheduleChoice[])
-    setList((swapData || []) as unknown as SwapRequest[])
+    setScheduleChoices(((scheduleData || []) as Array<ScheduleChoice & { crew: { status_aktif: boolean } | { status_aktif: boolean }[] | null }>)
+      .filter((schedule) => (Array.isArray(schedule.crew) ? schedule.crew[0] : schedule.crew)?.status_aktif === true))
+    setList(((swapData || []) as unknown as SwapRequest[])
+      .filter((row) => row.target_type === 'freelance' || row.target?.status_aktif === true))
     setCrewOptions(crewData || [])
   }
 

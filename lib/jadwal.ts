@@ -135,7 +135,7 @@ export async function getScheduleStateForDate(
 
   // Timpa dengan data yang beneran ada
   for (const sch of schedules || []) {
-     if (!sch.user_id) continue // baris freelance, bukan crew — skip dari grid manager
+     if (!sch.user_id || !state[sch.user_id]) continue // hanya crew aktif yang ada di grid manager
     const matchedOption = jamKerjaOptions.find(
       (opt) => opt.jam_mulai === sch.jam_mulai && opt.jam_selesai === sch.jam_selesai
     )
@@ -181,7 +181,7 @@ export async function getDailySchedules(dateStr: string): Promise<DailySchedule[
     .from('schedule')
     .select(`
       id, user_id, jam_mulai, jam_selesai, freelance_nama,
-      users:user_id (nama),
+      users:user_id (nama, status_aktif),
       schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
       schedule_jobdesk_block (mulai_menit, selesai_menit, jobdesk:jobdesk_id (singkatan))
     `)
@@ -191,7 +191,7 @@ export async function getDailySchedules(dateStr: string): Promise<DailySchedule[
   if (error && isMissingBlockRelation(error.message)) {
     const legacy = await supabase.from('schedule').select(`
       id, user_id, jam_mulai, jam_selesai, freelance_nama,
-      users:user_id (nama), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+      users:user_id (nama, status_aktif), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
     `).eq('tanggal', dateStr).order('jam_mulai')
     data = legacy.data as typeof data
     error = legacy.error
@@ -199,7 +199,7 @@ export async function getDailySchedules(dateStr: string): Promise<DailySchedule[
 
   if (error) throw new Error('Gagal mengambil cakupan jadwal harian: ' + error.message)
 
-  return (data || []).map((row) => ({
+  return (data || []).filter((row) => !row.user_id || firstRelation(row.users)?.status_aktif === true).map((row) => ({
     id: row.id,
     userId: row.user_id || `freelance-${row.id}`,
     nama: firstRelation(row.users)?.nama || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : '(tidak diketahui)'),
@@ -252,7 +252,7 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
     .from('schedule')
     .select(`
       id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam, freelance_nama,
-      users:user_id (nama),
+      users:user_id (nama, status_aktif),
       schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
       schedule_jobdesk_block (mulai_menit, selesai_menit, jobdesk:jobdesk_id (singkatan))
     `)
@@ -262,7 +262,7 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
   if (error && isMissingBlockRelation(error.message)) {
     const legacy = await supabase.from('schedule').select(`
       id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam, freelance_nama,
-      users:user_id (nama), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+      users:user_id (nama, status_aktif), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
     `).gte('tanggal', startDate).lte('tanggal', endDate)
     data = legacy.data as typeof data
     error = legacy.error
@@ -270,7 +270,7 @@ export async function getMonthSchedules(year: number, month: number): Promise<Sc
 
   if (error) throw new Error('Gagal ambil jadwal bulan ini: ' + error.message)
 
-  return (data || []).map((row) => ({
+  return (data || []).filter((row) => !row.user_id || firstRelation(row.users)?.status_aktif === true).map((row) => ({
     id: row.id,
     user_id: row.user_id,
     tanggal: row.tanggal,
@@ -293,7 +293,7 @@ export async function getMySchedulesInRange(
     .from('schedule')
     .select(`
       id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam,
-      users:user_id (nama),
+      users:user_id (nama, status_aktif),
       schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
       schedule_jobdesk_block (mulai_menit, selesai_menit, jobdesk:jobdesk_id (singkatan))
     `)
@@ -304,7 +304,7 @@ export async function getMySchedulesInRange(
   if (error && isMissingBlockRelation(error.message)) {
     const legacy = await supabase.from('schedule').select(`
       id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam,
-      users:user_id (nama), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
+      users:user_id (nama, status_aktif), schedule_jobdesk (jobdesk:jobdesk_id (singkatan))
     `).eq('user_id', userId).gte('tanggal', startDate).lte('tanggal', endDate)
     data = legacy.data as typeof data
     error = legacy.error
@@ -346,7 +346,7 @@ export async function getTodayCrewStatus(): Promise<TodayCrewStatus[]> {
     .from('schedule')
     .select(`
       id, user_id, jam_mulai, jam_selesai,
-      users:user_id (nama),
+      users:user_id (nama, status_aktif),
       schedule_jobdesk (jobdesk:jobdesk_id (singkatan)),
       attendance (jam_masuk_aktual, status_masuk, jam_pulang_aktual)
     `)
@@ -355,7 +355,7 @@ export async function getTodayCrewStatus(): Promise<TodayCrewStatus[]> {
 
   if (error) throw new Error('Gagal ambil status crew hari ini: ' + error.message)
 
-  return (data || []).map((row) => {
+  return (data || []).filter((row) => Boolean(row.user_id) && firstRelation(row.users)?.status_aktif === true).map((row) => {
     const att = Array.isArray(row.attendance) ? row.attendance[0] : row.attendance
     return {
       scheduleId: row.id,

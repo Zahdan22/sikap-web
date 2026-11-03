@@ -66,7 +66,7 @@ export default function FinanceCrewClient() {
             <Link key={person.id} href={`/finance/crew/${person.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card p-4 transition-colors hover:border-brand/40">
               <div className="min-w-0">
                 <h2 className="truncate font-semibold text-ink">{person.nama}</h2>
-                <p className="mt-0.5 truncate text-xs text-muted">@{person.username}{!person.status_aktif ? ' · Nonaktif' : ''}</p>
+                <p className="mt-0.5 truncate text-xs text-muted">@{person.username}</p>
                 <p className="mt-2 text-xs text-muted">{tier ? `Status: ${tier}${plus}` : 'Status awal belum diatur'}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">

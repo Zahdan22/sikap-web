@@ -290,7 +290,9 @@ test('payroll final memakai arsip: perubahan jadwal, tier, absensi, tarif, dan c
   assert.equal(detail.details[0].jamMulai, '18:00')
   assert.equal(detail.details[0].menitTelat, 0)
   assert.equal(detail.legacySnapshot, false)
-  assert.ok(calls.every((name) => ['payroll_periods','payroll_items'].includes(name)))
+  // Arsip final tetap dipakai untuk nominalnya. Data crew aktif dibaca hanya untuk
+  // menyembunyikan akun yang telah dinonaktifkan dari tampilan operasional.
+  assert.ok(calls.every((name) => ['payroll_periods','payroll_items','users'].includes(name)))
   assert.equal((await actions.loadPayrollCrewDetail('new-crew', '2025-01-01', '2025-01-31')).success, false)
 })
 

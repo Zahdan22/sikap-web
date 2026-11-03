@@ -27,6 +27,11 @@ function getRelatedName(value: { nama: string } | { nama: string }[] | null | un
   return Array.isArray(value) ? value[0]?.nama : value?.nama
 }
 
+function isRelatedActive(value: { status_aktif: boolean } | { status_aktif: boolean }[] | null | undefined) {
+  const relation = Array.isArray(value) ? value[0] : value
+  return relation?.status_aktif === true
+}
+
 export default function DashboardClient({ nama, role }: Props) {
   if (role === 'manager') {
     return <ManagerDashboard nama={nama} />
@@ -49,12 +54,16 @@ function ManagerDashboard({ nama }: { nama: string }) {
       setCrewToday(data)
       setLoadingCrew(false)
             const supabase = createClient()
-      const { count: izinCount } = await supabase
-        .from('leave_request').select('*', { count: 'exact', head: true }).eq('status', 'pending')
-      const { count: swapCount } = await supabase
-        .from('shift_swap_request').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+      const [{ count: izinCount }, { data: swapRows }] = await Promise.all([
+        supabase.from('leave_request')
+          .select('id, requester:users!user_id!inner(status_aktif)', { count: 'exact', head: true })
+          .eq('status', 'pending').eq('requester.status_aktif', true),
+        supabase.from('shift_swap_request')
+          .select('id, target_type, requester:users!requester_id!inner(status_aktif), target:users!target_id(status_aktif)')
+          .eq('status', 'pending').eq('requester.status_aktif', true),
+      ])
       setPendingIzin(izinCount || 0)
-      setPendingSwap(swapCount || 0)
+      setPendingSwap((swapRows || []).filter((row) => row.target_type === 'freelance' || isRelatedActive(row.target)).length)
     }
     load()
   }, [])
@@ -67,23 +76,26 @@ function ManagerDashboard({ nama }: { nama: string }) {
         const [scheduleResult, leaveResult, swapResult] = await Promise.all([
           supabase
             .from('schedule')
-            .select('id, tanggal, jam_mulai, jam_selesai, created_at, updated_at, freelance_nama, users:user_id (nama)')
+            .select('id, user_id, tanggal, jam_mulai, jam_selesai, created_at, updated_at, freelance_nama, users:user_id (nama, status_aktif)')
             .order('updated_at', { ascending: false })
             .limit(8),
           supabase
             .from('leave_request')
-            .select('id, jenis, tanggal_mulai, tanggal_selesai, status, created_at, updated_at, users:user_id (nama)')
+            .select('id, jenis, tanggal_mulai, tanggal_selesai, status, created_at, updated_at, users:user_id!inner(nama, status_aktif)')
+            .eq('users.status_aktif', true)
             .order('updated_at', { ascending: false })
             .limit(8),
           supabase
             .from('shift_swap_request')
-            .select('id, tanggal, status, target_type, target_nama_freelance, created_at, updated_at, requester:requester_id (nama), target:target_id (nama)')
+            .select('id, tanggal, status, target_type, target_nama_freelance, created_at, updated_at, requester:requester_id!inner(nama, status_aktif), target:target_id(nama, status_aktif)')
+            .eq('requester.status_aktif', true)
             .order('updated_at', { ascending: false })
             .limit(8),
         ])
 
         const feed: ManagerActivity[] = []
         for (const row of scheduleResult.data || []) {
+          if (row.user_id && !isRelatedActive(row.users)) continue
           const created = !row.updated_at || !row.created_at || Math.abs(new Date(row.updated_at).getTime() - new Date(row.created_at).getTime()) < 1000
           const crewName = getRelatedName(row.users) || (row.freelance_nama ? `Freelance ${row.freelance_nama}` : 'Crew')
           feed.push({
@@ -108,6 +120,7 @@ function ManagerDashboard({ nama }: { nama: string }) {
           })
         }
         for (const row of swapResult.data || []) {
+          if (row.target_type === 'crew' && !isRelatedActive(row.target)) continue
           const requesterName = getRelatedName(row.requester) || 'Crew'
           const targetName = row.target_type === 'freelance' ? `Freelance ${row.target_nama_freelance || ''}` : getRelatedName(row.target) || 'rekan kerja'
           const title = row.status === 'pending'

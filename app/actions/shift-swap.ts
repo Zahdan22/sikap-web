@@ -191,6 +191,12 @@ export async function respondSwapRequest(
   if (fetchError || !swap) return { success: false, message: 'Pengajuan tidak ditemukan' }
 
   if (swap.status !== 'pending') return { success: false, message: 'Pengajuan ini sudah pernah diproses' }
+  const participantIds = [swap.requester_id, ...(swap.target_type === 'crew' && swap.target_id ? [swap.target_id] : [])]
+  const { data: activeParticipants, error: participantError } = await supabase.from('users')
+    .select('id').in('id', participantIds).eq('role', 'crew').eq('status_aktif', true)
+  if (participantError || activeParticipants?.length !== participantIds.length) {
+    return { success: false, message: participantError?.message || 'Pengajuan tidak dapat diproses karena salah satu crew sudah nonaktif.' }
+  }
 
   if (status === 'disetujui' && swap.target_type === 'crew' && swap.tanggal_target) {
     const { error } = await supabase.rpc('approve_two_date_shift_swap', {

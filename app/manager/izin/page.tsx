@@ -13,7 +13,7 @@ type LeaveRequestWithUser = {
   tanggal_selesai: string
   alasan: string | null
   status: string
-  users: { nama: string } | null
+  users: { nama: string; status_aktif: boolean } | null
   pengganti_type: string | null
   pengganti_nama_manual: string | null
   pengganti_user_id: string | null
@@ -41,16 +41,21 @@ export default function ManagerIzinPage() {
     const { data: leaveData } = await supabase
       .from('leave_request')
       .select(
-        'id, jenis, tanggal_mulai, tanggal_selesai, alasan, status, users:user_id (nama), pengganti_type, pengganti_nama_manual, pengganti_user_id, bukti_path'
+        'id, jenis, tanggal_mulai, tanggal_selesai, alasan, status, users:user_id!inner(nama, status_aktif), pengganti_type, pengganti_nama_manual, pengganti_user_id, bukti_path'
       )
+      .eq('users.status_aktif', true)
       .order('created_at', { ascending: false })
-    setList((leaveData as any) || [])
+    setList((leaveData as unknown as LeaveRequestWithUser[]) || [])
 
-    const { data: crewData } = await supabase.from('users').select('id, nama')
+    const { data: crewData } = await supabase.from('users').select('id, nama').eq('role', 'crew').eq('status_aktif', true)
     setCrewOptions(crewData || [])
   }
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    // Jalankan setelah effect terpasang agar pembaruan state berasal dari proses asinkron.
+    const loadTimer = window.setTimeout(() => { void loadData() }, 0)
+    return () => window.clearTimeout(loadTimer)
+  }, [])
 
   async function handleRespond(id: number, status: 'disetujui' | 'ditolak') {
     const result = await respondLeaveRequest(id, status, catatan[id] || '')
@@ -99,7 +104,7 @@ export default function ManagerIzinPage() {
               <p className="mt-1 text-xs capitalize text-muted">
                 {item.jenis.replace('_', ' ')} · {item.tanggal_mulai} s.d. {item.tanggal_selesai}
               </p>
-              {item.alasan && <p className="mt-1 text-xs text-muted">"{item.alasan}"</p>}
+              {item.alasan && <p className="mt-1 text-xs text-muted">“{item.alasan}”</p>}
               <p className="mt-1 text-xs text-muted">Digantikan: {formatPengganti(item)}</p>
 
               {item.bukti_path && (

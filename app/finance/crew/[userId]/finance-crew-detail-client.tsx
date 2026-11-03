@@ -165,7 +165,7 @@ export default function FinanceCrewDetailClient() {
         {result && <>
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
             <h2 className="font-semibold text-ink">{result.crew.nama}</h2>
-            <p className="text-xs text-muted">@{result.crew.username}{!result.crew.status_aktif ? ' · Nonaktif' : ''}</p>
+            <p className="text-xs text-muted">@{result.crew.username}</p>
           </section>
 
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">

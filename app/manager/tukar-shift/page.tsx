@@ -14,8 +14,8 @@ type SwapRequest = {
   status: string
   target_type: string
   target_nama_freelance: string | null
-  requester: { nama: string } | null
-  target: { nama: string } | null
+  requester: { nama: string; status_aktif: boolean } | null
+  target: { nama: string; status_aktif: boolean } | null
 }
 
 function dateLabel(value: string) {
@@ -38,9 +38,10 @@ export default function ManagerTukarShiftPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('shift_swap_request')
-      .select('*, requester:requester_id (nama), target:target_id (nama)')
+      .select('*, requester:requester_id!inner(nama, status_aktif), target:target_id(nama, status_aktif)')
+      .eq('requester.status_aktif', true)
       .order('created_at', { ascending: false })
-    setList((data || []) as unknown as SwapRequest[])
+    setList(((data || []) as unknown as SwapRequest[]).filter((row) => row.target_type === 'freelance' || row.target?.status_aktif === true))
   }
 
   useEffect(() => {

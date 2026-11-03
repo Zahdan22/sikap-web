@@ -43,13 +43,17 @@ type RawAttendance = {
   foto_masuk: string | null
   foto_pulang: string | null
   schedule: ScheduleAttendance | null
-  users?: { nama: string } | null
+  users?: { nama: string; status_aktif: boolean } | null
 }
 
 type AttendanceWithSchedule = RawAttendance & { schedule: ScheduleAttendance }
 
 function hasSchedule(row: RawAttendance): row is AttendanceWithSchedule {
   return row.schedule !== null
+}
+
+function isVisibleActiveAttendance(row: RawAttendance): row is AttendanceWithSchedule {
+  return hasSchedule(row) && row.users?.status_aktif === true
 }
 
 // Ambil semua attendance + jadwal + nama karyawan dalam rentang tanggal
@@ -61,13 +65,13 @@ async function getRawAttendanceInRange(startDate: string, endDate: string) {
     .select(`
       id, user_id, jam_masuk_aktual, jam_pulang_aktual, status_masuk, status_pulang, menit_telat, foto_masuk, foto_pulang,
       schedule:schedule_id (tanggal, jam_mulai, jam_selesai, durasi_jam),
-      users:user_id (nama)
+      users:user_id (nama, status_aktif)
     `)
     .gte('schedule.tanggal', startDate)
     .lte('schedule.tanggal', endDate)
 
   if (error) throw new Error('Gagal ambil data laporan: ' + error.message)
-  return ((data || []) as unknown as RawAttendance[]).filter(hasSchedule) // buang kalau join schedule gagal match filter
+  return ((data || []) as unknown as RawAttendance[]).filter(isVisibleActiveAttendance)
 }
 
 function displayedCheckOutStatus(row: AttendanceWithSchedule) {
@@ -108,6 +112,16 @@ export async function getEmployeeSummaries(startDate: string, endDate: string): 
 
 export async function getEmployeeDetail(userId: string, startDate: string, endDate: string): Promise<AttendanceDetail[]> {
   const supabase = createClient()
+
+  const { data: activeCrew, error: crewError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', userId)
+    .eq('role', 'crew')
+    .eq('status_aktif', true)
+    .maybeSingle()
+  if (crewError) throw new Error('Gagal memeriksa status crew: ' + crewError.message)
+  if (!activeCrew) return []
 
   const { data, error } = await supabase
     .from('attendance')

@@ -124,6 +124,14 @@ export async function respondLeaveRequest(
     return { success: false, message: 'Pengajuan izin tidak ditemukan' }
   }
   if (leaveRequest.status !== 'pending') return { success: false, message: 'Pengajuan ini sudah pernah diproses' }
+  const { data: requester, error: requesterError } = await supabase.from('users')
+    .select('id').eq('id', leaveRequest.user_id).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+  if (requesterError || !requester) return { success: false, message: requesterError?.message || 'Crew pengaju sudah nonaktif.' }
+  if (leaveRequest.pengganti_type === 'crew' && leaveRequest.pengganti_user_id) {
+    const { data: replacement, error: replacementError } = await supabase.from('users')
+      .select('id').eq('id', leaveRequest.pengganti_user_id).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (replacementError || !replacement) return { success: false, message: replacementError?.message || 'Crew pengganti sudah nonaktif.' }
+  }
 
   let originalSchedules: { id: number; user_id: string | null; freelance_nama: string | null; tanggal: string }[] = []
   if (status === 'disetujui') {

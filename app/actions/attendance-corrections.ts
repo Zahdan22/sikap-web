@@ -44,6 +44,9 @@ export async function correctionSchedules(userId: string, date: string) {
     const access = await accessCorrections()
     if (!access.manager && userId !== access.userId) throw new Error('Kamu hanya dapat mengajukan koreksi milikmu sendiri.')
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Tanggal tidak valid.')
+    const { data: targetCrew, error: targetError } = await access.supabase.from('users')
+      .select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (targetError || !targetCrew) throw new Error(targetError?.message || 'Crew tidak ditemukan atau sedang nonaktif.')
     const { data, error } = await access.supabase.from('schedule').select('id, tanggal, jam_mulai, jam_selesai').eq('user_id', userId).eq('tanggal', date).order('id')
     if (error) throw new Error('Jadwal gagal dimuat.')
     return { success: true as const, rows: data || [] }
@@ -64,6 +67,9 @@ export async function submitAttendanceCorrection(form: FormData) {
     const file = form.get('evidence')
     if (!Number.isSafeInteger(scheduleId) || scheduleId <= 0 || !['masuk', 'pulang'].includes(kind) || !time || new Date(time) > new Date() || !Object.hasOwn(correctionReasons, reason) || !note || note.length > 1000) throw new Error('Lengkapi tanggal, jam, jenis, alasan, dan keterangan dengan benar.')
     if (!(file instanceof File) || file.size <= 0 || file.size > 3_000_000) throw new Error('Bukti wajib diisi, maksimal 3 MB.')
+    const { data: targetCrew, error: targetError } = await access.supabase.from('users')
+      .select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (targetError || !targetCrew) throw new Error(targetError?.message || 'Crew tidak ditemukan atau sedang nonaktif.')
     const { data: schedule } = await access.supabase.from('schedule').select('id').eq('id', scheduleId).eq('user_id', userId).maybeSingle()
     if (!schedule) throw new Error('Jadwal crew tidak ditemukan.')
     const bytes = new Uint8Array(await file.arrayBuffer())
@@ -92,7 +98,7 @@ export async function loadAttendanceCorrections(page = 0, status = 'all', userId
   try {
     const access = await accessCorrections()
     if (!Number.isSafeInteger(page) || page < 0 || !['all', 'pending', 'approved', 'rejected', 'cancelled'].includes(status)) throw new Error('Filter tidak valid.')
-    let query = access.supabase.from('attendance_corrections').select('id,user_id,schedule_id,work_date,kind,requested_at,reason,note,status,effective_at,original_at,original_captured,manager_note,reviewed_at,version,created_at,crew:users!user_id(nama,username),reviewer:users!reviewed_by(nama)', { count: 'exact' })
+    let query = access.supabase.from('attendance_corrections').select('id,user_id,schedule_id,work_date,kind,requested_at,reason,note,status,effective_at,original_at,original_captured,manager_note,reviewed_at,version,created_at,crew:users!user_id!inner(nama,username,status_aktif),reviewer:users!reviewed_by(nama)', { count: 'exact' }).eq('crew.status_aktif', true)
     if (!access.manager) query = query.eq('user_id', access.userId)
     else if (userId) query = query.eq('user_id', userId)
     if (status !== 'all') query = query.eq('status', status)
@@ -108,6 +114,12 @@ export async function reviewAttendanceCorrection(id: string, version: number, de
     if (!access.manager) throw new Error('Hanya manager yang dapat memproses koreksi.')
     const time = correctionTimestamp(inputTime)
     if (!Number.isSafeInteger(version) || version < 1 || !['approved','rejected','cancelled'].includes(decision) || (decision === 'approved' && !time) || !note.trim() || note.length > 1000) throw new Error('Jam dan catatan keputusan wajib diisi dengan benar.')
+    const { data: correction, error: correctionError } = await access.supabase.from('attendance_corrections')
+      .select('user_id').eq('id', id).maybeSingle()
+    if (correctionError || !correction) throw new Error(correctionError?.message || 'Pengajuan tidak ditemukan.')
+    const { data: targetCrew, error: targetError } = await access.supabase.from('users')
+      .select('id').eq('id', correction.user_id).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (targetError || !targetCrew) throw new Error(targetError?.message || 'Crew terkait sudah nonaktif.')
     const { error } = await supabaseAdmin.rpc('review_attendance_correction', { p_actor: access.userId, p_id: id, p_version: version, p_decision: decision, p_time: time, p_note: note.trim() })
     if (error) throw new Error(error.message)
     refreshCorrections()
@@ -121,6 +133,9 @@ export async function correctionDetail(id: string) {
     // Read through RLS before signing a private evidence URL with server credentials.
     const { data, error } = await access.supabase.from('attendance_corrections').select('evidence_path,schedule_id,user_id').eq('id', id).maybeSingle()
     if (error || !data) throw new Error('Pengajuan tidak ditemukan atau akses ditolak.')
+    const { data: targetCrew, error: targetError } = await access.supabase.from('users')
+      .select('id').eq('id', data.user_id).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+    if (targetError || !targetCrew) throw new Error(targetError?.message || 'Pengajuan tidak ditemukan atau akses ditolak.')
     const { data: signed, error: signedError } = await supabaseAdmin.storage.from('attendance-corrections').createSignedUrl(data.evidence_path, 300)
     if (signedError || !signed) throw new Error('Bukti belum dapat dibuka.')
     const events: CorrectionEvent[] = []
@@ -141,8 +156,8 @@ export async function countPendingCorrections() {
   try {
     const access = await accessCorrections()
     if (!access.manager) throw new Error('Akses khusus manager.')
-    const { count, error } = await access.supabase.from('attendance_corrections').select('id', { count: 'exact', head: true }).eq('status', 'pending')
-    if (error) throw new Error('Notifikasi gagal dimuat.')
-    return { success: true as const, count: count || 0 }
+    const result = await loadAttendanceCorrections(0, 'pending')
+    if (!result.success) return result
+    return { success: true as const, count: result.count }
   } catch (error) { return failure(error) }
 }

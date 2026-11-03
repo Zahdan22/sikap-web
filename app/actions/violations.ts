@@ -35,8 +35,9 @@ export async function loadViolations(periodId: number) {
   const rows: Violation[] = []
   for (let offset = 0; ; offset += 500) {
     const { data, error: rowsError } = await access.supabase.from('crew_violations')
-      .select('id, user_id, tanggal, kesalahan, poin, denda, reviewed_at, reviewed_by, version, created_at')
+      .select('id, user_id, tanggal, kesalahan, poin, denda, reviewed_at, reviewed_by, version, created_at, crew:users!user_id!inner(status_aktif)')
       .is('deleted_at', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai)
+      .eq('crew.status_aktif', true)
       .order('tanggal', { ascending: true }).order('id', { ascending: true }).range(offset, offset + 499)
     if (rowsError) return { success: false as const, message: violationError(rowsError.message) }
     rows.push(...(data || []).map((row) => ({ ...row, poin: Number(row.poin), denda: Number(row.denda) })))
@@ -50,6 +51,9 @@ export async function saveViolation(input: ViolationInput) {
   if (!input || !validViolationDate(input.date) || input.date > jakartaDate() || typeof input.description !== 'string' || !input.description.trim()) return { success: false as const, message: 'Isi tanggal kejadian dan kesalahan yang valid.' }
   if (!access.manager && (input.id !== null || input.userId !== access.userId || input.points !== null || input.fine !== null)) return { success: false as const, message: 'Crew hanya dapat melaporkan kesalahannya sendiri.' }
   if (access.manager && (!Number.isSafeInteger(input.points) || input.points! < 0 || input.points! > 2147483647 || !Number.isSafeInteger(input.fine) || input.fine! < 0 || input.fine! >= 1000000000000)) return { success: false as const, message: 'Poin dan denda harus berupa angka bulat nol atau lebih.' }
+  const { data: targetCrew, error: targetError } = await access.supabase.from('users')
+    .select('id').eq('id', input.userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+  if (targetError || !targetCrew) return { success: false as const, message: targetError?.message || 'Crew tidak ditemukan atau sedang nonaktif.' }
   const { error } = await access.supabase.rpc('save_crew_violation', { p_id: input.id, p_user_id: input.userId, p_tanggal: input.date, p_kesalahan: input.description.trim(), p_poin: input.points, p_denda: input.fine, p_version: input.version })
   if (error) return { success: false as const, message: violationError(error.message) }
   refresh()
