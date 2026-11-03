@@ -318,6 +318,27 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
 }
 
 type PayrollRow = Extract<Awaited<ReturnType<typeof calculatePayroll>>, { success: true }>['rows'][number]
+
+function payrollSlipSummary(row: PayrollRow) {
+  return {
+    days: row.completedDays,
+    hours: row.hours,
+    netPay: row.netPay,
+    basePay: row.basePay,
+    seniorPlusPay: row.seniorPlusPay,
+    managementTitlePay: row.managementTitlePay,
+    // Gaji pokok pada tabel slip adalah nominal bruto sebelum potongan:
+    // akumulasi shift, tunjangan Senior+, dan gelar management.
+    grossBasePay: Math.round(row.basePay + row.seniorPlusPay + row.managementTitlePay),
+    referralBonus: row.referralBonus,
+    operationalBonus: row.operationalBonus,
+    noLateReward: row.noLateReward,
+    cashAdvance: row.cashAdvance,
+    operationalFine: row.violationDeductions,
+    lateFine: row.attendanceDeductions,
+  }
+}
+
 type SavedSnapshot = {
   report_row?: PayrollRow; tier?: string | null; senior_plus_level?: number; scheduled_days?: number
   excluded_days?: number; unrated_days?: number; additions?: number; overtime_pay?: number; overtime_hours?: number
@@ -771,11 +792,7 @@ export async function loadPayrollCrewDetail(userId: string, start: string, end: 
   return {
     success: true as const, person: { nama: row.nama, username: row.username }, start, end,
     periodStatus: report.periodStatus, details, legacySnapshot,
-    summary: {
-      days: row.completedDays, hours: row.hours, netPay: row.netPay, basePay: row.basePay,
-      referralBonus: row.referralBonus, operationalBonus: row.operationalBonus,
-      noLateReward: row.noLateReward, cashAdvance: row.cashAdvance,
-    },
+    summary: payrollSlipSummary(row),
     overtimeDetails: row.overtimeDetails, overtimePay: row.overtimePay, overtimeHours: row.overtimeHours,
     violationDetails: row.violationDetails, violationDeductions: row.violationDeductions, violationPoints: row.violationPoints,
     attendanceDeductions: row.attendanceDeductions, attendancePoints: row.attendancePoints, adjustments: row.adjustments,
@@ -846,11 +863,7 @@ export async function loadOwnPayrollSlip(workPeriodId: number) {
     workPeriod,
     person: { nama: row.nama, username: row.username }, start: workPeriod.tanggal_mulai, end: workPeriod.tanggal_selesai,
     periodStatus: report.periodStatus, details, legacySnapshot,
-    summary: {
-      days: row.completedDays, hours: row.hours, netPay: row.netPay, basePay: row.basePay,
-      referralBonus: row.referralBonus, operationalBonus: row.operationalBonus,
-      noLateReward: row.noLateReward, cashAdvance: row.cashAdvance,
-    },
+    summary: payrollSlipSummary(row),
     overtimeDetails: row.overtimeDetails, overtimePay: row.overtimePay, overtimeHours: row.overtimeHours,
     violationDetails: row.violationDetails, violationDeductions: row.violationDeductions, violationPoints: row.violationPoints,
     attendanceDeductions: row.attendanceDeductions, attendancePoints: row.attendancePoints, adjustments: row.adjustments,

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { loadCrewPayrollWorkPeriods, loadOwnPayrollSlip } from '@/app/actions/payroll'
 import BackArrow from '@/components/BackArrow'
+import PayrollAccumulationTable from '@/components/PayrollAccumulationTable'
 
 type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 type Detail = Extract<Awaited<ReturnType<typeof loadOwnPayrollSlip>>, { success: true }>
@@ -52,11 +53,6 @@ export default function PayrollSayaClient() {
     setResult(response as Detail)
   }
 
-  const manualAdjustmentTotal = result
-    ? result.summary.referralBonus + result.summary.operationalBonus + result.summary.noLateReward - result.summary.cashAdvance
-    : 0
-  const payAfterManualAdjustments = result ? result.summary.basePay + manualAdjustmentTotal : 0
-
   return (
     <div className="min-h-full bg-cream pb-24">
       <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
@@ -83,28 +79,21 @@ export default function PayrollSayaClient() {
             <h2 className="font-semibold text-ink">{result.person.nama}</h2>
             <p className="text-xs text-muted">@{result.person.username} · {result.start} s.d. {result.end}</p>
             {result.periodStatus && <p className="mt-2 text-xs font-semibold text-brand">Status payroll: {result.periodStatus === 'finalized' ? 'Difinalisasi' : 'Draf'}</p>}
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
               <div><p className="font-bold text-ink">{result.summary.days}</p><p className="text-[10px] text-muted">Hari lengkap</p></div>
               <div><p className="font-bold text-ink">{hoursFormat.format(result.summary.hours)} jam</p><p className="text-[10px] text-muted">Jam jadwal dibayar</p></div>
-              <div><p className="font-bold text-brand">{idr.format(result.summary.netPay)}</p><p className="text-[10px] text-muted">Gaji bersih</p></div>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
-            <h2 className="text-sm font-semibold text-ink">Akumulasi periode</h2>
-            <div className="mt-3 overflow-hidden rounded-xl border border-cream-dim">
-              <table className="w-full text-left text-xs">
-                <tbody>
-                  <tr className="border-b border-cream-dim"><th className="bg-cream px-3 py-2 font-medium text-muted">Total gaji pokok</th><td className="px-3 py-2 text-right font-semibold text-ink">{idr.format(result.summary.basePay)}</td></tr>
-                  <tr className="border-b border-cream-dim"><th className="bg-cream px-3 py-2 font-medium text-muted">Bonus bawa teman</th><td className="px-3 py-2 text-right font-semibold text-success">{idr.format(result.summary.referralBonus)}</td></tr>
-                  <tr className="border-b border-cream-dim"><th className="bg-cream px-3 py-2 font-medium text-muted">Bonus operasional</th><td className="px-3 py-2 text-right font-semibold text-success">{idr.format(result.summary.operationalBonus)}</td></tr>
-                  <tr className="border-b border-cream-dim"><th className="bg-cream px-3 py-2 font-medium text-muted">Reward tidak telat</th><td className="px-3 py-2 text-right font-semibold text-success">{idr.format(result.summary.noLateReward)}</td></tr>
-                  <tr className="border-b border-cream-dim"><th className="bg-cream px-3 py-2 font-medium text-muted">Kasbon</th><td className="px-3 py-2 text-right font-semibold text-warning">−{idr.format(result.summary.cashAdvance)}</td></tr>
-                  <tr><th className="bg-brand/10 px-3 py-2 font-semibold text-brand">Subtotal gaji pokok & penyesuaian manual</th><td className="px-3 py-2 text-right font-bold text-brand">{idr.format(payAfterManualAdjustments)}</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <PayrollAccumulationTable
+            grossBasePay={result.summary.grossBasePay}
+            referralBonus={result.summary.referralBonus}
+            operationalBonus={result.summary.operationalBonus}
+            noLateReward={result.summary.noLateReward}
+            cashAdvance={result.summary.cashAdvance}
+            operationalFine={result.summary.operationalFine}
+            lateFine={result.summary.lateFine}
+          />
 
           {result.managementTitles.length > 0 && <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
             <h2 className="text-sm font-semibold text-ink">Gelar management</h2>
@@ -144,9 +133,13 @@ export default function PayrollSayaClient() {
             {result.overtimeDetails.length === 0 && <p className="mt-2 text-xs text-muted">Belum ada lembur yang disetujui pada periode ini.</p>}
           </section>
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
-            <h2 className="text-sm font-semibold text-ink">Pelanggaran diperiksa</h2>
-            <p className="mt-1 text-sm font-semibold text-brand">{result.violationPoints} poin · Denda {idr.format(result.violationDeductions)}</p>
-            {result.violationDetails.map((item) => <div key={item.id} className="mt-3 border-t border-cream-dim pt-3 text-xs"><p className="font-semibold text-ink">{dateLabel(item.tanggal)}</p><p className="mt-1 whitespace-pre-wrap break-words text-muted">{item.kesalahan}</p><p className="mt-1 text-warning">{item.poin} poin · {idr.format(item.denda)}</p></div>)}
+            <h2 className="text-sm font-semibold text-ink">Pelanggaran & denda</h2>
+            <p className="mt-1 text-sm font-semibold text-brand">{result.violationPoints} poin pelanggaran</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <p className="text-muted">Denda Telat <b className="text-warning">{idr.format(result.attendanceDeductions)}</b></p>
+              <p className="text-muted">Denda Operasional <b className="text-warning">{idr.format(result.violationDeductions)}</b></p>
+            </div>
+            {result.violationDetails.map((item) => <div key={item.id} className="mt-3 border-t border-cream-dim pt-3 text-xs"><p className="font-semibold text-ink">{dateLabel(item.tanggal)}</p><p className="mt-1 whitespace-pre-wrap break-words text-muted">{item.kesalahan}</p><p className="mt-1 text-warning">{item.poin} poin · Denda Operasional {idr.format(item.denda)}</p></div>)}
             {result.violationDetails.length === 0 && <p className="mt-2 text-xs text-muted">Belum ada pelanggaran yang diperiksa pada periode ini.</p>}
           </section>
           {result.adjustments.length > 0 && <section className="rounded-2xl border border-cream-dim bg-cream-card p-4"><h2 className="text-sm font-semibold text-ink">Penyesuaian payroll</h2><div className="mt-2 space-y-2">{result.adjustments.map((item) => <p key={item.id} className="text-xs text-muted">{adjustmentLabels[item.adjustment_type]} · {idr.format(item.amount)} · {item.reason}</p>)}</div></section>}
