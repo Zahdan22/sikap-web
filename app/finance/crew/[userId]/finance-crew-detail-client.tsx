@@ -43,7 +43,7 @@ export default function FinanceCrewDetailClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedWorkPeriodId, setSelectedWorkPeriodId] = useState<number | null>(null)
-  const [statusDraft, setStatusDraft] = useState({ tier: 'pra_training' as Tier, days: '0', plus: '0', effectiveOn: jakartaToday() })
+  const [statusDraft, setStatusDraft] = useState({ tier: 'pra_training' as Tier, plus: '0', effectiveOn: jakartaToday() })
   const [componentDrafts, setComponentDrafts] = useState<Record<ManualPayrollComponentType, string>>({
     referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
   })
@@ -65,7 +65,6 @@ export default function FinanceCrewDetailClient() {
     setSelectedWorkPeriodId(next.selectedWorkPeriod?.id || null)
     setStatusDraft({
       tier: (next.payroll?.tier || 'pra_training') as Tier,
-      days: String(next.payroll?.completed_days_in_tier || 0),
       plus: String(next.payroll?.senior_plus_level || 0),
       effectiveOn: next.payroll?.effective_on || jakartaToday(),
     })
@@ -92,7 +91,7 @@ export default function FinanceCrewDetailClient() {
   async function saveStatus() {
     if (!result) return
     setSaving('status')
-    const response = await saveCrewPayrollStatus(result.crew.id, statusDraft.tier, Number(statusDraft.days), Number(statusDraft.plus), statusDraft.effectiveOn)
+    const response = await saveCrewPayrollStatus(result.crew.id, statusDraft.tier, Number(statusDraft.plus), statusDraft.effectiveOn)
     setSaving(null)
     if (!response.success) { toast(response.message, 'error'); return }
     toast('Status crew disimpan.', 'success')
@@ -154,8 +153,6 @@ export default function FinanceCrewDetailClient() {
   }
 
   const locked = result?.payrollPeriodStatus === 'finalized'
-  const hasPayroll = Boolean(result?.payroll)
-
   return (
     <div className="min-h-full bg-cream pb-24">
       <header className="flex items-center gap-3 bg-brand px-5 py-5 text-white">
@@ -173,20 +170,11 @@ export default function FinanceCrewDetailClient() {
 
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
             <h2 className="text-sm font-semibold text-ink">Status crew</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted">Tier dan progres hari naik otomatis dari jadwal dengan absensi lengkap. Koreksi tanggal riwayat dan tingkat Senior+ tetap tersedia.</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <label className="text-xs text-muted">{hasPayroll ? 'Tier saat ini' : 'Tier awal'}
-                {hasPayroll
-                  ? <p className="mt-1 rounded-xl border border-cream-dim bg-cream px-3 py-2.5 text-sm font-medium text-ink">{tierLabels[statusDraft.tier]}</p>
-                  : <select value={statusDraft.tier} onChange={(event) => setStatusDraft((previous) => ({ ...previous, tier: event.target.value as Tier, plus: event.target.value === 'senior' ? previous.plus : '0' }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">{Object.entries(tierLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}
-              </label>
-              <label className="text-xs text-muted">{hasPayroll ? 'Hari di tier ini' : 'Hari awal di tier'}
-                {hasPayroll
-                  ? <p className="mt-1 rounded-xl border border-cream-dim bg-cream px-3 py-2.5 text-sm font-medium text-ink">{statusDraft.days}</p>
-                  : <input type="number" min="0" max="1000" step="1" value={statusDraft.days} onChange={(event) => setStatusDraft((previous) => ({ ...previous, days: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />}
-              </label>
-            </div>
-            <label className="mt-3 block text-xs text-muted">{hasPayroll ? 'Tanggal berlaku tier saat ini' : 'Tanggal mulai tier awal'}
+            <p className="mt-1 text-xs leading-relaxed text-muted">Pilih tier dan tanggal mulai berlakunya. Tarif payroll mengikuti riwayat tier pada setiap tanggal shift.</p>
+            <label className="mt-3 block text-xs text-muted">Tier
+              <select value={statusDraft.tier} onChange={(event) => setStatusDraft((previous) => ({ ...previous, tier: event.target.value as Tier, plus: event.target.value === 'senior' ? previous.plus : '0' }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">{Object.entries(tierLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+            </label>
+            <label className="mt-3 block text-xs text-muted">Tanggal mulai berlaku
               <input type="date" value={statusDraft.effectiveOn} max={jakartaToday()} onChange={(event) => setStatusDraft((previous) => ({ ...previous, effectiveOn: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
             </label>
             {statusDraft.tier === 'senior' && <label className="mt-3 block text-xs text-muted">Tingkat Senior+
@@ -194,7 +182,16 @@ export default function FinanceCrewDetailClient() {
                 <option value="0">Senior biasa</option><option value="1">Senior +1</option><option value="2">Senior +2</option><option value="3">Senior +3</option><option value="4">Senior +4</option><option value="5">Senior +5</option>
               </select>
             </label>}
-            {(statusDraft.tier === 'senior' || !hasPayroll || statusDraft.effectiveOn !== result.payroll?.effective_on) && <button disabled={saving === 'status'} onClick={() => void saveStatus()} className="mt-3 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving === 'status' ? 'Menyimpan…' : hasPayroll ? 'Simpan status' : 'Simpan data awal'}</button>}
+            <button disabled={saving === 'status'} onClick={() => void saveStatus()} className="mt-3 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving === 'status' ? 'Menyimpan…' : 'Simpan status'}</button>
+            {result.tierHistory.length > 0 && <div className="mt-4 border-t border-cream-dim pt-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat tier</h3>
+              <div className="mt-2 space-y-2">
+                {result.tierHistory.map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 text-xs">
+                  <p className="font-medium text-ink">{tierLabels[entry.tier]}{entry.seniorPlusLevel ? ` +${entry.seniorPlusLevel}` : ''}</p>
+                  <p className="shrink-0 text-muted">Mulai {dateLabel(entry.effectiveOn)}</p>
+                </div>)}
+              </div>
+            </div>}
           </section>
 
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">

@@ -25,7 +25,6 @@ type ShiftCalculation = {
 
 const tiers: Tier[] = ['pra_training', 'training', 'junior', 'senior']
 const adjustmentTypes: AdjustmentType[] = ['sp_deduction', 'other_deduction', 'addition']
-const daysToPromotion: Partial<Record<Tier, number>> = { pra_training: 3, training: 22, junior: 24 }
 
 function validDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -54,12 +53,9 @@ function getLatePenalty(minutesLate: number): AttendancePenalty | null {
 }
 
 // `crewId` keeps a self-service slip fast: a crew member never needs the payroll
-// data of every other person just to view their own period.
-async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient>>, start: string, end: string, period: PayrollPeriod | null, crewId?: string, syncTierProgress = true) {
-  if (syncTierProgress) {
-    const { error: progressionError } = await supabase.rpc('sync_crew_payroll_tier_progress')
-    if (progressionError) return { success: false as const, message: progressionError.message }
-  }
+// data of every other person just to view their own period. Tier movement is
+// deliberately manual; payroll only reads the effective-date history.
+async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient>>, start: string, end: string, period: PayrollPeriod | null, crewId?: string) {
   const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: rates, error: ratesError }, { data: plusRates, error: plusRatesError }, { data: states, error: stateError }, overtime, violations, { data: adjustments, error: adjustmentsError }, { data: manualComponents, error: manualComponentsError }, { data: managementTitles, error: managementTitlesError }] = await Promise.all([
     loadAllPayrollRows((from, to) => {
       let query = supabase.from('users').select('id, username, nama, status_aktif', { count: 'exact' }).eq('role', 'crew')
@@ -411,8 +407,6 @@ async function loadFinalPayroll(supabase: Awaited<ReturnType<typeof createClient
 export async function loadCrewPayrollStatus() {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  const { error: progressionError } = await access.supabase.rpc('sync_crew_payroll_tier_progress')
-  if (progressionError) return { success: false as const, message: progressionError.message }
   const [{ data: crew, error: crewError }, { data: statuses, error: statusError }] = await Promise.all([
     loadAllPayrollRows((from, to) => access.supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').order('nama').order('id').range(from, to)),
     loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on').order('user_id').range(from, to)),
@@ -428,24 +422,28 @@ export async function loadCrewPayrollStatus() {
 export async function loadCrewManagementDetail(userId: string, preferredWorkPeriodId?: number) {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  const [{ data: crew, error: crewError }, { data: payroll, error: payrollError }, { data: periods, error: periodsError }] = await Promise.all([
+  const [{ data: crew, error: crewError }, { data: payroll, error: payrollError }, { data: periods, error: periodsError }, { data: tierHistory, error: tierHistoryError }] = await Promise.all([
     access.supabase.from('users').select('id, nama, username, status_aktif').eq('id', userId).eq('role', 'crew').maybeSingle(),
     access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on').eq('user_id', userId).maybeSingle(),
     loadAllPayrollRows((from, to) => access.supabase.from('periode_kerja').select('id, nama, tanggal_mulai, tanggal_selesai', { count: 'exact' }).order('tanggal_mulai', { ascending: false }).order('id').range(from, to)),
+    loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_tier_history').select('id, tier, senior_plus_level, effective_on, changed_by', { count: 'exact' }).eq('user_id', userId).order('effective_on').order('id').range(from, to)),
   ])
   if (crewError || !crew) return { success: false as const, message: crewError?.message || 'Crew tidak ditemukan.' }
-  if (payrollError || periodsError) return { success: false as const, message: (payrollError || periodsError)!.message }
+  if (payrollError || periodsError || tierHistoryError) return { success: false as const, message: (payrollError || periodsError || tierHistoryError)!.message }
+  const manualTierHistory = (tierHistory || []).flatMap((entry) => tiers.includes(entry.tier as Tier)
+    ? [{ id: Number(entry.id), tier: entry.tier as Tier, seniorPlusLevel: Number(entry.senior_plus_level || 0), effectiveOn: entry.effective_on, changedBy: entry.changed_by }]
+    : [])
   const workPeriods = (periods || []) as WorkPeriod[]
   const selectedWorkPeriod = workPeriods.find((period) => period.id === preferredWorkPeriodId) || workPeriods[0] || null
   if (!selectedWorkPeriod) return {
-    success: true as const, crew, payroll: payroll || null, workPeriods, selectedWorkPeriod: null,
+    success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, workPeriods, selectedWorkPeriod: null,
     payrollPeriodStatus: null, components: [] as ManualComponent[], managementTitles: [] as ManagementTitle[],
   }
 
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, selectedWorkPeriod.id, false)
   if (!resolved.success) return resolved
   if (!resolved.period) return {
-    success: true as const, crew, payroll: payroll || null, workPeriods, selectedWorkPeriod,
+    success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, workPeriods, selectedWorkPeriod,
     payrollPeriodStatus: null, components: [] as ManualComponent[], managementTitles: [] as ManagementTitle[],
   }
   const [{ data: components, error: componentsError }, { data: titles, error: titlesError }] = await Promise.all([
@@ -459,6 +457,7 @@ export async function loadCrewManagementDetail(userId: string, preferredWorkPeri
     success: true as const,
     crew,
     payroll: payroll || null,
+    tierHistory: manualTierHistory,
     workPeriods,
     selectedWorkPeriod,
     payrollPeriodStatus: resolved.period.status,
@@ -597,29 +596,35 @@ export async function deleteCrewManagementTitle(userId: string, workPeriodId: nu
   return { success: true as const }
 }
 
-export async function saveCrewPayrollStatus(userId: string, tier: string, completedDays: number, seniorPlusLevel: number, effectiveOn: string) {
+export async function saveCrewPayrollStatus(userId: string, tier: string, seniorPlusLevel: number, effectiveOn: string) {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
   if (!userId || !tiers.includes(tier as Tier)) return { success: false as const, message: 'Data crew atau tier tidak valid.' }
-  if (!Number.isInteger(completedDays) || completedDays < 0 || completedDays > 1000) return { success: false as const, message: 'Jumlah hari status tidak valid.' }
-  const threshold = daysToPromotion[tier as Tier]
-  if (threshold && completedDays >= threshold) return { success: false as const, message: `Tier ${tier} sudah melewati ambang ${threshold} hari. Pilih tier berikutnya.` }
   if (!Number.isInteger(seniorPlusLevel) || seniorPlusLevel < 0 || seniorPlusLevel > 5) return { success: false as const, message: 'Level Senior+ harus 0–5.' }
   if (!validDate(effectiveOn) || effectiveOn > jakartaToday()) return { success: false as const, message: 'Tanggal mulai berlaku tier tidak valid atau berada di masa depan.' }
   if (tier !== 'senior' && seniorPlusLevel !== 0) return { success: false as const, message: 'Senior+ hanya dapat dipilih untuk crew Senior.' }
 
   const { data: crew, error: crewError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').maybeSingle()
   if (crewError || !crew) return { success: false as const, message: crewError?.message || 'Crew tidak ditemukan.' }
-  const { data: existingStatus, error: existingStatusError } = await access.supabase.from('crew_payroll_status')
-    .select('tier, completed_days_in_tier, senior_plus_level, effective_on').eq('user_id', userId).maybeSingle()
-  if (existingStatusError) return { success: false as const, message: existingStatusError.message }
-  if (existingStatus && (existingStatus.tier !== tier || existingStatus.completed_days_in_tier !== completedDays)) {
-    return { success: false as const, message: 'Tier dan progres hari dikelola otomatis setelah data awal. Hanya koreksi tanggal riwayat dan level Senior+ yang bisa diubah manual.' }
-  }
+
+  // A backdated change may replace an automatic history entry, but it must not
+  // silently overwrite a newer tier explicitly set by finance.
+  const { data: laterHistory, error: laterHistoryError } = await loadAllPayrollRows((from, to) => access.supabase
+    .from('crew_payroll_tier_history')
+    .select('effective_on, changed_by', { count: 'exact' })
+    .eq('user_id', userId)
+    .gte('effective_on', effectiveOn)
+    .order('effective_on')
+    .range(from, to))
+  if (laterHistoryError) return { success: false as const, message: laterHistoryError.message }
+  const newerManualHistory = (laterHistory || []).find((entry) => Boolean(entry.changed_by) && entry.effective_on > effectiveOn)
+  if (newerManualHistory) return { success: false as const, message: `Sudah ada tier manual yang lebih baru mulai ${newerManualHistory.effective_on}. Ubah status sesuai urutan tanggal agar riwayat payroll tetap aman.` }
+
   const { error } = await access.supabase.from('crew_payroll_status').upsert({
     user_id: userId,
     tier,
-    completed_days_in_tier: completedDays,
+    // Kept for schema compatibility only. Tier movement itself is manual.
+    completed_days_in_tier: 0,
     senior_plus_level: seniorPlusLevel,
     effective_on: effectiveOn,
     updated_by: access.userId,
@@ -837,7 +842,7 @@ export async function loadOwnPayrollSlip(workPeriodId: number) {
     : null
   const report = period?.status === 'finalized'
     ? await loadFinalPayroll(admin, period.id, access.userId)
-    : await calculatePayroll(admin, workPeriod.tanggal_mulai, workPeriod.tanggal_selesai, period, access.userId, false)
+    : await calculatePayroll(admin, workPeriod.tanggal_mulai, workPeriod.tanggal_selesai, period, access.userId)
   if (!report.success) return report
   const row = report.rows.find((item) => item.userId === access.userId)
   if (!row) return { success: false as const, message: 'Data payroll Anda tidak ditemukan pada periode ini.' }

@@ -100,6 +100,46 @@ test('hanya lembur disetujui di periode terpilih masuk rekap, detail, dan draf',
   assert.equal(tables.payroll_items[0].calculation_snapshot.overtime_details.length, 1)
 })
 
+test('tier manual memakai tarif sesuai tanggal berlaku tanpa memanggil kenaikan otomatis', async () => {
+  const { tables, calls, actions } = setup()
+  tables.schedule = [
+    { id: 1, user_id: 'crew-1', tanggal: '2025-01-04', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+    { id: 2, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 },
+  ]
+  tables.attendance = [
+    { id: 1, user_id: 'crew-1', schedule_id: 1, jam_masuk_aktual: '2025-01-04T10:50:00Z', jam_pulang_aktual: '2025-01-04T17:00:00Z', status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 },
+    { id: 2, user_id: 'crew-1', schedule_id: 2, jam_masuk_aktual: '2025-01-05T10:50:00Z', jam_pulang_aktual: '2025-01-05T17:00:00Z', status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 },
+  ]
+  tables.crew_payroll_tier_history = [
+    { id: 1, user_id: 'crew-1', tier: 'training', senior_plus_level: 0, effective_on: '2025-01-01', changed_by: 'finance' },
+    { id: 2, user_id: 'crew-1', tier: 'junior', senior_plus_level: 0, effective_on: '2025-01-05', changed_by: 'finance' },
+  ]
+  tables.crew_payroll_status = [{ user_id: 'crew-1', tier: 'junior', senior_plus_level: 0, completed_days_in_tier: 0, effective_on: '2025-01-05' }]
+  tables.payroll_tier_rates = [{ tier: 'training', hourly_rate: 5000 }, { tier: 'junior', hourly_rate: 6000 }]
+  tables.payroll_senior_plus_rates = []
+  tables.overtime_requests = []
+
+  const report = await actions.loadPayrollReport('2025-01-01', '2025-01-31')
+  assert.equal(report.success, true)
+  assert.equal(report.rows[0].basePay, 66000)
+  assert.equal(report.rows[0].shiftDetails[0].tier, 'training')
+  assert.equal(report.rows[0].shiftDetails[1].tier, 'junior')
+  assert.equal(calls.includes('rpc:sync_crew_payroll_tier_progress'), false)
+})
+
+test('Admin 2 dapat menyimpan perubahan tier manual tanpa progres hari', async () => {
+  const { tables, calls, actions } = setup()
+  tables.crew_payroll_status = [{ user_id: 'crew-1', tier: 'training', senior_plus_level: 0, completed_days_in_tier: 18, effective_on: '2025-01-01' }]
+  tables.crew_payroll_tier_history = [{ id: 1, user_id: 'crew-1', tier: 'training', senior_plus_level: 0, effective_on: '2025-01-01', changed_by: 'finance' }]
+
+  const saved = await actions.saveCrewPayrollStatus('crew-1', 'junior', 0, '2025-01-05')
+  assert.equal(saved.success, true)
+  assert.equal(tables.crew_payroll_status[0].tier, 'junior')
+  assert.equal(tables.crew_payroll_status[0].completed_days_in_tier, 0)
+  assert.equal(tables.crew_payroll_status[0].effective_on, '2025-01-05')
+  assert.equal(calls.includes('rpc:sync_crew_payroll_tier_progress'), false)
+})
+
 test('lembur terbayar tetap masuk jika crew tidak memiliki jadwal reguler di periode itu', async () => {
   const { tables, actions } = setup()
   tables.schedule = []
