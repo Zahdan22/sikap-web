@@ -300,7 +300,7 @@ function CrewDashboard({ nama }: { nama: string }) {
       } else {
         const start = schedule.jam_mulai.slice(0, 5)
         const end = schedule.jam_selesai.slice(0, 5)
-        setTodayShift(`${start}–${end}${schedule.jam_selesai <= schedule.jam_mulai ? ' · selesai besok' : ''}`)
+        setTodayShift(`${start}–${end}`)
         if (!attendance) { setStatusLabel('Belum Absen'); setStatusTone('action') }
         else if (!attendance.jam_pulang_aktual) { setStatusLabel('Sudah Absen Masuk'); setStatusTone('action') }
         else { setStatusLabel('Selesai Bekerja'); setStatusTone('default') }
@@ -336,7 +336,7 @@ function CrewDashboard({ nama }: { nama: string }) {
         <div className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted">Jadwal shift hari ini</p>
-            <p className="mt-1 text-sm font-semibold text-ink">{todayShift}</p>
+            <p className="mt-1 text-2xl font-bold tracking-tight text-ink">{todayShift}</p>
             <div className="my-3 border-t border-cream-dim" />
             <p className="text-xs uppercase tracking-wide text-muted">Status Hari Ini</p>
             <p className="mt-1 text-lg font-semibold text-ink">{statusLabel}</p>
