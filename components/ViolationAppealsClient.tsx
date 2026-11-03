@@ -126,7 +126,7 @@ export default function ViolationAppealsClient({ mode, backHref }: { mode: 'crew
   }
 
   return <div className="min-h-screen bg-cream pb-28">
-    <PageHeader title={mode === 'finance' ? 'Kelola Banding Pelanggaran' : 'Banding Pelanggaran'} backHref={backHref} />
+    <PageHeader title={mode === 'finance' ? 'Kelola Aju Banding Pelanggaran' : 'Aju Banding Pelanggaran'} backHref={backHref} />
     <main className="mx-auto max-w-3xl space-y-5 px-5 py-5">
       <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
         <label className="block text-sm text-muted">Periode kerja
