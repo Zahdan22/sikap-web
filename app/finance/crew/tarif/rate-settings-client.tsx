@@ -50,8 +50,11 @@ export default function FinanceCrewRateSettingsClient() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
   const [tierDraft, setTierDraft] = useState({ tier: null as string | null, label: '', amount: '', effectiveOn: jakartaToday(), supportsSeniorPlus: false })
+  const [editingTier, setEditingTier] = useState<string | null>(null)
+  const [showNewTier, setShowNewTier] = useState(false)
   const [plusDraft, setPlusDraft] = useState({ level: '' as string, label: '', amount: '', effectiveOn: jakartaToday() })
   const [editingPlusLevel, setEditingPlusLevel] = useState<number | null>(null)
+  const [showNewSeniorPlus, setShowNewSeniorPlus] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -79,11 +82,29 @@ export default function FinanceCrewRateSettingsClient() {
 
   function resetTierDraft() {
     setTierDraft({ tier: null, label: '', amount: '', effectiveOn: jakartaToday(), supportsSeniorPlus: false })
+    setEditingTier(null)
+    setShowNewTier(false)
   }
 
   function editTier(tier: Tier) {
+    if (editingTier === tier.tier) {
+      resetTierDraft()
+      return
+    }
     const applicableRate = tier.rateHistory.find((item) => item.effectiveOn <= jakartaToday()) || tier.rateHistory[0]
+    setShowNewTier(false)
+    setEditingTier(tier.tier)
     setTierDraft({ tier: tier.tier, label: tier.label, amount: String(applicableRate?.amount ?? tier.hourlyRate), effectiveOn: applicableRate?.effectiveOn ?? jakartaToday(), supportsSeniorPlus: applicableRate?.supportsSeniorPlus ?? tier.supportsSeniorPlus })
+  }
+
+  function toggleNewTier() {
+    if (showNewTier) {
+      resetTierDraft()
+      return
+    }
+    setEditingTier(null)
+    setTierDraft({ tier: null, label: '', amount: '', effectiveOn: jakartaToday(), supportsSeniorPlus: false })
+    setShowNewTier(true)
   }
 
   async function submitTier() {
@@ -128,12 +149,28 @@ export default function FinanceCrewRateSettingsClient() {
   function resetPlusDraft() {
     setPlusDraft({ level: '', label: '', amount: '', effectiveOn: jakartaToday() })
     setEditingPlusLevel(null)
+    setShowNewSeniorPlus(false)
   }
 
   function editSeniorPlus(level: SeniorPlusLevel) {
+    if (editingPlusLevel === level.level) {
+      resetPlusDraft()
+      return
+    }
     const applicableRate = level.rateHistory.find((item) => item.effectiveOn <= jakartaToday()) || level.rateHistory[0]
+    setShowNewSeniorPlus(false)
     setEditingPlusLevel(level.level)
     setPlusDraft({ level: String(level.level), label: level.label, amount: String(applicableRate?.amount ?? level.dailyBonus), effectiveOn: applicableRate?.effectiveOn ?? jakartaToday() })
+  }
+
+  function toggleNewSeniorPlus() {
+    if (showNewSeniorPlus) {
+      resetPlusDraft()
+      return
+    }
+    setEditingPlusLevel(null)
+    setPlusDraft({ level: '', label: '', amount: '', effectiveOn: jakartaToday() })
+    setShowNewSeniorPlus(true)
   }
 
   async function submitSeniorPlus() {
@@ -175,6 +212,63 @@ export default function FinanceCrewRateSettingsClient() {
     }
   }
 
+  function renderTierEditor() {
+    const isEditing = editingTier !== null
+    return (
+      <div className="mt-4 border-t border-cream-dim pt-4">
+        <h3 className="text-sm font-semibold text-ink">{isEditing ? `Ubah ${tierDraft.label || 'status crew'}` : 'Tambah status baru'}</h3>
+        <label className="mt-3 block text-xs text-muted">Nama status
+          <input value={tierDraft.label} onChange={(event) => setTierDraft((previous) => ({ ...previous, label: event.target.value }))} maxLength={80} placeholder="Contoh: Intern" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+        </label>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="text-xs text-muted">Tarif per jam
+            <input type="number" min="0" step="1" value={tierDraft.amount} onChange={(event) => setTierDraft((previous) => ({ ...previous, amount: event.target.value }))} placeholder="Nominal rupiah" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+          </label>
+          <label className="text-xs text-muted">Berlaku mulai
+            <input type="date" value={tierDraft.effectiveOn} onChange={(event) => setTierDraft((previous) => ({ ...previous, effectiveOn: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+          </label>
+        </div>
+        <label className="mt-3 flex items-start gap-2 text-xs text-ink">
+          <input type="checkbox" checked={tierDraft.supportsSeniorPlus} onChange={(event) => setTierDraft((previous) => ({ ...previous, supportsSeniorPlus: event.target.checked }))} className="mt-0.5" />
+          <span><span className="font-semibold">Status Senior</span><br /><span className="text-muted">Crew pada status ini dapat dipilih level Senior+.</span></span>
+        </label>
+        <div className="mt-3 flex gap-2">
+          <button disabled={saving === 'tier'} onClick={() => void submitTier()} className="flex-1 rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving === 'tier' ? 'Menyimpan…' : isEditing ? 'Simpan perubahan' : 'Tambah status'}</button>
+          <button onClick={resetTierDraft} className="rounded-xl border border-cream-dim px-4 text-sm font-semibold text-ink">Batal</button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderSeniorPlusEditor() {
+    const isEditing = editingPlusLevel !== null
+    return (
+      <div className="mt-4 border-t border-cream-dim pt-4">
+        <h3 className="text-sm font-semibold text-ink">{isEditing ? `Ubah ${plusDraft.label || 'level Senior+'}` : 'Tambah level Senior+'}</h3>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="text-xs text-muted">Nomor level
+            <input disabled={isEditing} type="number" min="1" max="32767" step="1" value={plusDraft.level} onChange={(event) => setPlusDraft((previous) => ({ ...previous, level: event.target.value }))} placeholder="Contoh: 6" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink disabled:opacity-60" />
+          </label>
+          <label className="text-xs text-muted">Nama level
+            <input value={plusDraft.label} onChange={(event) => setPlusDraft((previous) => ({ ...previous, label: event.target.value }))} maxLength={80} placeholder="Contoh: Senior +6" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+          </label>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <label className="text-xs text-muted">Tunjangan per shift
+            <input type="number" min="0" step="1" value={plusDraft.amount} onChange={(event) => setPlusDraft((previous) => ({ ...previous, amount: event.target.value }))} placeholder="Nominal rupiah" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+          </label>
+          <label className="text-xs text-muted">Berlaku mulai
+            <input type="date" value={plusDraft.effectiveOn} onChange={(event) => setPlusDraft((previous) => ({ ...previous, effectiveOn: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
+          </label>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button disabled={saving === 'plus'} onClick={() => void submitSeniorPlus()} className="flex-1 rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving === 'plus' ? 'Menyimpan…' : isEditing ? 'Simpan perubahan' : 'Tambah level'}</button>
+          <button onClick={resetPlusDraft} className="rounded-xl border border-cream-dim px-4 text-sm font-semibold text-ink">Batal</button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-full bg-cream pb-24">
       <PageHeader title="Kelola Tarif & Status" backHref="/finance/crew" />
@@ -191,14 +285,12 @@ export default function FinanceCrewRateSettingsClient() {
               {settings.tiers.map((tier) => <article key={tier.tier} className="rounded-xl border border-cream-dim p-3">
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-ink">{tier.label}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${tier.isActive ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{tier.isActive ? 'Aktif' : 'Nonaktif'}</span>{seniorCapabilityToday(tier.rateHistory, tier.supportsSeniorPlus) && <span className="rounded-full bg-brand/10 px-2 py-1 text-[10px] font-semibold text-brand">Status Senior</span>}</div><p className="mt-1 text-sm font-semibold text-brand"><CurrentRate history={tier.rateHistory} fallback={tier.hourlyRate} unit="jam" /></p></div><div className="flex shrink-0 gap-3 text-xs font-semibold"><button onClick={() => editTier(tier)} className="text-brand">Ubah</button><button disabled={saving === `tier-${tier.tier}`} onClick={() => void toggleTier(tier)} className="text-warning disabled:opacity-50">{tier.isActive ? 'Nonaktifkan' : 'Aktifkan'}</button></div></div>
                 {tier.rateHistory.length > 0 && <div className="mt-3 border-t border-cream-dim pt-2 text-xs text-muted"><p className="font-semibold uppercase tracking-wide">Riwayat tarif</p>{tier.rateHistory.slice(0, 3).map((rate) => <p key={rate.id} className="mt-1">{dateLabel(rate.effectiveOn)} · {idr.format(rate.amount)} / jam</p>)}</div>}
+                {editingTier === tier.tier && renderTierEditor()}
               </article>)}
             </div>
             <div className="mt-4 border-t border-cream-dim pt-4">
-              <h3 className="text-sm font-semibold text-ink">{tierDraft.tier ? 'Ubah status & tarif' : 'Tambah status baru'}</h3>
-              <label className="mt-3 block text-xs text-muted">Nama status<input value={tierDraft.label} onChange={(event) => setTierDraft((previous) => ({ ...previous, label: event.target.value }))} maxLength={80} placeholder="Contoh: Intern" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" /></label>
-              <div className="mt-3 grid grid-cols-2 gap-3"><label className="text-xs text-muted">Tarif per jam<input type="number" min="0" step="1" value={tierDraft.amount} onChange={(event) => setTierDraft((previous) => ({ ...previous, amount: event.target.value }))} placeholder="Nominal rupiah" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" /></label><label className="text-xs text-muted">Berlaku mulai<input type="date" value={tierDraft.effectiveOn} onChange={(event) => setTierDraft((previous) => ({ ...previous, effectiveOn: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" /></label></div>
-              <label className="mt-3 flex items-start gap-2 text-xs text-ink"><input type="checkbox" checked={tierDraft.supportsSeniorPlus} onChange={(event) => setTierDraft((previous) => ({ ...previous, supportsSeniorPlus: event.target.checked }))} className="mt-0.5" /><span><span className="font-semibold">Status Senior</span><br /><span className="text-muted">Crew pada status ini dapat dipilih level Senior+.</span></span></label>
-              <div className="mt-3 flex gap-2"><button disabled={saving === 'tier'} onClick={() => void submitTier()} className="flex-1 rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving === 'tier' ? 'Menyimpan…' : tierDraft.tier ? 'Simpan perubahan' : 'Tambah status'}</button>{tierDraft.tier && <button onClick={resetTierDraft} className="rounded-xl border border-cream-dim px-4 text-sm font-semibold text-ink">Batal</button>}</div>
+              <button onClick={toggleNewTier} className="w-full rounded-xl border border-brand/30 bg-brand/5 py-2.5 text-sm font-semibold text-brand">{showNewTier ? 'Tutup tambah status' : '+ Tambah status baru'}</button>
+              {showNewTier && renderTierEditor()}
             </div>
           </section>
 
@@ -208,13 +300,12 @@ export default function FinanceCrewRateSettingsClient() {
               {settings.seniorPlusLevels.map((level) => <article key={level.level} className="rounded-xl border border-cream-dim p-3">
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-ink">{level.label}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${level.isActive ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{level.isActive ? 'Aktif' : 'Nonaktif'}</span></div><p className="mt-1 text-sm font-semibold text-brand"><CurrentRate history={level.rateHistory} fallback={level.dailyBonus} unit="shift" /></p></div><div className="flex shrink-0 gap-3 text-xs font-semibold"><button onClick={() => editSeniorPlus(level)} className="text-brand">Ubah</button><button disabled={saving === `plus-${level.level}`} onClick={() => void toggleSeniorPlus(level)} className="text-warning disabled:opacity-50">{level.isActive ? 'Nonaktifkan' : 'Aktifkan'}</button></div></div>
                 {level.rateHistory.length > 0 && <div className="mt-3 border-t border-cream-dim pt-2 text-xs text-muted"><p className="font-semibold uppercase tracking-wide">Riwayat tunjangan</p>{level.rateHistory.slice(0, 3).map((rate) => <p key={rate.id} className="mt-1">{dateLabel(rate.effectiveOn)} · {idr.format(rate.amount)} / shift</p>)}</div>}
+                {editingPlusLevel === level.level && renderSeniorPlusEditor()}
               </article>)}
             </div>
             <div className="mt-4 border-t border-cream-dim pt-4">
-              <h3 className="text-sm font-semibold text-ink">{editingPlusLevel !== null ? 'Ubah level & tunjangan' : 'Tambah level Senior+'}</h3>
-              <div className="mt-3 grid grid-cols-2 gap-3"><label className="text-xs text-muted">Nomor level<input disabled={editingPlusLevel !== null} type="number" min="1" max="32767" step="1" value={plusDraft.level} onChange={(event) => setPlusDraft((previous) => ({ ...previous, level: event.target.value }))} placeholder="Contoh: 6" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink disabled:opacity-60" /></label><label className="text-xs text-muted">Nama level<input value={plusDraft.label} onChange={(event) => setPlusDraft((previous) => ({ ...previous, label: event.target.value }))} maxLength={80} placeholder="Contoh: Senior +6" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" /></label></div>
-              <div className="mt-3 grid grid-cols-2 gap-3"><label className="text-xs text-muted">Tunjangan per shift<input type="number" min="0" step="1" value={plusDraft.amount} onChange={(event) => setPlusDraft((previous) => ({ ...previous, amount: event.target.value }))} placeholder="Nominal rupiah" className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" /></label><label className="text-xs text-muted">Berlaku mulai<input type="date" value={plusDraft.effectiveOn} onChange={(event) => setPlusDraft((previous) => ({ ...previous, effectiveOn: event.target.value }))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" /></label></div>
-              <div className="mt-3 flex gap-2"><button disabled={saving === 'plus'} onClick={() => void submitSeniorPlus()} className="flex-1 rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving === 'plus' ? 'Menyimpan…' : editingPlusLevel !== null ? 'Simpan perubahan' : 'Tambah level'}</button>{editingPlusLevel !== null && <button onClick={resetPlusDraft} className="rounded-xl border border-cream-dim px-4 text-sm font-semibold text-ink">Batal</button>}</div>
+              <button onClick={toggleNewSeniorPlus} className="w-full rounded-xl border border-brand/30 bg-brand/5 py-2.5 text-sm font-semibold text-brand">{showNewSeniorPlus ? 'Tutup tambah level' : '+ Tambah level Senior+'}</button>
+              {showNewSeniorPlus && renderSeniorPlusEditor()}
             </div>
           </section>
         </>}
