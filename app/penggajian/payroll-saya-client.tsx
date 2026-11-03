@@ -116,7 +116,7 @@ export default function PayrollSayaClient() {
               <p className="text-muted">Status berlaku <b className="text-ink">{shift.tierLabel || shift.tier?.replaceAll('_', ' ') || '—'}{shift.seniorPlusLevel ? ` · ${shift.seniorPlusLabel || `Senior +${shift.seniorPlusLevel}`}` : ''}</b></p>
               <p className="text-muted">Tarif per jam <b className="text-ink">{shift.hourlyRate ? idr.format(shift.hourlyRate) : '—'}</b></p>
               <p className="text-muted">Gaji dasar <b className="text-ink">{idr.format(shift.basePay)}</b></p>
-              <p className="text-muted">Tunjangan Senior+ <b className="text-ink">{idr.format(shift.seniorPlusBonus)}</b></p>
+              <p className="text-muted">Tunjangan Masa Kerja <b className="text-ink">{idr.format(shift.seniorPlusBonus)}</b></p>
               {shift.attendanceDeductions > 0 && <p className="text-muted">Denda absensi <b className="text-warning">{idr.format(shift.attendanceDeductions)}</b></p>}
               {shift.attendancePoints > 0 && <p className="text-muted">Poin absensi <b className="text-warning">{shift.attendancePoints}</b></p>}
               {shift.penalties.map((penalty, index) => <p key={index} className="col-span-2 text-warning">{penalty.reason}{penalty.amount ? ' · ' + idr.format(penalty.amount) : ''}{penalty.points ? ' · ' + penalty.points + ' poin' : ''}</p>)}

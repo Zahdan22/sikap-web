@@ -174,7 +174,7 @@ export default function PayrollClient() {
       'Hari tidak dihitung': row.excludedDays,
       'Total jam jadwal hadir': Number(row.hours.toFixed(2)),
       'Gaji dasar': row.basePay,
-      'Tunjangan Senior+': row.seniorPlusPay,
+      'Tunjangan Masa Kerja': row.seniorPlusPay,
       'Jam lembur dibayar': row.overtimeHours,
       'Bonus lembur': row.overtimePay,
       'Potongan absensi': row.attendanceDeductions,
@@ -250,7 +250,7 @@ export default function PayrollClient() {
               <p className="text-muted">Dikecualikan <b className="text-warning">{row.excludedDays} hari</b></p>
               {row.unratedDays > 0 && <p className="text-warning">Tarif belum diketahui <b>{row.unratedDays} hari</b></p>}
               <p className="text-muted">Gaji dasar <b className="text-ink">{idr.format(row.basePay)}</b></p>
-              <p className="text-muted">Tunjangan Senior+ <b className="text-ink">{idr.format(row.seniorPlusPay)}</b></p>
+              <p className="text-muted">Tunjangan Masa Kerja <b className="text-ink">{idr.format(row.seniorPlusPay)}</b></p>
               <p className="text-muted">Bonus lembur <b className="text-ink">{idr.format(row.overtimePay)} · {row.overtimeHours} jam</b></p>
               <p className="text-muted">Potongan absensi <b className="text-warning">{idr.format(row.attendanceDeductions)}</b></p>
               <p className="text-muted">Poin absensi <b className="text-warning">{row.attendancePoints}</b></p>

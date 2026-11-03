@@ -178,7 +178,7 @@ export default function FinanceCrewRateSettingsClient() {
     try {
       const response = await saveSeniorPlusRateConfig(plusDraft.level ? Number(plusDraft.level) : null, plusDraft.label, Number(plusDraft.amount), plusDraft.effectiveOn)
       if (!response.success) { toast(response.message, 'error'); return }
-      toast('Level dan tunjangan Senior+ berhasil disimpan.', 'success')
+      toast('Level dan tunjangan masa kerja berhasil disimpan.', 'success')
       resetPlusDraft()
       await load()
     } catch {
@@ -295,7 +295,7 @@ export default function FinanceCrewRateSettingsClient() {
           </section>
 
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
-            <div><h2 className="font-semibold text-ink">Tunjangan Senior+</h2><p className="mt-1 text-xs leading-relaxed text-muted">Tunjangan dibayarkan per shift yang dibayar, bukan per jam.</p></div>
+            <div><h2 className="font-semibold text-ink">Tunjangan Masa Kerja</h2><p className="mt-1 text-xs leading-relaxed text-muted">Tunjangan dibayarkan per shift yang dibayar, bukan per jam.</p></div>
             <div className="mt-4 space-y-3">
               {settings.seniorPlusLevels.map((level) => <article key={level.level} className="rounded-xl border border-cream-dim p-3">
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-ink">{level.label}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${level.isActive ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{level.isActive ? 'Aktif' : 'Nonaktif'}</span></div><p className="mt-1 text-sm font-semibold text-brand"><CurrentRate history={level.rateHistory} fallback={level.dailyBonus} unit="shift" /></p></div><div className="flex shrink-0 gap-3 text-xs font-semibold"><button onClick={() => editSeniorPlus(level)} className="text-brand">Ubah</button><button disabled={saving === `plus-${level.level}`} onClick={() => void toggleSeniorPlus(level)} className="text-warning disabled:opacity-50">{level.isActive ? 'Nonaktifkan' : 'Aktifkan'}</button></div></div>

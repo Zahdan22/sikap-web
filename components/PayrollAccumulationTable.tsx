@@ -76,7 +76,7 @@ export default function PayrollAccumulationTable({
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[11px] text-muted">Total gaji pokok mencakup shift, tunjangan Senior+, dan gelar management. Lembur serta penyesuaian lain tetap ada di rincian slip.</p>
+      <p className="mt-2 text-[11px] text-muted">Total gaji pokok mencakup shift, tunjangan masa kerja, dan gelar management. Lembur serta penyesuaian lain tetap ada di rincian slip.</p>
     </section>
   )
 }

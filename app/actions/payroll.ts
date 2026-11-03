@@ -440,7 +440,7 @@ function payrollSlipSummary(row: PayrollRow) {
     seniorPlusPay: row.seniorPlusPay,
     managementTitlePay: row.managementTitlePay,
     // Gaji pokok pada tabel slip adalah nominal bruto sebelum potongan:
-    // akumulasi shift, tunjangan Senior+, dan gelar management.
+    // akumulasi shift, tunjangan masa kerja, dan gelar management.
     grossBasePay: Math.round(row.basePay + row.seniorPlusPay + row.managementTitlePay),
     referralBonus: row.referralBonus,
     operationalBonus: row.operationalBonus,
@@ -773,7 +773,7 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, senior
   const effectiveTierRate = activeRateOn(effectiveTierRates || [], effectiveOn)
   if (!effectiveTierRate) return { success: false as const, message: 'Atur tarif status yang berlaku pada tanggal tersebut sebelum menyimpan status crew.' }
   if (!effectiveTierRate.supports_senior_plus && seniorPlusLevel !== 0) return { success: false as const, message: 'Senior+ hanya dapat dipilih pada status Senior yang berlaku di tanggal tersebut.' }
-  if (seniorPlusLevel > 0 && !(effectivePlusRates || []).length) return { success: false as const, message: 'Atur tunjangan Senior+ yang berlaku pada tanggal tersebut sebelum menyimpan status crew.' }
+  if (seniorPlusLevel > 0 && !(effectivePlusRates || []).length) return { success: false as const, message: 'Atur tunjangan masa kerja yang berlaku pada tanggal tersebut sebelum menyimpan status crew.' }
 
   const { data: crew, error: crewError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
   if (crewError || !crew) return payrollFailure(crewError, 'Crew tidak ditemukan.')
@@ -995,9 +995,9 @@ export async function saveSeniorPlusRateConfig(level: number | null, label: stri
     level: cleanLevel, daily_bonus: amount, effective_on: effectiveOn, recorded_by: access.userId,
     updated_by: access.userId, updated_at: now,
   }, { onConflict: 'level,effective_on' })
-  if (rateError) return payrollFailure(rateError, 'Tunjangan Senior+ belum dapat disimpan. Coba lagi beberapa saat.')
+  if (rateError) return payrollFailure(rateError, 'Tunjangan masa kerja belum dapat disimpan. Coba lagi beberapa saat.')
   const synced = await syncDraftPayrollsFrom(access, effectiveOn)
-  if (!synced.success) return { success: false as const, message: 'Tunjangan Senior+ berhasil disimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa payroll.' }
+  if (!synced.success) return { success: false as const, message: 'Tunjangan masa kerja berhasil disimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa payroll.' }
   revalidatePayrollRatePaths()
   return { success: true as const, level: cleanLevel }
 }
