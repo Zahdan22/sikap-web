@@ -38,6 +38,40 @@ function jakartaToday() {
   return `${values.year}-${values.month}-${values.day}`
 }
 
+// Supabase/Postgres errors are useful in server logs, but names of tables,
+// policies, and constraints are not useful (or safe) to show in a manager popup.
+function payrollActionMessage(error: unknown, fallback = 'Terjadi kendala saat memproses data. Coba lagi beberapa saat.') {
+  const message = typeof error === 'string'
+    ? error.trim()
+    : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+      ? error.message.trim()
+      : ''
+  if (!message) return fallback
+
+  const normalized = message.toLowerCase()
+  const isTechnical = /row-level security|security policy|permission denied|insufficient privilege|not authorized|jwt|authentication|duplicate key|unique constraint|foreign key|violates|pgrst|postgrest|postgres|supabase|database|schema|relation|column|table|function|rpc|query|invalid input syntax|failed to fetch|network|timeout|connection|internal server|unexpected error|no rows|not found/.test(normalized)
+  if (!isTechnical) return message
+
+  if (process.env.NODE_ENV === 'production') console.error('[payroll action]', message)
+  if (/row-level security|security policy|permission denied|insufficient privilege|not authorized|jwt|authentication/.test(normalized)) {
+    return 'Akses ke data ini tidak tersedia. Coba masuk kembali atau hubungi administrator.'
+  }
+  if (/duplicate key|unique constraint/.test(normalized)) {
+    return 'Data untuk periode tersebut sudah tercatat. Periksa kembali data yang telah diisi.'
+  }
+  if (/foreign key|pgrst116|not found|no rows/.test(normalized)) {
+    return 'Data yang dipilih sudah berubah atau tidak ditemukan. Muat ulang halaman lalu coba lagi.'
+  }
+  if (/failed to fetch|network|timeout|connection/.test(normalized)) {
+    return 'Koneksi atau layanan sedang bermasalah. Coba lagi beberapa saat.'
+  }
+  return fallback
+}
+
+function payrollFailure(error: unknown, fallback?: string) {
+  return { success: false as const, message: payrollActionMessage(error, fallback) }
+}
+
 function hasShiftEnded(tanggal: string, jamMulai: string, jamSelesai: string) {
   return getShiftEndAt({ tanggal, jamMulai, jamSelesai }) <= new Date()
 }
@@ -413,7 +447,7 @@ export async function loadCrewPayrollStatus() {
     loadAllPayrollRows((from, to) => access.supabase.from('users').select('id, username, nama, status_aktif').eq('role', 'crew').eq('status_aktif', true).order('nama').order('id').range(from, to)),
     loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level, effective_on').order('user_id').range(from, to)),
   ])
-  if (crewError || statusError) return { success: false as const, message: (crewError || statusError)!.message }
+  if (crewError || statusError) return payrollFailure(crewError || statusError, 'Daftar status crew belum dapat dimuat. Coba lagi beberapa saat.')
   const statusByUser = new Map((statuses || []).map((status) => [status.user_id, status]))
   return {
     success: true as const,
@@ -430,8 +464,8 @@ export async function loadCrewManagementDetail(userId: string, preferredWorkPeri
     loadAllPayrollRows((from, to) => access.supabase.from('periode_kerja').select('id, nama, tanggal_mulai, tanggal_selesai', { count: 'exact' }).order('tanggal_mulai', { ascending: false }).order('id').range(from, to)),
     loadAllPayrollRows((from, to) => access.supabase.from('crew_payroll_tier_history').select('id, tier, senior_plus_level, effective_on, changed_by', { count: 'exact' }).eq('user_id', userId).order('effective_on').order('id').range(from, to)),
   ])
-  if (crewError || !crew) return { success: false as const, message: crewError?.message || 'Crew tidak ditemukan.' }
-  if (payrollError || periodsError || tierHistoryError) return { success: false as const, message: (payrollError || periodsError || tierHistoryError)!.message }
+  if (crewError || !crew) return payrollFailure(crewError, 'Crew tidak ditemukan.')
+  if (payrollError || periodsError || tierHistoryError) return payrollFailure(payrollError || periodsError || tierHistoryError, 'Detail manajemen crew belum dapat dimuat. Coba lagi beberapa saat.')
   const manualTierHistory = (tierHistory || []).flatMap((entry) => tiers.includes(entry.tier as Tier)
     ? [{ id: Number(entry.id), tier: entry.tier as Tier, seniorPlusLevel: Number(entry.senior_plus_level || 0), effectiveOn: entry.effective_on, changedBy: entry.changed_by }]
     : [])
@@ -443,7 +477,7 @@ export async function loadCrewManagementDetail(userId: string, preferredWorkPeri
   }
 
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, selectedWorkPeriod.id, false)
-  if (!resolved.success) return resolved
+  if (!resolved.success) return payrollFailure(resolved.message, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (!resolved.period) return {
     success: true as const, crew, payroll: payroll || null, tierHistory: manualTierHistory, workPeriods, selectedWorkPeriod,
     payrollPeriodStatus: null, components: [] as ManualComponent[], managementTitles: [] as ManagementTitle[],
@@ -454,7 +488,7 @@ export async function loadCrewManagementDetail(userId: string, preferredWorkPeri
     loadAllPayrollRows((from, to) => access.supabase.from('crew_management_titles')
       .select('id, title, starts_on, ends_on, daily_amount, total_amount', { count: 'exact' }).eq('payroll_period_id', resolved.period!.id).eq('user_id', userId).order('starts_on').order('id').range(from, to)),
   ])
-  if (componentsError || titlesError) return { success: false as const, message: (componentsError || titlesError)!.message }
+  if (componentsError || titlesError) return payrollFailure(componentsError || titlesError, 'Komponen payroll belum dapat dimuat. Coba lagi beberapa saat.')
   return {
     success: true as const,
     crew,
@@ -480,28 +514,28 @@ export async function saveCrewManualPayrollComponent(userId: string, workPeriodI
   const cleanAmount = Math.round(amount)
   if (!Number.isSafeInteger(cleanAmount) || cleanAmount <= 0 || cleanAmount > 100_000_000) return { success: false as const, message: 'Nominal harus berupa angka bulat lebih dari Rp0.' }
   const crew = await ensureCrewTarget(access, userId)
-  if (!crew.success) return crew
+  if (!crew.success) return payrollFailure(crew.message, 'Crew tidak ditemukan.')
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, workPeriodId, true)
-  if (!resolved.success || !resolved.period) return resolved.success ? { success: false as const, message: 'Gagal membuka periode payroll.' } : resolved
+  if (!resolved.success || !resolved.period) return resolved.success ? { success: false as const, message: 'Gagal membuka periode payroll.' } : payrollFailure(resolved.message, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (resolved.period.status !== 'draft') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
 
   const { data: existing, error: existingError } = await access.supabase.from('crew_payroll_manual_components')
     .select('id, amount').eq('payroll_period_id', resolved.period.id).eq('user_id', userId).eq('component_type', componentType).maybeSingle()
-  if (existingError) return { success: false as const, message: existingError.message }
+  if (existingError) return payrollFailure(existingError, 'Nominal payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   const currentAmount = Number(existing?.amount || 0)
   const currentContribution = componentType === 'cash_advance' ? -currentAmount : currentAmount
   const nextContribution = componentType === 'cash_advance' ? -cleanAmount : cleanAmount
   const projected = await validateProjectedPayrollNet(access, resolved.period, userId, nextContribution - currentContribution)
-  if (!projected.success) return projected
+  if (!projected.success) return payrollFailure(projected.message, 'Dampak perubahan pada payroll belum dapat diperiksa. Coba lagi beberapa saat.')
 
   const now = new Date().toISOString()
   const mutation = existing
     ? access.supabase.from('crew_payroll_manual_components').update({ amount: cleanAmount, updated_by: access.userId, updated_at: now }).eq('id', existing.id).eq('payroll_period_id', resolved.period.id).eq('user_id', userId)
     : access.supabase.from('crew_payroll_manual_components').insert({ payroll_period_id: resolved.period.id, user_id: userId, component_type: componentType, amount: cleanAmount, recorded_by: access.userId, updated_by: access.userId, updated_at: now })
   const { error } = await mutation
-  if (error) return { success: false as const, message: error.message }
+  if (error) return payrollFailure(error, 'Nominal belum dapat disimpan. Coba lagi beberapa saat.')
   const synced = await syncDraftPayrollItem(access, resolved.period, userId)
-  if (!synced.success) return { success: false as const, message: `Nominal tersimpan, tetapi rincian payroll belum diperbarui: ${synced.message}` }
+  if (!synced.success) return { success: false as const, message: 'Nominal sudah tersimpan, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   revalidateManualPayrollPaths(userId)
   return { success: true as const }
 }
@@ -511,24 +545,24 @@ export async function deleteCrewManualPayrollComponent(userId: string, workPerio
   if (!access.ok) return { success: false as const, message: access.message }
   if (!isManualPayrollComponentType(componentType)) return { success: false as const, message: 'Jenis komponen payroll tidak valid.' }
   const crew = await ensureCrewTarget(access, userId)
-  if (!crew.success) return crew
+  if (!crew.success) return payrollFailure(crew.message, 'Crew tidak ditemukan.')
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, workPeriodId, false)
-  if (!resolved.success) return resolved
+  if (!resolved.success) return payrollFailure(resolved.message, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (!resolved.period) return { success: false as const, message: 'Belum ada catatan pada periode ini.' }
   if (resolved.period.status !== 'draft') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
   const { data: existing, error: existingError } = await access.supabase.from('crew_payroll_manual_components')
     .select('amount').eq('payroll_period_id', resolved.period.id).eq('user_id', userId).eq('component_type', componentType).maybeSingle()
-  if (existingError) return { success: false as const, message: existingError.message }
+  if (existingError) return payrollFailure(existingError, 'Nominal payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   if (!existing) return { success: false as const, message: 'Komponen payroll tidak ditemukan.' }
   const currentAmount = Number(existing.amount)
   const currentContribution = componentType === 'cash_advance' ? -currentAmount : currentAmount
   const projected = await validateProjectedPayrollNet(access, resolved.period, userId, -currentContribution)
-  if (!projected.success) return projected
+  if (!projected.success) return payrollFailure(projected.message, 'Dampak perubahan pada payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   const { error } = await access.supabase.from('crew_payroll_manual_components').delete()
     .eq('payroll_period_id', resolved.period.id).eq('user_id', userId).eq('component_type', componentType)
-  if (error) return { success: false as const, message: error.message }
+  if (error) return payrollFailure(error, 'Nominal belum dapat dihapus. Coba lagi beberapa saat.')
   const synced = await syncDraftPayrollItem(access, resolved.period, userId)
-  if (!synced.success) return { success: false as const, message: `Catatan dihapus, tetapi rincian payroll belum diperbarui: ${synced.message}` }
+  if (!synced.success) return { success: false as const, message: 'Nominal sudah dihapus, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   revalidateManualPayrollPaths(userId)
   return { success: true as const }
 }
@@ -542,9 +576,9 @@ export async function saveCrewManagementTitle(userId: string, workPeriodId: numb
   if (!validDate(startsOn) || !validDate(endsOn) || startsOn > endsOn) return { success: false as const, message: 'Rentang tanggal gelar management tidak valid.' }
   if (!Number.isSafeInteger(cleanAmount) || cleanAmount <= 0 || cleanAmount > 100_000_000) return { success: false as const, message: 'Nominal per hari harus berupa angka bulat lebih dari Rp0.' }
   const crew = await ensureCrewTarget(access, userId)
-  if (!crew.success) return crew
+  if (!crew.success) return payrollFailure(crew.message, 'Crew tidak ditemukan.')
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, workPeriodId, true)
-  if (!resolved.success || !resolved.period) return resolved.success ? { success: false as const, message: 'Gagal membuka periode payroll.' } : resolved
+  if (!resolved.success || !resolved.period) return resolved.success ? { success: false as const, message: 'Gagal membuka periode payroll.' } : payrollFailure(resolved.message, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (resolved.period.status !== 'draft') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
   if (startsOn < resolved.workPeriod.tanggal_mulai || endsOn > resolved.workPeriod.tanggal_selesai) {
     return { success: false as const, message: 'Rentang gelar management harus berada di dalam periode kerja terpilih.' }
@@ -556,20 +590,20 @@ export async function saveCrewManagementTitle(userId: string, workPeriodId: numb
   if (titleId !== null) {
     const { data: existing, error: existingError } = await access.supabase.from('crew_management_titles')
       .select('id, total_amount').eq('id', titleId).eq('payroll_period_id', resolved.period.id).eq('user_id', userId).maybeSingle()
-    if (existingError || !existing) return { success: false as const, message: existingError?.message || 'Gelar management tidak ditemukan.' }
+    if (existingError || !existing) return payrollFailure(existingError, 'Gelar management tidak ditemukan.')
     currentTotal = Number(existing.total_amount)
   }
   const projected = await validateProjectedPayrollNet(access, resolved.period, userId, nextTotal - currentTotal)
-  if (!projected.success) return projected
+  if (!projected.success) return payrollFailure(projected.message, 'Dampak perubahan pada payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   const now = new Date().toISOString()
   const payload = { title: cleanTitle, starts_on: startsOn, ends_on: endsOn, daily_amount: cleanAmount, updated_by: access.userId, updated_at: now }
   const mutation = titleId !== null
     ? access.supabase.from('crew_management_titles').update(payload).eq('id', titleId).eq('payroll_period_id', resolved.period.id).eq('user_id', userId)
     : access.supabase.from('crew_management_titles').insert({ ...payload, payroll_period_id: resolved.period.id, user_id: userId, recorded_by: access.userId })
   const { error } = await mutation
-  if (error) return { success: false as const, message: error.message }
+  if (error) return payrollFailure(error, 'Gelar management belum dapat disimpan. Coba lagi beberapa saat.')
   const synced = await syncDraftPayrollItem(access, resolved.period, userId)
-  if (!synced.success) return { success: false as const, message: `Gelar tersimpan, tetapi rincian payroll belum diperbarui: ${synced.message}` }
+  if (!synced.success) return { success: false as const, message: 'Gelar management sudah tersimpan, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   revalidateManualPayrollPaths(userId)
   return { success: true as const }
 }
@@ -579,21 +613,21 @@ export async function deleteCrewManagementTitle(userId: string, workPeriodId: nu
   if (!access.ok) return { success: false as const, message: access.message }
   if (!Number.isInteger(titleId) || titleId <= 0) return { success: false as const, message: 'Data gelar management tidak valid.' }
   const crew = await ensureCrewTarget(access, userId)
-  if (!crew.success) return crew
+  if (!crew.success) return payrollFailure(crew.message, 'Crew tidak ditemukan.')
   const resolved = await resolvePayrollPeriodForWorkPeriod(access, workPeriodId, false)
-  if (!resolved.success) return resolved
+  if (!resolved.success) return payrollFailure(resolved.message, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (!resolved.period) return { success: false as const, message: 'Gelar management tidak ditemukan.' }
   if (resolved.period.status !== 'draft') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
   const { data: existing, error: existingError } = await access.supabase.from('crew_management_titles')
     .select('total_amount').eq('id', titleId).eq('payroll_period_id', resolved.period.id).eq('user_id', userId).maybeSingle()
-  if (existingError || !existing) return { success: false as const, message: existingError?.message || 'Gelar management tidak ditemukan.' }
+  if (existingError || !existing) return payrollFailure(existingError, 'Gelar management tidak ditemukan.')
   const projected = await validateProjectedPayrollNet(access, resolved.period, userId, -Number(existing.total_amount))
-  if (!projected.success) return projected
+  if (!projected.success) return payrollFailure(projected.message, 'Dampak perubahan pada payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   const { error } = await access.supabase.from('crew_management_titles').delete()
     .eq('id', titleId).eq('payroll_period_id', resolved.period.id).eq('user_id', userId)
-  if (error) return { success: false as const, message: error.message }
+  if (error) return payrollFailure(error, 'Gelar management belum dapat dihapus. Coba lagi beberapa saat.')
   const synced = await syncDraftPayrollItem(access, resolved.period, userId)
-  if (!synced.success) return { success: false as const, message: `Gelar dihapus, tetapi rincian payroll belum diperbarui: ${synced.message}` }
+  if (!synced.success) return { success: false as const, message: 'Gelar management sudah dihapus, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   revalidateManualPayrollPaths(userId)
   return { success: true as const }
 }
@@ -607,7 +641,7 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, senior
   if (tier !== 'senior' && seniorPlusLevel !== 0) return { success: false as const, message: 'Senior+ hanya dapat dipilih untuk crew Senior.' }
 
   const { data: crew, error: crewError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
-  if (crewError || !crew) return { success: false as const, message: crewError?.message || 'Crew tidak ditemukan.' }
+  if (crewError || !crew) return payrollFailure(crewError, 'Crew tidak ditemukan.')
 
   // A backdated change may replace an automatic history entry, but it must not
   // silently overwrite a newer tier explicitly set by finance.
@@ -618,7 +652,7 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, senior
     .gte('effective_on', effectiveOn)
     .order('effective_on')
     .range(from, to))
-  if (laterHistoryError) return { success: false as const, message: laterHistoryError.message }
+  if (laterHistoryError) return payrollFailure(laterHistoryError, 'Riwayat status crew belum dapat diperiksa. Coba lagi beberapa saat.')
   const newerManualHistory = (laterHistory || []).find((entry) => Boolean(entry.changed_by) && entry.effective_on > effectiveOn)
   if (newerManualHistory) return { success: false as const, message: `Sudah ada tier manual yang lebih baru mulai ${newerManualHistory.effective_on}. Ubah status sesuai urutan tanggal agar riwayat payroll tetap aman.` }
 
@@ -632,11 +666,11 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, senior
     updated_by: access.userId,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'user_id' })
-  if (error) return { success: false as const, message: error.message }
+  if (error) return payrollFailure(error, 'Status crew belum dapat disimpan. Coba lagi beberapa saat.')
   const { data: draftPeriods, error: draftPeriodsError } = await loadAllPayrollRows((from, to) => access.supabase.from('payroll_periods')
     .select('id, period_start, period_end, status, attendance_revision', { count: 'exact' })
     .eq('status', 'draft').gte('period_end', effectiveOn).order('period_start').order('id').range(from, to))
-  if (draftPeriodsError) return { success: false as const, message: `Status crew tersimpan, tetapi draf payroll belum diperbarui: ${draftPeriodsError.message}` }
+  if (draftPeriodsError) return { success: false as const, message: 'Status crew sudah tersimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   for (const draftPeriod of draftPeriods || []) {
     const synced = await syncDraftPayrollItem(access, {
       id: draftPeriod.id,
@@ -645,7 +679,7 @@ export async function saveCrewPayrollStatus(userId: string, tier: string, senior
       status: 'draft',
       attendance_revision: Number(draftPeriod.attendance_revision || 0),
     }, userId)
-    if (!synced.success) return { success: false as const, message: `Status crew tersimpan, tetapi draf payroll belum diperbarui: ${synced.message}` }
+    if (!synced.success) return { success: false as const, message: 'Status crew sudah tersimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
   }
   revalidateManualPayrollPaths(userId)
   return { success: true as const }
@@ -691,22 +725,22 @@ async function resolvePayrollPeriodForWorkPeriod(access: FinanceAccess, workPeri
   if (!Number.isInteger(workPeriodId) || workPeriodId <= 0) return { success: false as const, message: 'Periode kerja tidak valid.' }
   const { data: workPeriod, error: workPeriodError } = await access.supabase
     .from('periode_kerja').select('id, nama, tanggal_mulai, tanggal_selesai').eq('id', workPeriodId).maybeSingle()
-  if (workPeriodError || !workPeriod) return { success: false as const, message: workPeriodError?.message || 'Periode kerja tidak ditemukan.' }
+  if (workPeriodError || !workPeriod) return payrollFailure(workPeriodError, 'Periode kerja tidak ditemukan.')
 
   const findPayrollPeriod = () => access.supabase.from('payroll_periods')
     .select('id, period_start, period_end, status, attendance_revision')
     .eq('period_start', workPeriod.tanggal_mulai).eq('period_end', workPeriod.tanggal_selesai).maybeSingle()
   let lookup = await findPayrollPeriod()
-  if (lookup.error) return { success: false as const, message: lookup.error.message }
+  if (lookup.error) return payrollFailure(lookup.error, 'Periode payroll belum dapat dibuka. Coba lagi beberapa saat.')
   if (!lookup.data && createIfMissing) {
     const created = await access.supabase.from('payroll_periods')
       .insert({ period_start: workPeriod.tanggal_mulai, period_end: workPeriod.tanggal_selesai, created_by: access.userId })
       .select('id, period_start, period_end, status, attendance_revision').maybeSingle()
     if (created.error) {
       // A concurrent finance session may have created the same period first.
-      if (created.error.code !== '23505') return { success: false as const, message: created.error.message }
+      if (created.error.code !== '23505') return payrollFailure(created.error, 'Periode payroll belum dapat dibuat. Coba lagi beberapa saat.')
       lookup = await findPayrollPeriod()
-      if (lookup.error || !lookup.data) return { success: false as const, message: lookup.error?.message || 'Gagal membuka periode payroll.' }
+      if (lookup.error || !lookup.data) return payrollFailure(lookup.error, 'Gagal membuka periode payroll.')
     } else lookup = created
   }
   return {
@@ -725,24 +759,24 @@ async function resolvePayrollPeriodForWorkPeriod(access: FinanceAccess, workPeri
 async function ensureCrewTarget(access: FinanceAccess, userId: string) {
   if (!userId) return { success: false as const, message: 'Crew tidak valid.' }
   const { data, error } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
-  if (error || !data) return { success: false as const, message: error?.message || 'Crew tidak ditemukan.' }
+  if (error || !data) return payrollFailure(error, 'Crew tidak ditemukan.')
   return { success: true as const }
 }
 
 async function syncDraftPayrollItem(access: FinanceAccess, period: DraftPayrollPeriod, userId: string) {
   const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' }, userId)
-  if (!report.success) return report
+  if (!report.success) return payrollFailure(report.message, 'Rincian payroll belum dapat diperbarui. Coba lagi beberapa saat.')
   const row = report.rows.find((item) => item.userId === userId)
   if (!row) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
   if (row.netPay < 0) return { success: false as const, message: 'Total potongan melebihi gaji bersih crew.' }
   const { error } = await access.supabase.from('payroll_items').upsert(payrollItemRecord(period, row), { onConflict: 'payroll_period_id,user_id' })
-  if (error) return { success: false as const, message: error.message }
+  if (error) return payrollFailure(error, 'Rincian payroll belum dapat diperbarui. Coba lagi beberapa saat.')
   return { success: true as const }
 }
 
 async function validateProjectedPayrollNet(access: FinanceAccess, period: DraftPayrollPeriod, userId: string, netChange: number) {
   const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' }, userId)
-  if (!report.success) return report
+  if (!report.success) return payrollFailure(report.message, 'Dampak perubahan pada payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   const row = report.rows.find((item) => item.userId === userId)
   if (!row) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
   if (row.netPay + netChange < 0) return { success: false as const, message: 'Perubahan ini membuat gaji bersih crew menjadi negatif.' }

@@ -6,7 +6,7 @@ const ts = require('typescript')
 
 // Exercise the actual payroll actions with a deterministic Supabase fixture.
 // Network/auth and Next cache invalidation are replaced; payroll arithmetic is not.
-function setup({ rowLimit = 1000, failPageOf = null } = {}) {
+function setup({ rowLimit = 1000, failPageOf = null, failMessage = 'Page unavailable' } = {}) {
   const tables = {
     users: [{ id: 'crew-1', nama: 'Crew', username: 'crew', role: 'crew', status_aktif: true }],
     schedule: [{ id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '18:00', jam_selesai: '00:00', durasi_jam: 6 }],
@@ -16,6 +16,7 @@ function setup({ rowLimit = 1000, failPageOf = null } = {}) {
     payroll_senior_plus_rates: [{ level: 2, daily_bonus: 7500 }],
     attendance: [{ id: 1, user_id: 'crew-1', schedule_id: 1, jam_masuk_aktual: '2025-01-05T10:50:00Z', jam_pulang_aktual: '2025-01-05T17:00:00Z', status_masuk: 'tepat_waktu', status_pulang: 'tepat_waktu', menit_telat: 0 }],
     payroll_periods: [{ id: 1, period_start: '2025-01-01', period_end: '2025-01-31', status: 'draft' }],
+    periode_kerja: [],
     payroll_adjustments: [], payroll_items: [], crew_violations: [],
     crew_payroll_manual_components: [], crew_management_titles: [],
     overtime_requests: [
@@ -54,7 +55,7 @@ function setup({ rowLimit = 1000, failPageOf = null } = {}) {
         update(payload) { pendingUpdate = payload; return query },
         then(resolve, reject) {
           if (pendingUpdate) rows.forEach((row) => Object.assign(row, pendingUpdate))
-          return Promise.resolve(name === failPageOf && pageStart >= 500 ? { data: null, error: { message: 'Page unavailable' } } : { data: single ? rows[0] || null : rows.slice(0, rowLimit), error: null }).then(resolve, reject)
+          return Promise.resolve(name === failPageOf && pageStart >= 500 ? { data: null, error: { message: failMessage } } : { data: single ? rows[0] || null : rows.slice(0, rowLimit), error: null }).then(resolve, reject)
         },
       }
       return query
@@ -362,6 +363,20 @@ test('kegagalan halaman lanjutan menghasilkan error, bukan rekap sebagian', asyn
   const result = await actions.loadPayrollReport('2021-01-01', '2024-12-31')
   assert.equal(result.success, false)
   assert.match(result.message, /Page unavailable/)
+})
+
+test('manajemen crew tidak meneruskan detail error database ke pengguna', async () => {
+  const { tables, actions } = setup({
+    failPageOf: 'crew_payroll_tier_history',
+    failMessage: 'new row violates row-level security policy for table "crew_payroll_tier_history"',
+  })
+  tables.crew_payroll_tier_history = Array.from({ length: 1001 }, (_, i) => ({
+    id: i + 1, user_id: 'crew-1', effective_on: '2025-01-01', tier: 'training', senior_plus_level: 0,
+  }))
+  const result = await actions.loadCrewManagementDetail('crew-1')
+  assert.equal(result.success, false)
+  assert.equal(result.message, 'Akses ke data ini tidak tersedia. Coba masuk kembali atau hubungi administrator.')
+  assert.doesNotMatch(result.message, /row-level|policy|crew_payroll_tier_history/i)
 })
 
 test('periode final tanpa arsip tidak dihitung ulang diam-diam', async () => {

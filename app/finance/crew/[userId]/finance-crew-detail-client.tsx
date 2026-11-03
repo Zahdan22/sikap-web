@@ -53,34 +53,39 @@ export default function FinanceCrewDetailClient() {
   const load = useCallback(async (preferredPeriodId?: number) => {
     setLoading(true)
     setError('')
-    const response = await loadCrewManagementDetail(params.userId, preferredPeriodId)
-    if (!response.success) {
-      setError(response.message)
+    try {
+      const response = await loadCrewManagementDetail(params.userId, preferredPeriodId)
+      if (!response.success) {
+        setError(response.message)
+        setResult(null)
+        return
+      }
+      const next = response as Result
+      setResult(next)
+      setSelectedWorkPeriodId(next.selectedWorkPeriod?.id || null)
+      setStatusDraft({
+        tier: (next.payroll?.tier || 'pra_training') as Tier,
+        plus: String(next.payroll?.senior_plus_level || 0),
+        effectiveOn: next.payroll?.effective_on || jakartaToday(),
+      })
+      const values: Record<ManualPayrollComponentType, string> = {
+        referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
+      }
+      next.components.forEach((component) => { values[component.componentType] = String(component.amount) })
+      setComponentDrafts(values)
+      setTitleDraft({
+        id: null,
+        title: '',
+        startsOn: next.selectedWorkPeriod?.tanggal_mulai || '',
+        endsOn: next.selectedWorkPeriod?.tanggal_selesai || '',
+        dailyAmount: '',
+      })
+    } catch {
+      setError('Detail manajemen crew belum dapat dimuat. Muat ulang halaman lalu coba lagi.')
       setResult(null)
+    } finally {
       setLoading(false)
-      return
     }
-    const next = response as Result
-    setResult(next)
-    setSelectedWorkPeriodId(next.selectedWorkPeriod?.id || null)
-    setStatusDraft({
-      tier: (next.payroll?.tier || 'pra_training') as Tier,
-      plus: String(next.payroll?.senior_plus_level || 0),
-      effectiveOn: next.payroll?.effective_on || jakartaToday(),
-    })
-    const values: Record<ManualPayrollComponentType, string> = {
-      referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
-    }
-    next.components.forEach((component) => { values[component.componentType] = String(component.amount) })
-    setComponentDrafts(values)
-    setTitleDraft({
-      id: null,
-      title: '',
-      startsOn: next.selectedWorkPeriod?.tanggal_mulai || '',
-      endsOn: next.selectedWorkPeriod?.tanggal_selesai || '',
-      dailyAmount: '',
-    })
-    setLoading(false)
   }, [params.userId])
 
   useEffect(() => {
@@ -91,21 +96,31 @@ export default function FinanceCrewDetailClient() {
   async function saveStatus() {
     if (!result) return
     setSaving('status')
-    const response = await saveCrewPayrollStatus(result.crew.id, statusDraft.tier, Number(statusDraft.plus), statusDraft.effectiveOn)
-    setSaving(null)
-    if (!response.success) { toast(response.message, 'error'); return }
-    toast('Status crew disimpan.', 'success')
-    await load(selectedWorkPeriodId || undefined)
+    try {
+      const response = await saveCrewPayrollStatus(result.crew.id, statusDraft.tier, Number(statusDraft.plus), statusDraft.effectiveOn)
+      if (!response.success) { toast(response.message, 'error'); return }
+      toast('Status crew disimpan.', 'success')
+      await load(selectedWorkPeriodId || undefined)
+    } catch {
+      toast('Status crew belum dapat disimpan. Coba lagi beberapa saat.', 'error')
+    } finally {
+      setSaving(null)
+    }
   }
 
   async function saveComponent(componentType: ManualPayrollComponentType) {
     if (!result || !selectedWorkPeriodId) return
     setSaving(componentType)
-    const response = await saveCrewManualPayrollComponent(result.crew.id, selectedWorkPeriodId, componentType, Number(componentDrafts[componentType]))
-    setSaving(null)
-    if (!response.success) { toast(response.message, 'error'); return }
-    toast(manualPayrollComponentLabels[componentType] + ' disimpan.', 'success')
-    await load(selectedWorkPeriodId)
+    try {
+      const response = await saveCrewManualPayrollComponent(result.crew.id, selectedWorkPeriodId, componentType, Number(componentDrafts[componentType]))
+      if (!response.success) { toast(response.message, 'error'); return }
+      toast(manualPayrollComponentLabels[componentType] + ' disimpan.', 'success')
+      await load(selectedWorkPeriodId)
+    } catch {
+      toast('Nominal belum dapat disimpan. Coba lagi beberapa saat.', 'error')
+    } finally {
+      setSaving(null)
+    }
   }
 
   async function removeComponent(componentType: ManualPayrollComponentType) {
@@ -118,21 +133,31 @@ export default function FinanceCrewDetailClient() {
     })
     if (!approved) return
     setSaving('delete-' + componentType)
-    const response = await deleteCrewManualPayrollComponent(result.crew.id, selectedWorkPeriodId, componentType)
-    setSaving(null)
-    if (!response.success) { toast(response.message, 'error'); return }
-    toast('Nominal dihapus dari payroll.', 'success')
-    await load(selectedWorkPeriodId)
+    try {
+      const response = await deleteCrewManualPayrollComponent(result.crew.id, selectedWorkPeriodId, componentType)
+      if (!response.success) { toast(response.message, 'error'); return }
+      toast('Nominal dihapus dari payroll.', 'success')
+      await load(selectedWorkPeriodId)
+    } catch {
+      toast('Nominal belum dapat dihapus. Coba lagi beberapa saat.', 'error')
+    } finally {
+      setSaving(null)
+    }
   }
 
   async function saveTitle() {
     if (!result || !selectedWorkPeriodId) return
     setSaving('title')
-    const response = await saveCrewManagementTitle(result.crew.id, selectedWorkPeriodId, titleDraft.id, titleDraft.title, titleDraft.startsOn, titleDraft.endsOn, Number(titleDraft.dailyAmount))
-    setSaving(null)
-    if (!response.success) { toast(response.message, 'error'); return }
-    toast(titleDraft.id ? 'Gelar management diperbarui.' : 'Gelar management ditambahkan.', 'success')
-    await load(selectedWorkPeriodId)
+    try {
+      const response = await saveCrewManagementTitle(result.crew.id, selectedWorkPeriodId, titleDraft.id, titleDraft.title, titleDraft.startsOn, titleDraft.endsOn, Number(titleDraft.dailyAmount))
+      if (!response.success) { toast(response.message, 'error'); return }
+      toast(titleDraft.id ? 'Gelar management diperbarui.' : 'Gelar management ditambahkan.', 'success')
+      await load(selectedWorkPeriodId)
+    } catch {
+      toast('Gelar management belum dapat disimpan. Coba lagi beberapa saat.', 'error')
+    } finally {
+      setSaving(null)
+    }
   }
 
   async function removeTitle(id: number) {
@@ -145,11 +170,16 @@ export default function FinanceCrewDetailClient() {
     })
     if (!approved) return
     setSaving('title-' + id)
-    const response = await deleteCrewManagementTitle(result.crew.id, selectedWorkPeriodId, id)
-    setSaving(null)
-    if (!response.success) { toast(response.message, 'error'); return }
-    toast('Gelar management dihapus.', 'success')
-    await load(selectedWorkPeriodId)
+    try {
+      const response = await deleteCrewManagementTitle(result.crew.id, selectedWorkPeriodId, id)
+      if (!response.success) { toast(response.message, 'error'); return }
+      toast('Gelar management dihapus.', 'success')
+      await load(selectedWorkPeriodId)
+    } catch {
+      toast('Gelar management belum dapat dihapus. Coba lagi beberapa saat.', 'error')
+    } finally {
+      setSaving(null)
+    }
   }
 
   const locked = result?.payrollPeriodStatus === 'finalized'
