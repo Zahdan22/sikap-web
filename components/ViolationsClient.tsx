@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { deleteViolation, loadViolationContext, loadViolations, saveViolation } from '@/app/actions/violations'
-import { jakartaDate, type Violation, type ViolationCrew, type ViolationPeriod } from '@/lib/violations'
+import { deleteViolation, loadViolationContext, loadViolations, saveAttendanceViolationPoint, saveViolation } from '@/app/actions/violations'
+import { isAttendanceViolation, jakartaDate, type AttendanceViolation, type Violation, type ViolationCrew, type ViolationPeriod, type ViolationTableRow } from '@/lib/violations'
 import PageHeader from '@/components/PageHeader'
 import { useDialog } from '@/components/ui/DialogProvider'
 
@@ -12,13 +12,13 @@ function dateLabel(date: string) {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
-export default function ViolationsClient({ userId, manager, backHref }: { userId: string; manager: boolean; backHref: string }) {
+export default function ViolationsClient({ userId, manager, finance, backHref }: { userId: string; manager: boolean; finance: boolean; backHref: string }) {
   const { toast, confirm } = useDialog()
   const [periods, setPeriods] = useState<ViolationPeriod[]>([])
   const [crew, setCrew] = useState<ViolationCrew[]>([])
   const [periodId, setPeriodId] = useState('')
   const [crewFilter, setCrewFilter] = useState(manager ? '' : userId)
-  const [rows, setRows] = useState<Violation[]>([])
+  const [rows, setRows] = useState<ViolationTableRow[]>([])
   const [loadedPeriod, setLoadedPeriod] = useState('')
   const [error, setError] = useState('')
   const [contextError, setContextError] = useState('')
@@ -32,6 +32,8 @@ export default function ViolationsClient({ userId, manager, backHref }: { userId
   const [description, setDescription] = useState('')
   const [points, setPoints] = useState('')
   const [fine, setFine] = useState('')
+  const [attendancePointDrafts, setAttendancePointDrafts] = useState<Record<string, string>>({})
+  const [savingAttendancePoint, setSavingAttendancePoint] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
@@ -115,10 +117,37 @@ export default function ViolationsClient({ userId, manager, backHref }: { userId
     finally { setBusy(false) }
   }
 
+  async function saveAttendancePoint(row: AttendanceViolation) {
+    if (!finance || savingAttendancePoint) return
+    const value = (attendancePointDrafts[row.id] ?? (row.poin === null ? '' : String(row.poin))).trim()
+    if (value && (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))) {
+      toast('Poin harus berupa angka bulat nol atau lebih.', 'error')
+      return
+    }
+    setSavingAttendancePoint(row.id)
+    try {
+      const result = await saveAttendanceViolationPoint(row.schedule_id, row.attendance_kind, value === '' ? null : Number(value))
+      if (!result.success) { toast(result.message, 'error'); return }
+      toast(value === '' ? 'Poin keterlambatan dikosongkan.' : 'Poin keterlambatan tersimpan.', 'success')
+      setAttendancePointDrafts((current) => {
+        const next = { ...current }
+        delete next[row.id]
+        return next
+      })
+      setLoadedPeriod('')
+      setRevision((current) => current + 1)
+    } catch {
+      toast('Poin keterlambatan belum dapat disimpan. Coba lagi.', 'error')
+    } finally {
+      setSavingAttendancePoint(null)
+    }
+  }
+
   const visible = loadedPeriod === periodId ? rows.filter((row) => !crewFilter || row.user_id === crewFilter) : []
-  const reviewed = visible.filter((row) => row.reviewed_at)
+  const recordedPoints = visible.reduce((sum, row) => sum + (isAttendanceViolation(row) ? row.poin || 0 : row.reviewed_at ? row.poin : 0), 0)
+  const recordedFine = visible.reduce((sum, row) => sum + (isAttendanceViolation(row) ? row.denda : row.reviewed_at ? row.denda : 0), 0)
   const sharedRegister = crewFilter === ''
-  const showFineColumn = manager || !sharedRegister
+  const showFineColumn = true
   const loading = !contextReady || (!!periodId && periodId !== loadedPeriod)
   return <div className="min-h-full bg-cream pb-24">
     <PageHeader title={manager ? 'Form Pelanggaran Crew' : 'Form Pelanggaran'} backHref={backHref} />
@@ -153,19 +182,19 @@ export default function ViolationsClient({ userId, manager, backHref }: { userId
       </section>
       {error && <p role="alert" className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{error}</p>}
       {loading ? <p className="py-6 text-center text-sm text-muted">Memuat laporan…</p> : periodId && !error && <>
-        <div className="grid grid-cols-3 gap-2 rounded-2xl border border-cream-dim bg-cream-card p-4 text-center text-xs text-muted"><div><b className="block text-base text-ink">{visible.length}</b>Laporan</div><div><b className="block text-base text-brand">{reviewed.reduce((sum, row) => sum + row.poin, 0)}</b>Poin diperiksa</div><div><b className="block text-base text-brand">{rupiah.format(reviewed.reduce((sum, row) => sum + row.denda, 0))}</b>Denda diperiksa</div></div>
+        <div className="grid grid-cols-3 gap-2 rounded-2xl border border-cream-dim bg-cream-card p-4 text-center text-xs text-muted"><div><b className="block text-base text-ink">{visible.length}</b>Laporan</div><div><b className="block text-base text-brand">{recordedPoints}</b>Poin tercatat</div><div><b className="block text-base text-brand">{rupiah.format(recordedFine)}</b>Denda tercatat</div></div>
         <div className="overflow-x-auto rounded-2xl border border-cream-dim bg-cream-card">
           <table className={`w-full text-left text-sm ${sharedRegister && !manager ? 'min-w-[560px]' : 'min-w-[760px]'}`}>
             <caption className="px-4 py-3 text-left font-semibold text-ink">{sharedRegister ? 'Form Poin Harian · Semua Crew' : `Daftar pelanggaran · ${crewFilter ? crew.find((person) => person.id === crewFilter)?.nama || 'Saya' : 'Semua crew'}`}<span className="mt-1 block text-xs font-normal text-muted">Urutan tanggal kejadian: paling awal hingga terbaru.</span></caption>
             <thead className="border-y border-cream-dim bg-cream text-xs text-muted"><tr>{['Hari / tanggal', 'Nama', 'Kesalahan', 'Poin', ...(showFineColumn ? ['Denda'] : []), ...(!sharedRegister ? ['Status'] : []), ...(manager ? ['Tindakan'] : [])].map((label) => <th key={label} scope="col" className="border-r border-cream-dim px-4 py-3 last:border-r-0">{label}</th>)}</tr></thead>
-            <tbody>{visible.map((row) => { const person = crew.find((p) => p.id === row.user_id); return <tr key={row.id} className="border-b border-cream-dim align-top last:border-0 [&>td]:border-r [&>td]:border-cream-dim [&>td:last-child]:border-r-0">
+            <tbody>{visible.map((row) => { const person = crew.find((p) => p.id === row.user_id); const automatic = isAttendanceViolation(row); return <tr key={row.id} className="border-b border-cream-dim align-top last:border-0 [&>td]:border-r [&>td]:border-cream-dim [&>td:last-child]:border-r-0">
               <td className="min-w-36 px-4 py-3 text-muted">{dateLabel(row.tanggal)}</td>
               <td className="px-4 py-3 text-ink">{person?.nama || 'Crew'}<span className="block text-xs text-muted">@{person?.username || row.user_id}</span></td>
-              <td className="min-w-52 max-w-sm whitespace-pre-wrap break-words px-4 py-3 text-ink">{row.kesalahan}{sharedRegister && <span className={`mt-2 block text-xs ${row.reviewed_at ? 'text-success' : 'text-warning'}`}>{row.reviewed_at ? 'Form laporan sudah dicek oleh manager' : 'Menunggu pemeriksaan manager'}</span>}</td>
-              <td className="px-4 py-3 text-brand">{row.reviewed_at ? row.poin : '—'}{!showFineColumn && row.reviewed_at && <span className="mt-2 block whitespace-nowrap text-xs text-muted">Denda {rupiah.format(row.denda)}</span>}</td>
-              {showFineColumn && <td className="whitespace-nowrap px-4 py-3 text-brand">{row.reviewed_at ? rupiah.format(row.denda) : '—'}</td>}
-              {!sharedRegister && <td className="min-w-44 px-4 py-3 text-xs"><span className={row.reviewed_at ? 'text-success' : 'text-warning'}>{row.reviewed_at ? 'Form laporan sudah dicek oleh manager' : 'Menunggu pemeriksaan manager'}</span></td>}
-              {manager && <td className="px-4 py-3"><div className="flex gap-3"><button disabled={busy} onClick={() => openForm(row)} className="font-semibold text-brand">{row.reviewed_at ? 'Edit' : 'Periksa'}</button><button disabled={busy} onClick={() => void remove(row)} className="text-warning">Hapus</button></div></td>}
+              <td className="min-w-52 max-w-sm whitespace-pre-wrap break-words px-4 py-3 text-ink">{row.kesalahan}{automatic ? <span className="mt-2 block text-xs text-muted">Tercatat otomatis dari absensi</span> : sharedRegister && <span className={`mt-2 block text-xs ${row.reviewed_at ? 'text-success' : 'text-warning'}`}>{row.reviewed_at ? 'Form laporan sudah dicek oleh manager' : 'Menunggu pemeriksaan manager'}</span>}</td>
+              <td className="px-4 py-3 text-brand">{automatic && finance ? <div className="flex min-w-40 items-center gap-2"><input aria-label={`Poin ${row.kesalahan}`} type="number" inputMode="numeric" min="0" max="2147483647" step="1" value={attendancePointDrafts[row.id] ?? (row.poin === null ? '' : String(row.poin))} onChange={(event) => setAttendancePointDrafts((current) => ({ ...current, [row.id]: event.target.value }))} placeholder="Isi poin" className="w-20 rounded-lg border border-cream-dim bg-white px-2 py-2 text-sm text-ink" /><button type="button" disabled={savingAttendancePoint === row.id} onClick={() => void saveAttendancePoint(row)} className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{savingAttendancePoint === row.id ? 'Simpan…' : 'Simpan'}</button></div> : automatic ? row.poin ?? '—' : row.reviewed_at ? row.poin : '—'}</td>
+              {showFineColumn && <td className="whitespace-nowrap px-4 py-3 text-brand">{automatic ? rupiah.format(row.denda) : row.reviewed_at ? rupiah.format(row.denda) : '—'}</td>}
+              {!sharedRegister && <td className="min-w-44 px-4 py-3 text-xs"><span className={automatic || row.reviewed_at ? 'text-success' : 'text-warning'}>{automatic ? 'Tercatat otomatis dari absensi' : row.reviewed_at ? 'Form laporan sudah dicek oleh manager' : 'Menunggu pemeriksaan manager'}</span></td>}
+              {manager && <td className="px-4 py-3">{automatic ? <span className="text-xs text-muted">Data absensi tidak dapat diubah atau dihapus.</span> : <div className="flex gap-3"><button disabled={busy} onClick={() => openForm(row)} className="font-semibold text-brand">{row.reviewed_at ? 'Edit' : 'Periksa'}</button><button disabled={busy} onClick={() => void remove(row)} className="text-warning">Hapus</button></div>}</td>}
             </tr> })}</tbody>
           </table>
           {!visible.length && <p className="p-6 text-sm text-muted">Belum ada pelanggaran pada periode dan filter ini.</p>}

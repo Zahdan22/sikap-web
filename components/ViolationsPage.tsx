@@ -8,5 +8,5 @@ export default async function ViolationsPage({ role }: { role: 'crew' | 'manager
   if (!user) redirect('/login')
   const { data: profile } = await supabase.from('users').select('role, status_aktif').eq('id', user.id).single()
   if (!profile?.status_aktif || profile.role !== role) redirect('/dashboard')
-  return <ViolationsClient userId={user.id} manager={role !== 'crew'} backHref={role === 'finance' ? '/finance' : '/dashboard'} />
+  return <ViolationsClient userId={user.id} manager={role !== 'crew'} finance={role === 'finance'} backHref={role === 'finance' ? '/finance' : '/dashboard'} />
 }

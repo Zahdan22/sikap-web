@@ -99,8 +99,7 @@ export default function PayrollCrewDetailClient() {
             <p className="text-muted">Gaji dasar <b className="text-ink">{idr.format(shift.basePay)}</b></p>
             <p className="text-muted">Tunjangan Masa Kerja <b className="text-ink">{idr.format(shift.seniorPlusBonus)}</b></p>
             {shift.attendanceDeductions > 0 && <p className="text-muted">Denda absensi <b className="text-warning">{idr.format(shift.attendanceDeductions)}</b></p>}
-            {shift.attendancePoints > 0 && <p className="text-muted">Poin absensi <b className="text-warning">{shift.attendancePoints}</b></p>}
-            {shift.penalties.map((penalty, index) => <p key={index} className="col-span-2 text-warning">{penalty.reason}{penalty.amount ? ` · ${idr.format(penalty.amount)}` : ''}{penalty.points ? ` · ${penalty.points} poin` : ''}</p>)}
+            {shift.penalties.map((penalty, index) => <p key={index} className="col-span-2 text-warning">{penalty.reason}{penalty.amount ? ` · ${idr.format(penalty.amount)}` : ''}</p>)}
             {shift.ikhlas && <p className="col-span-2 rounded-lg bg-warning/10 px-2 py-1 text-warning">Kerja Ikhlas: seluruh upah shift ini tidak dibayarkan.</p>}
             <p className="col-span-2 font-semibold text-brand">Total shift bersih <b>{idr.format(shift.totalPay)}</b></p>
           </div>

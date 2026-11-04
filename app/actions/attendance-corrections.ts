@@ -18,7 +18,7 @@ function failure(error: unknown) {
   return { success: false as const, message: error instanceof Error ? error.message : 'Koreksi belum dapat diproses. Silakan coba lagi.' }
 }
 function refreshCorrections() {
-  for (const path of ['/dashboard', '/manager', '/finance', '/koreksi-absensi', '/manager/koreksi-absensi', '/finance/koreksi-absensi', '/riwayat', '/checkin', '/manager/laporan', '/finance/laporan', '/finance/payroll']) revalidatePath(path)
+  for (const path of ['/dashboard', '/manager', '/finance', '/koreksi-absensi', '/manager/koreksi-absensi', '/finance/koreksi-absensi', '/riwayat', '/checkin', '/manager/laporan', '/finance/laporan', '/finance/payroll', '/pelanggaran', '/manager/pelanggaran', '/finance/pelanggaran']) revalidatePath(path)
   for (const path of ['/manager/laporan/[userId]', '/finance/laporan/[userId]', '/finance/payroll/[userId]']) revalidatePath(path, 'page')
 }
 function relation<T>(value: T | T[] | null): T | null { return Array.isArray(value) ? value[0] ?? null : value }
@@ -115,13 +115,23 @@ export async function reviewAttendanceCorrection(id: string, version: number, de
     const time = correctionTimestamp(inputTime)
     if (!Number.isSafeInteger(version) || version < 1 || !['approved','rejected','cancelled'].includes(decision) || (decision === 'approved' && !time) || !note.trim() || note.length > 1000) throw new Error('Jam dan catatan keputusan wajib diisi dengan benar.')
     const { data: correction, error: correctionError } = await access.supabase.from('attendance_corrections')
-      .select('user_id').eq('id', id).maybeSingle()
+      .select('user_id,schedule_id,kind').eq('id', id).maybeSingle()
     if (correctionError || !correction) throw new Error(correctionError?.message || 'Pengajuan tidak ditemukan.')
     const { data: targetCrew, error: targetError } = await access.supabase.from('users')
       .select('id').eq('id', correction.user_id).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
     if (targetError || !targetCrew) throw new Error(targetError?.message || 'Crew terkait sudah nonaktif.')
     const { error } = await supabaseAdmin.rpc('review_attendance_correction', { p_actor: access.userId, p_id: id, p_version: version, p_decision: decision, p_time: time, p_note: note.trim() })
     if (error) throw new Error(error.message)
+    if (decision === 'approved' && (correction.kind === 'masuk' || correction.kind === 'pulang')) {
+      // The corrected time becomes the source of truth. Clear the optional
+      // disciplinary point so a now-resolved late row cannot leave stale data.
+      // If the corrected time is still late, the derived row remains visible and
+      // Finance can reassess its point manually.
+      const violationKind = correction.kind === 'masuk' ? 'late_checkin' : 'late_checkout'
+      const { error: clearPointError } = await supabaseAdmin.from('attendance_violation_points')
+        .delete().eq('schedule_id', correction.schedule_id).eq('violation_kind', violationKind)
+      if (clearPointError) console.error('[attendance correction point cleanup]', clearPointError.message)
+    }
     refreshCorrections()
     return { success: true as const }
   } catch (error) { return failure(error) }

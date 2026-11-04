@@ -7,6 +7,7 @@ import { loadApprovedOvertime } from '@/lib/overtime-payroll'
 import { loadPayrollViolations } from '@/lib/violation-payroll'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
 import { getShiftEndAt, isCheckOutGraceExpired } from '@/lib/attendance-status'
+import { lateCheckInFine } from '@/lib/attendance-violations'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isManualPayrollComponentType, type ManualPayrollComponentType } from '@/lib/payroll-manual'
 
@@ -104,12 +105,15 @@ function hasShiftEnded(tanggal: string, jamMulai: string, jamSelesai: string) {
 }
 
 function getLatePenalty(minutesLate: number): AttendancePenalty | null {
-  if (minutesLate >= 30) return { reason: 'Telat ≥30 menit · potongan Senior Rp40.000', amount: 40_000, points: 6 }
-  if (minutesLate >= 20) return { reason: 'Telat 20–29 menit', amount: 17_000, points: 5 }
-  if (minutesLate >= 15) return { reason: 'Telat 15–19 menit', amount: 15_000, points: 5 }
-  if (minutesLate >= 10) return { reason: 'Telat 10–14 menit', amount: 12_000, points: 4 }
-  if (minutesLate >= 5) return { reason: 'Telat 5–9 menit', amount: 10_000, points: 3 }
-  if (minutesLate > 0) return { reason: 'Telat 1–4 menit', amount: 5_000, points: 2 }
+  // The Form Pelanggaran reads this same rate helper. Payroll retains the
+  // tier-specific "Kerja Ikhlas" override below for a late shift ≥30 minutes.
+  const amount = lateCheckInFine(minutesLate, true)
+  if (minutesLate >= 30 && amount !== null) return { reason: 'Telat ≥30 menit · potongan Senior Rp40.000', amount, points: 6 }
+  if (minutesLate >= 20 && amount !== null) return { reason: 'Telat 20–29 menit', amount, points: 5 }
+  if (minutesLate >= 15 && amount !== null) return { reason: 'Telat 15–19 menit', amount, points: 5 }
+  if (minutesLate >= 10 && amount !== null) return { reason: 'Telat 10–14 menit', amount, points: 4 }
+  if (minutesLate >= 5 && amount !== null) return { reason: 'Telat 5–9 menit', amount, points: 3 }
+  if (minutesLate > 0 && amount !== null) return { reason: 'Telat 1–4 menit', amount, points: 2 }
   return null
 }
 
