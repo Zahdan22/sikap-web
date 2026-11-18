@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isCheckOutGraceExpired } from '@/lib/attendance-status'
 import { lateCheckInFine } from '@/lib/attendance-violations'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
-import { violationError, validViolationDate, jakartaDate, type AttendanceViolation, type AttendanceViolationKind, type Violation, type ViolationInput, type ViolationCrew, type ViolationPeriod, type ViolationTableRow } from '@/lib/violations'
+import { violationError, validViolationDate, jakartaDate, type AttendanceViolation, type AttendanceViolationKind, type MealViolation, type Violation, type ViolationInput, type ViolationCrew, type ViolationPeriod, type ViolationTableRow } from '@/lib/violations'
 
 async function accessViolations() {
   const supabase = await createClient()
@@ -18,7 +18,7 @@ async function accessViolations() {
   return { ok: true as const, supabase, userId: user.id, role, manager: role !== 'crew', finance: role === 'finance' }
 }
 function refresh() {
-  for (const route of ['/pelanggaran','/manager/pelanggaran','/finance/pelanggaran','/dashboard','/finance','/finance/payroll','/penggajian']) revalidatePath(route)
+  for (const route of ['/pelanggaran','/manager/pelanggaran','/finance/pelanggaran','/dashboard','/finance','/finance/payroll','/penggajian','/jatah-makan','/finance/jatah-makan']) revalidatePath(route)
   revalidatePath('/finance/payroll/[userId]', 'page')
 }
 
@@ -29,6 +29,8 @@ type TierHistoryRow = { user_id: string; tier: string; effective_on: string; id:
 type TierRateHistoryRow = { id: number; tier: string; supports_senior_plus: boolean; effective_on: string }
 type TierConfigRow = { tier: string; supports_senior_plus: boolean }
 type AutomaticViolationApplicability = { applies: boolean; message?: string }
+type MealClaimRow = { user_id: string; meal_date: string }
+type ApprovedLeaveRow = { user_id: string; tanggal_mulai: string; tanggal_selesai: string }
 
 function attendancePointKey(scheduleId: number, kind: AttendanceViolationKind) { return `${scheduleId}:${kind}` }
 
@@ -87,6 +89,49 @@ async function automaticAttendanceViolations(period: { tanggal_mulai: string; ta
   }
   return { success: true as const, rows }
 }
+
+// Meal compliance intentionally stays derived rather than stored in
+// crew_violations. A later valid report, approved leave, or schedule transfer
+// therefore removes the row immediately and can never become a payroll fine.
+async function automaticMealViolations(period: { tanggal_mulai: string; tanggal_selesai: string }) {
+  const [crewResult, schedulesResult, approvedLeaveResult] = await Promise.all([
+    loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
+    loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
+    loadAllPayrollRows<ApprovedLeaveRow>((from, to) => supabaseAdmin.from('leave_request').select('user_id,tanggal_mulai,tanggal_selesai', { count: 'exact' }).eq('status', 'disetujui').lte('tanggal_mulai', period.tanggal_selesai).gte('tanggal_selesai', period.tanggal_mulai).order('tanggal_mulai').order('id').range(from, to)),
+  ])
+  if (crewResult.error || schedulesResult.error || approvedLeaveResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
+  const activeCrewIds = new Set((crewResult.data || []).map((row) => row.id))
+  const schedules = (schedulesResult.data || []).filter((row) => row.user_id && activeCrewIds.has(row.user_id)) as (ScheduleRow & { user_id: string })[]
+  if (!schedules.length) return { success: true as const, rows: [] as MealViolation[] }
+
+  const claimsResult = await loadAllPayrollRows<MealClaimRow>((from, to) => supabaseAdmin
+    .from('meal_allowance_claims')
+    .select('user_id,meal_date', { count: 'exact' })
+    .in('user_id', [...activeCrewIds])
+    .gte('meal_date', period.tanggal_mulai)
+    .lte('meal_date', period.tanggal_selesai)
+    .order('meal_date')
+    .order('user_id')
+    .range(from, to))
+  if (claimsResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
+
+  const claimKeys = new Set((claimsResult.data || []).map((row) => `${row.user_id}:${row.meal_date}`))
+  const approvedLeaves = (approvedLeaveResult.data || []).filter((row) => activeCrewIds.has(row.user_id))
+  const today = jakartaDate()
+  const rows: MealViolation[] = []
+  for (const schedule of schedules) {
+    // The due time is the end of the schedule's calendar day in Jakarta.
+    // `tanggal < today` means the cutoff (23:59:59) has definitely passed.
+    const isApprovedLeave = approvedLeaves.some((leave) => leave.user_id === schedule.user_id && leave.tanggal_mulai <= schedule.tanggal && leave.tanggal_selesai >= schedule.tanggal)
+    if (schedule.tanggal >= today || isApprovedLeave || claimKeys.has(`${schedule.user_id}:${schedule.tanggal}`)) continue
+    rows.push({
+      id: `meal-${schedule.id}-missing`, source: 'meal', schedule_id: schedule.id,
+      user_id: schedule.user_id, tanggal: schedule.tanggal,
+      kesalahan: 'Tidak mengisi jatah makan', poin: 4, denda: 0,
+    })
+  }
+  return { success: true as const, rows }
+}
 export async function loadViolationContext() {
   const access = await accessViolations()
   if (!access.ok) return { success: false as const, message: access.message }
@@ -117,9 +162,13 @@ export async function loadViolations(periodId: number) {
   // Attendance rows are deliberately derived here instead of copied into
   // crew_violations. An approved attendance correction therefore changes (or
   // removes) the matching late row immediately without leaving stale data.
-  const automatic = await automaticAttendanceViolations(period)
-  if (!automatic.success) return automatic
-  const combined: ViolationTableRow[] = [...rows, ...automatic.rows]
+  const [attendanceAutomatic, mealAutomatic] = await Promise.all([
+    automaticAttendanceViolations(period),
+    automaticMealViolations(period),
+  ])
+  if (!attendanceAutomatic.success) return attendanceAutomatic
+  if (!mealAutomatic.success) return mealAutomatic
+  const combined: ViolationTableRow[] = [...rows, ...attendanceAutomatic.rows, ...mealAutomatic.rows]
   combined.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.user_id.localeCompare(b.user_id) || String(a.id).localeCompare(String(b.id)))
   return { success: true as const, rows: combined }
 }

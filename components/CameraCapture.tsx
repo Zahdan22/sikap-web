@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type Facing = 'user' | 'environment'
-type Props = { onCapture: (canvas: HTMLCanvasElement) => void }
+type Props = { onCapture: (canvas: HTMLCanvasElement) => void; onCancel?: () => void }
 
-export default function CameraCapture({ onCapture }: Props) {
+export default function CameraCapture({ onCapture, onCancel }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const requestVersion = useRef(0)
@@ -73,7 +73,7 @@ export default function CameraCapture({ onCapture }: Props) {
     canvas.height = Math.round(video.videoHeight * scale)
     const ctx = canvas.getContext('2d')
     if (!ctx) { setError('Foto gagal diproses. Coba lagi.'); return }
-    // Match the mirrored front-camera view. Watermark is added afterwards, unmirrored.
+    // Keep the saved image consistent with the mirrored front-camera preview.
     if (facing === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1) }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -96,6 +96,7 @@ export default function CameraCapture({ onCapture }: Props) {
           <button type="button" onClick={() => void startCamera('user')} className="flex-1 rounded-xl bg-brand p-3 text-sm text-white">Kamera depan</button>
           <button type="button" onClick={() => void startCamera('environment')} className="flex-1 rounded-xl bg-brand p-3 text-sm text-white">Kamera belakang</button>
         </div>}
+      {onCancel && <button type="button" onClick={onCancel} className="w-full rounded-xl border border-cream/40 py-3 text-sm font-semibold text-cream">Batalkan kamera</button>}
     </div>
   )
 }

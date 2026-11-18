@@ -7,7 +7,12 @@ export type AttendanceViolation = {
   id: string; source: 'attendance'; schedule_id: number; attendance_kind: AttendanceViolationKind
   user_id: string; tanggal: string; kesalahan: string; poin: number | null; denda: number
 }
-export type ViolationTableRow = Violation | AttendanceViolation
+export type MealViolation = {
+  id: string; source: 'meal'; schedule_id: number
+  user_id: string; tanggal: string; kesalahan: string; poin: number; denda: 0
+}
+export type AutomaticViolation = AttendanceViolation | MealViolation
+export type ViolationTableRow = Violation | AutomaticViolation
 export type ViolationCrew = { id: string; nama: string; username: string }
 export type ViolationPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 export type ViolationInput = { id: number | null; userId: string; date: string; description: string; points: number | null; fine: number | null; version: number | null }
@@ -25,4 +30,12 @@ export function validViolationDate(value: string) {
 
 export function isAttendanceViolation(row: ViolationTableRow): row is AttendanceViolation {
   return 'source' in row && row.source === 'attendance'
+}
+
+export function isMealViolation(row: ViolationTableRow): row is MealViolation {
+  return 'source' in row && row.source === 'meal'
+}
+
+export function isAutomaticViolation(row: ViolationTableRow): row is AutomaticViolation {
+  return 'source' in row
 }

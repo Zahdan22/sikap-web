@@ -21,6 +21,19 @@ export default async function FinanceHomePage() {
         <CorrectionDashboardCard href="/finance/koreksi-absensi" manager />
         <OvertimeDashboardCard href="/finance/lembur" />
         <ViolationDashboardCard href="/finance/pelanggaran" manager />
+        <Link href="/finance/jatah-makan" className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+            <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 11h18M5 11v2a7 7 0 0 0 14 0v-2M7 7c0-1.7 1.3-3 3-3s3 1.3 3 3M15 7c0-1.1.9-2 2-2s2 .9 2 2" />
+              <path d="M8 16h8" />
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-ink">Jatah Makan Crew</p>
+            <p className="text-xs text-muted">Lihat foto, makanan, dan status pengisian jatah makan harian.</p>
+          </div>
+          <span className="text-brand">→</span>
+        </Link>
         <ViolationAppealDashboardCard href="/finance/banding-pelanggaran" />
         <Link href="/finance/payroll" className="flex items-center justify-between gap-3 rounded-2xl border border-cream-dim bg-cream-card px-5 py-4">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
