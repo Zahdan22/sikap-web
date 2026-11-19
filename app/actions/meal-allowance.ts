@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   dateRangeInclusive,
   jakartaDate,
+  mealAllowanceAppliesOn,
   mealDeadlineLabel,
   mealDeadlinePassed,
   type MealAllowanceClaimStatus,
@@ -42,7 +43,7 @@ export type MealAllowanceRow = {
   photoUrl: string | null
   submitted_at: string | null
   updated_at: string | null
-  crew?: Pick<Crew, 'id' | 'nama' | 'username'>
+  crew: Pick<Crew, 'id' | 'nama' | 'username'>
 }
 
 type MealAccess = {
@@ -148,8 +149,8 @@ function buildRows(input: {
   const leaveDates = datesOnLeave(input.leaves, input.period.tanggal_mulai, input.period.tanggal_selesai)
   const rows: MealAllowanceRow[] = []
 
-  for (const crew of input.crew) {
-    for (const date of dates) {
+  for (const date of dates) {
+    for (const crew of input.crew) {
       const key = userDateKey(crew.id, date)
       const schedule = scheduleByCrewDate.get(key) || null
       const claim = claimByCrewDate.get(key) || null
@@ -160,6 +161,7 @@ function buildRows(input: {
       if (claim) status = claim.status
       else if (leaveDates.has(key)) status = 'izin'
       else if (!schedule) status = 'libur'
+      else if (!mealAllowanceAppliesOn(date)) status = 'not_started'
       else status = mealDeadlinePassed(date) ? 'missing' : 'not_due'
 
       rows.push({
@@ -212,16 +214,19 @@ export async function loadMealAllowanceForCrew(periodId?: number) {
     const access = await accessMealAllowance()
     if (access.role !== 'crew') throw new Error('Halaman ini khusus untuk crew.')
     const today = jakartaDate()
-    const [todaySchedule, todayClaim, todayLeaves, availablePeriods] = await Promise.all([
+    const [todaySchedule, todayClaim, todayLeaves, availablePeriods, allCrewResult] = await Promise.all([
       findSchedule(access.userId, today),
       findClaim(access.userId, today),
       approvedLeaves([access.userId], today, today),
       periods(),
+      supabaseAdmin.from('users').select('id,nama,username').eq('role', 'crew').eq('status_aktif', true).order('nama'),
     ])
+    if (allCrewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
     const isOnLeave = todayLeaves.length > 0
     const selectedPeriod = choosePeriod(availablePeriods, periodId)
+    const allCrew = (allCrewResult.data || []) as Crew[]
     const history = selectedPeriod
-      ? await loadRowsForPeriod(selectedPeriod, [{ id: access.userId, nama: '', username: '' }])
+      ? await loadRowsForPeriod(selectedPeriod, allCrew)
       : []
     // A report that was already sent stays editable until the calendar-day
     // deadline. Its submitted state is represented by `claim`, while this
@@ -230,6 +235,8 @@ export async function loadMealAllowanceForCrew(periodId?: number) {
       ? 'izin'
       : !todaySchedule
         ? 'libur'
+        : !mealAllowanceAppliesOn(today)
+          ? 'not_started'
         : mealDeadlinePassed(today)
             ? 'missing'
             : 'available'
@@ -302,6 +309,7 @@ export async function saveMealAllowanceClaim(formData: FormData) {
     ])
     if (leaveRows.length) throw new Error('Kamu sedang izin pada hari ini, sehingga tidak perlu mengisi jatah makan.')
     if (!schedule) throw new Error('Tidak ada jadwal kerja hari ini.')
+    if (!mealAllowanceAppliesOn(schedule.tanggal)) throw new Error('Kewajiban jatah makan baru berlaku mulai 19 November 2026.')
     if (mealDeadlinePassed(schedule.tanggal, now)) throw new Error(`Batas pengisian jatah makan adalah ${mealDeadlineLabel(schedule.tanggal)}.`)
 
     const statusValue = String(formData.get('status') || '')

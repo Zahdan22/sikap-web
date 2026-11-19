@@ -21,6 +21,7 @@ function statusInfo(status: FinanceMealRow['status']) {
   if (status === 'not_taken') return { label: 'Tidak mengambil', className: 'bg-muted/10 text-muted' }
   if (status === 'libur') return { label: 'Libur', className: 'bg-muted/10 text-muted' }
   if (status === 'izin') return { label: 'Izin', className: 'bg-success/10 text-success' }
+  if (status === 'not_started') return { label: 'Belum berlaku', className: 'bg-muted/10 text-muted' }
   if (status === 'missing') return { label: 'Belum mengisi · 4 poin', className: 'bg-brand/10 text-brand' }
   return { label: 'Belum waktunya', className: 'bg-warning/10 text-warning' }
 }
@@ -91,7 +92,7 @@ export default function FinanceMealAllowanceClient() {
                 <td className="min-w-40 px-4 py-3 text-muted">{dateLabel(row.date)}{row.schedule && <span className="mt-1 block text-xs">Jadwal {row.schedule.jam_mulai.slice(0, 5)}–{row.schedule.jam_selesai.slice(0, 5)}</span>}</td>
                 <td className="px-4 py-3 text-ink">{row.crew.nama}<span className="block text-xs text-muted">@{row.crew.username}</span></td>
                 <td className="min-w-36 px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${state.className}`}>{state.label}</span></td>
-                <td className="min-w-52 max-w-sm whitespace-pre-wrap break-words px-4 py-3 text-ink">{row.status === 'not_taken' ? 'Tidak mengambil jatah makan' : row.description || '—'}{row.status === 'missing' && <span className="mt-2 block text-xs text-muted">Tercatat otomatis di Form Pelanggaran.</span>}</td>
+                <td className="min-w-52 max-w-sm whitespace-pre-wrap break-words px-4 py-3 text-ink">{row.status === 'not_taken' ? 'Tidak mengambil jatah makan' : row.status === 'missing' ? 'Tidak isi jatah makan' : row.description || '—'}{row.status === 'missing' && <span className="mt-2 block text-xs text-muted">Tercatat otomatis di Form Pelanggaran.</span>}</td>
                 <td className="px-4 py-3">{row.photoUrl ? <a href={row.photoUrl} target="_blank" rel="noreferrer" className="block h-16 w-16 overflow-hidden rounded-lg border border-cream-dim">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={row.photoUrl} alt={`Foto jatah makan ${row.crew.nama}`} className="h-full w-full object-cover" />

@@ -1,5 +1,9 @@
 export type MealAllowanceClaimStatus = 'claimed' | 'not_taken'
-export type MealAllowanceDisplayStatus = MealAllowanceClaimStatus | 'libur' | 'izin' | 'missing' | 'not_due'
+export type MealAllowanceDisplayStatus = MealAllowanceClaimStatus | 'libur' | 'izin' | 'missing' | 'not_due' | 'not_started'
+
+// Jatah makan mulai diterapkan pada tanggal ini. Jadwal sebelumnya tetap
+// terlihat di riwayat, tetapi tidak boleh menghasilkan poin otomatis.
+export const MEAL_ALLOWANCE_EFFECTIVE_ON = '2026-11-19'
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
@@ -7,6 +11,10 @@ export function isIsoDate(value: string) {
   if (!DATE_PATTERN.test(value)) return false
   const parsed = new Date(`${value}T00:00:00.000Z`)
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+export function mealAllowanceAppliesOn(date: string) {
+  return isIsoDate(date) && date >= MEAL_ALLOWANCE_EFFECTIVE_ON
 }
 
 export function jakartaDate(now = new Date()) {

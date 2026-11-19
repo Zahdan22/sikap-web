@@ -12,7 +12,7 @@ type Period = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai
 type TodayMeal = {
   date: string
   schedule: { id: number; jam_mulai: string; jam_selesai: string } | null
-  status: 'available' | 'libur' | 'izin' | 'missing'
+  status: 'available' | 'libur' | 'izin' | 'missing' | 'not_started'
   cutoffLabel: string
   claim: {
     id: string
@@ -30,13 +30,13 @@ const inputClass = 'mt-1 w-full rounded-xl border border-cream-dim bg-white px-3
 
 function time(value: string) { return value.slice(0, 5) }
 
-function historyStatus(status: MealAllowanceRow['status']) {
-  if (status === 'claimed') return { text: 'Terkirim', tone: 'bg-success/10 text-success' }
-  if (status === 'not_taken') return { text: 'Tidak mengambil', tone: 'bg-muted/10 text-muted' }
-  if (status === 'libur') return { text: 'Libur', tone: 'bg-muted/10 text-muted' }
-  if (status === 'izin') return { text: 'Izin', tone: 'bg-success/10 text-success' }
-  if (status === 'not_due') return { text: 'Belum waktunya', tone: 'bg-warning/10 text-warning' }
-  return { text: 'Belum diisi · 4 poin', tone: 'bg-brand/10 text-brand' }
+function historyDescription(row: MealAllowanceRow) {
+  if (row.status === 'not_taken') return 'Tidak mengambil jatah makan'
+  if (row.status === 'missing') return 'Tidak isi jatah makan'
+  if (row.status === 'libur') return 'Libur'
+  if (row.status === 'izin') return 'Izin'
+  if (row.status === 'not_started' || row.status === 'not_due') return '—'
+  return row.description || '—'
 }
 
 function canvasToJpeg(canvas: HTMLCanvasElement) {
@@ -176,6 +176,7 @@ export default function MealAllowanceCrewClient() {
             {today.status === 'available' && <p className="mt-3 rounded-xl bg-brand/5 px-3 py-2 text-xs text-muted">Isi laporan sebelum pukul <strong className="text-ink">23.59 WIB</strong>.</p>}
             {today.status === 'libur' && <p className="mt-3 rounded-xl bg-muted/10 px-3 py-2 text-sm text-muted">Hari ini kamu libur, jadi tidak perlu mengisi jatah makan.</p>}
             {today.status === 'izin' && <p className="mt-3 rounded-xl bg-success/10 px-3 py-2 text-sm text-success">Kamu sedang izin hari ini. Laporan jatah makan tidak diperlukan.</p>}
+            {today.status === 'not_started' && <p className="mt-3 rounded-xl bg-muted/10 px-3 py-2 text-sm text-muted">Kewajiban jatah makan mulai berlaku 19 November 2026.</p>}
             {today.status === 'missing' && <p className="mt-3 rounded-xl bg-brand/10 px-3 py-2 text-sm text-brand">Batas pengisian hari ini sudah lewat. Pelanggaran otomatis 4 poin tercatat di Form Pelanggaran.</p>}
           </section>
 
@@ -220,7 +221,7 @@ export default function MealAllowanceCrewClient() {
         </>}
 
         {data && <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat jatah makan</h2><button type="button" onClick={() => void load(data.period?.id)} className="text-xs font-semibold text-brand">Muat ulang</button></div>
+          <div className="flex items-center justify-between gap-3"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat jatah makan semua crew</h2><button type="button" onClick={() => void load(data.period?.id)} className="text-xs font-semibold text-brand">Muat ulang</button></div>
           <label className="block text-sm text-muted">Periode kerja
             <select value={data.period ? String(data.period.id) : ''} onChange={(event) => void load(event.target.value ? Number(event.target.value) : undefined)} disabled={loading} className={inputClass}>
               <option value="">Pilih periode kerja</option>
@@ -228,13 +229,12 @@ export default function MealAllowanceCrewClient() {
             </select>
           </label>
           <div className="overflow-hidden rounded-2xl border border-cream-dim bg-cream-card">
-            {data.history.length === 0 ? <p className="p-5 text-sm text-muted">Belum ada data jatah makan pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-b border-cream-dim bg-cream/60 text-xs uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 font-semibold">Tanggal</th><th className="px-4 py-3 font-semibold">Jadwal</th><th className="px-4 py-3 font-semibold">Keterangan</th><th className="px-4 py-3 font-semibold">Foto</th><th className="px-4 py-3 font-semibold">Status</th></tr></thead><tbody>
+            {data.history.length === 0 ? <p className="p-5 text-sm text-muted">Belum ada data jatah makan pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-cream-dim bg-cream/60 text-xs uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 font-semibold">Tanggal</th><th className="px-4 py-3 font-semibold">Crew</th><th className="px-4 py-3 font-semibold">Keterangan</th><th className="px-4 py-3 font-semibold">Foto</th></tr></thead><tbody>
               {data.history.map((row) => {
-                const status = historyStatus(row.status)
-                return <tr key={row.date} className="border-b border-cream-dim last:border-0"><td className="px-4 py-3 font-medium text-ink">{formatDateWithDay(row.date)}</td><td className="px-4 py-3 text-muted">{row.schedule ? `${time(row.schedule.jam_mulai)}–${time(row.schedule.jam_selesai)}` : '–'}</td><td className="max-w-52 px-4 py-3 text-muted">{row.status === 'not_taken' ? 'Tidak mengambil jatah makan' : row.description || '–'}</td><td className="px-4 py-3">{row.status === 'claimed' && row.photoUrl ? <a href={row.photoUrl} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-lg border border-cream-dim">
+                return <tr key={`${row.crew.id}-${row.date}`} className="border-b border-cream-dim last:border-0"><td className="px-4 py-3 font-medium text-ink">{formatDateWithDay(row.date)}</td><td className="px-4 py-3 text-ink">{row.crew.nama}<span className="block text-xs text-muted">@{row.crew.username}</span></td><td className="max-w-52 px-4 py-3 text-muted">{historyDescription(row)}</td><td className="px-4 py-3">{row.status === 'claimed' && row.photoUrl ? <a href={row.photoUrl} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-lg border border-cream-dim">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={row.photoUrl} alt={`Foto makanan ${row.date}`} className="h-full w-full object-cover" />
-                </a> : <span className="text-muted">–</span>}</td><td className="px-4 py-3"><span className={`inline-flex whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${status.tone}`}>{status.text}</span></td></tr>
+                  <img src={row.photoUrl} alt={`Foto makanan ${row.crew.nama} pada ${row.date}`} className="h-full w-full object-cover" />
+                </a> : <span className="text-muted">–</span>}</td></tr>
               })}
             </tbody></table></div>}
           </div>

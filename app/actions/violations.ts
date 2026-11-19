@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isCheckOutGraceExpired } from '@/lib/attendance-status'
 import { lateCheckInFine } from '@/lib/attendance-violations'
+import { MEAL_ALLOWANCE_EFFECTIVE_ON } from '@/lib/meal-allowance'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
 import { violationError, validViolationDate, jakartaDate, type AttendanceViolation, type AttendanceViolationKind, type MealViolation, type Violation, type ViolationInput, type ViolationCrew, type ViolationPeriod, type ViolationTableRow } from '@/lib/violations'
 
@@ -123,7 +124,7 @@ async function automaticMealViolations(period: { tanggal_mulai: string; tanggal_
     // The due time is the end of the schedule's calendar day in Jakarta.
     // `tanggal < today` means the cutoff (23:59:59) has definitely passed.
     const isApprovedLeave = approvedLeaves.some((leave) => leave.user_id === schedule.user_id && leave.tanggal_mulai <= schedule.tanggal && leave.tanggal_selesai >= schedule.tanggal)
-    if (schedule.tanggal >= today || isApprovedLeave || claimKeys.has(`${schedule.user_id}:${schedule.tanggal}`)) continue
+    if (schedule.tanggal < MEAL_ALLOWANCE_EFFECTIVE_ON || schedule.tanggal >= today || isApprovedLeave || claimKeys.has(`${schedule.user_id}:${schedule.tanggal}`)) continue
     rows.push({
       id: `meal-${schedule.id}-missing`, source: 'meal', schedule_id: schedule.id,
       user_id: schedule.user_id, tanggal: schedule.tanggal,
