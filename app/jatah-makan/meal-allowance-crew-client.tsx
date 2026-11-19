@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import CameraCapture from '@/components/CameraCapture'
 import PageHeader from '@/components/PageHeader'
 import { useDialog } from '@/components/ui/DialogProvider'
@@ -27,6 +27,9 @@ type TodayMeal = {
 type MealData = { period: Period | null; selectedDate: string | null; today: TodayMeal; history: MealAllowanceRow[] }
 
 const inputClass = 'mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-3 text-sm text-ink outline-none focus:border-brand'
+const MAX_MEAL_PHOTO_BYTES = 2_500_000
+const MAX_GALLERY_IMAGE_EDGE = 1_280
+const MAX_GALLERY_SOURCE_BYTES = 20_000_000
 
 function time(value: string) { return value.slice(0, 5) }
 
@@ -46,13 +49,49 @@ function shiftDate(date: string, amount: number) {
   return next.toISOString().slice(0, 10)
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement) {
+function canvasToJpeg(canvas: HTMLCanvasElement, quality = 0.8) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) { reject(new Error('Foto belum dapat diproses. Coba ambil ulang.')); return }
       resolve(blob)
-    }, 'image/jpeg', 0.8)
+    }, 'image/jpeg', quality)
   })
+}
+
+function allowedGalleryImage(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  return ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || ['jpg', 'jpeg', 'png', 'webp'].includes(extension || '')
+}
+
+async function galleryImageToJpeg(file: File) {
+  if (!allowedGalleryImage(file)) throw new Error('Pilih foto berformat JPG, PNG, atau WebP.')
+  if (file.size > MAX_GALLERY_SOURCE_BYTES) throw new Error('Ukuran foto terlalu besar. Pilih foto maksimal 20 MB.')
+
+  const sourceUrl = URL.createObjectURL(file)
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image()
+    element.onload = () => resolve(element)
+    element.onerror = () => reject(new Error('Foto tidak dapat dibaca. Pilih foto lain.'))
+    element.src = sourceUrl
+  }).finally(() => URL.revokeObjectURL(sourceUrl))
+
+  const scale = Math.min(1, MAX_GALLERY_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Foto belum dapat diproses. Coba pilih foto lain.')
+  // JPEG has no transparency. Keep PNG/WebP food photos clean instead of
+  // rendering any transparent area as black after conversion.
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+  for (const quality of [0.82, 0.72, 0.62]) {
+    const jpeg = await canvasToJpeg(canvas, quality)
+    if (jpeg.size <= MAX_MEAL_PHOTO_BYTES) return jpeg
+  }
+  throw new Error('Foto masih terlalu besar setelah diproses. Pilih foto lain.')
 }
 
 export default function MealAllowanceCrewClient() {
@@ -66,6 +105,16 @@ export default function MealAllowanceCrewClient() {
   const [newPhoto, setNewPhoto] = useState<Blob | null>(null)
   const [newPhotoUrl, setNewPhotoUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
+
+  const setPreparedPhoto = useCallback((photo: Blob) => {
+    const url = URL.createObjectURL(photo)
+    setNewPhoto(photo)
+    setNewPhotoUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous)
+      return url
+    })
+  }, [])
 
   const discardNewPhoto = useCallback(() => {
     setNewPhoto(null)
@@ -73,6 +122,7 @@ export default function MealAllowanceCrewClient() {
       if (previous) URL.revokeObjectURL(previous)
       return ''
     })
+    if (galleryInputRef.current) galleryInputRef.current.value = ''
   }, [])
 
   const load = useCallback(async (selectedDate?: string, resetForm = false) => {
@@ -111,16 +161,26 @@ export default function MealAllowanceCrewClient() {
   async function capture(canvas: HTMLCanvasElement) {
     try {
       const blob = await canvasToJpeg(canvas)
-      const url = URL.createObjectURL(blob)
-      setNewPhoto(blob)
-      setNewPhotoUrl((previous) => {
-        if (previous) URL.revokeObjectURL(previous)
-        return url
-      })
+      setPreparedPhoto(blob)
       setCameraOpen(false)
       toast('Foto siap digunakan. Periksa lalu kirim laporan.', 'success')
     } catch (captureError) {
       toast(captureError instanceof Error ? captureError.message : 'Foto belum dapat diproses.', 'error')
+    }
+  }
+
+  async function selectPhotoFromStorage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      const photo = await galleryImageToJpeg(file)
+      setCameraOpen(false)
+      setPreparedPhoto(photo)
+      toast('Foto dari penyimpanan siap digunakan. Periksa lalu kirim laporan.', 'success')
+    } catch (selectError) {
+      toast(selectError instanceof Error ? selectError.message : 'Foto belum dapat diproses.', 'error')
     }
   }
 
@@ -203,10 +263,14 @@ export default function MealAllowanceCrewClient() {
                   ? <img src={visiblePhoto} alt="Pratinjau jatah makan" className="max-h-[52vh] w-full object-contain" />
                   : <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 p-5 text-center text-cream/70"><span className="text-3xl">🍽️</span><p className="text-sm">Ambil foto makananmu</p></div>}
               </div>
-              {!cameraOpen && <div className="flex gap-3">
-                <button type="button" onClick={() => setCameraOpen(true)} className="flex-1 rounded-xl border border-cream-dim bg-white py-3 text-sm font-semibold text-brand">{visiblePhoto ? 'Ambil ulang foto' : 'Buka kamera'}</button>
-                {newPhotoUrl && <button type="button" onClick={discardNewPhoto} className="rounded-xl border border-cream-dim bg-white px-4 py-3 text-sm font-semibold text-muted">Batalkan foto baru</button>}
-              </div>}
+              {!cameraOpen && <>
+                <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void selectPhotoFromStorage(event) }} className="sr-only" />
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setCameraOpen(true)} className="rounded-xl border border-cream-dim bg-white px-3 py-3 text-sm font-semibold text-brand">Foto langsung</button>
+                  <button type="button" onClick={() => galleryInputRef.current?.click()} className="rounded-xl border border-cream-dim bg-white px-3 py-3 text-sm font-semibold text-brand">Pilih dari penyimpanan</button>
+                </div>
+                {newPhotoUrl && <button type="button" onClick={discardNewPhoto} className="w-full rounded-xl border border-cream-dim bg-white px-4 py-3 text-sm font-semibold text-muted">Hapus foto baru</button>}
+              </>}
               <label className="block text-sm text-muted">Keterangan makanan (wajib)
                 <textarea required maxLength={500} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Contoh: nasi lande komplit" className={inputClass} />
               </label>
