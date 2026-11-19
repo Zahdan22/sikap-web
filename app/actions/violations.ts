@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isCheckOutGraceExpired } from '@/lib/attendance-status'
 import { lateCheckInFine } from '@/lib/attendance-violations'
 import { MEAL_ALLOWANCE_EFFECTIVE_ON } from '@/lib/meal-allowance'
+import { purgeCompletedMealAllowanceData } from '@/lib/meal-allowance-cleanup'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
 import { violationError, validViolationDate, jakartaDate, type AttendanceViolation, type AttendanceViolationKind, type MealViolation, type Violation, type ViolationInput, type ViolationCrew, type ViolationPeriod, type ViolationTableRow } from '@/lib/violations'
 
@@ -31,6 +32,7 @@ type TierRateHistoryRow = { id: number; tier: string; supports_senior_plus: bool
 type TierConfigRow = { tier: string; supports_senior_plus: boolean }
 type AutomaticViolationApplicability = { applies: boolean; message?: string }
 type MealClaimRow = { user_id: string; meal_date: string }
+type SavedMealViolationRow = { schedule_id: number; user_id: string; tanggal: string; poin: number }
 type ApprovedLeaveRow = { user_id: string; tanggal_mulai: string; tanggal_selesai: string }
 
 function attendancePointKey(scheduleId: number, kind: AttendanceViolationKind) { return `${scheduleId}:${kind}` }
@@ -91,19 +93,29 @@ async function automaticAttendanceViolations(period: { tanggal_mulai: string; ta
   return { success: true as const, rows }
 }
 
-// Meal compliance intentionally stays derived rather than stored in
-// crew_violations. A later valid report, approved leave, or schedule transfer
-// therefore removes the row immediately and can never become a payroll fine.
-async function automaticMealViolations(period: { tanggal_mulai: string; tanggal_selesai: string }) {
-  const [crewResult, schedulesResult, approvedLeaveResult] = await Promise.all([
+// A current-period missing report is derived so a valid report, approved leave,
+// or schedule transfer is reflected immediately. Once a period closes, the
+// cleanup job snapshots only real missing reports into a dedicated table before
+// deleting temporary meal reports and food photos.
+async function automaticMealViolations(period: { id: number; tanggal_mulai: string; tanggal_selesai: string }) {
+  const [crewResult, schedulesResult, approvedLeaveResult, savedResult, cleanupResult] = await Promise.all([
     loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
     loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
     loadAllPayrollRows<ApprovedLeaveRow>((from, to) => supabaseAdmin.from('leave_request').select('user_id,tanggal_mulai,tanggal_selesai', { count: 'exact' }).eq('status', 'disetujui').lte('tanggal_mulai', period.tanggal_selesai).gte('tanggal_selesai', period.tanggal_mulai).order('tanggal_mulai').order('id').range(from, to)),
+    loadAllPayrollRows<SavedMealViolationRow>((from, to) => supabaseAdmin.from('meal_allowance_missing_violations').select('schedule_id,user_id,tanggal,poin', { count: 'exact' }).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('schedule_id').range(from, to)),
+    supabaseAdmin.from('meal_allowance_period_cleanups').select('period_id').eq('period_id', period.id).maybeSingle(),
   ])
-  if (crewResult.error || schedulesResult.error || approvedLeaveResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
+  if (crewResult.error || schedulesResult.error || approvedLeaveResult.error || savedResult.error || cleanupResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
   const activeCrewIds = new Set((crewResult.data || []).map((row) => row.id))
   const schedules = (schedulesResult.data || []).filter((row) => row.user_id && activeCrewIds.has(row.user_id)) as (ScheduleRow & { user_id: string })[]
-  if (!schedules.length) return { success: true as const, rows: [] as MealViolation[] }
+  const persisted: MealViolation[] = (savedResult.data || [])
+    .filter((row) => activeCrewIds.has(row.user_id))
+    .map((row) => ({
+      id: `meal-${row.schedule_id}-missing`, source: 'meal' as const, schedule_id: row.schedule_id,
+      user_id: row.user_id, tanggal: row.tanggal,
+      kesalahan: 'Tidak mengisi jatah makan', poin: Number(row.poin), denda: 0 as const,
+    }))
+  if (!schedules.length || cleanupResult.data) return { success: true as const, rows: persisted }
 
   const claimsResult = await loadAllPayrollRows<MealClaimRow>((from, to) => supabaseAdmin
     .from('meal_allowance_claims')
@@ -117,6 +129,7 @@ async function automaticMealViolations(period: { tanggal_mulai: string; tanggal_
   if (claimsResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
 
   const claimKeys = new Set((claimsResult.data || []).map((row) => `${row.user_id}:${row.meal_date}`))
+  const persistedScheduleIds = new Set(persisted.map((row) => row.schedule_id))
   const approvedLeaves = (approvedLeaveResult.data || []).filter((row) => activeCrewIds.has(row.user_id))
   const today = jakartaDate()
   const rows: MealViolation[] = []
@@ -124,14 +137,14 @@ async function automaticMealViolations(period: { tanggal_mulai: string; tanggal_
     // The due time is the end of the schedule's calendar day in Jakarta.
     // `tanggal < today` means the cutoff (23:59:59) has definitely passed.
     const isApprovedLeave = approvedLeaves.some((leave) => leave.user_id === schedule.user_id && leave.tanggal_mulai <= schedule.tanggal && leave.tanggal_selesai >= schedule.tanggal)
-    if (schedule.tanggal < MEAL_ALLOWANCE_EFFECTIVE_ON || schedule.tanggal >= today || isApprovedLeave || claimKeys.has(`${schedule.user_id}:${schedule.tanggal}`)) continue
+    if (persistedScheduleIds.has(schedule.id) || schedule.tanggal < MEAL_ALLOWANCE_EFFECTIVE_ON || schedule.tanggal >= today || isApprovedLeave || claimKeys.has(`${schedule.user_id}:${schedule.tanggal}`)) continue
     rows.push({
       id: `meal-${schedule.id}-missing`, source: 'meal', schedule_id: schedule.id,
       user_id: schedule.user_id, tanggal: schedule.tanggal,
       kesalahan: 'Tidak mengisi jatah makan', poin: 4, denda: 0,
     })
   }
-  return { success: true as const, rows }
+  return { success: true as const, rows: [...persisted, ...rows] }
 }
 export async function loadViolationContext() {
   const access = await accessViolations()
@@ -147,7 +160,12 @@ export async function loadViolations(periodId: number) {
   const access = await accessViolations()
   if (!access.ok) return { success: false as const, message: access.message }
   if (!Number.isSafeInteger(periodId) || periodId <= 0) return { success: false as const, message: 'Pilih periode kerja.' }
-  const { data: period, error } = await access.supabase.from('periode_kerja').select('tanggal_mulai, tanggal_selesai').eq('id', periodId).single()
+  try {
+    await purgeCompletedMealAllowanceData()
+  } catch (cleanupError) {
+    console.error('[meal allowance cleanup before violations]', cleanupError)
+  }
+  const { data: period, error } = await access.supabase.from('periode_kerja').select('id, tanggal_mulai, tanggal_selesai').eq('id', periodId).single()
   if (error || !period) return { success: false as const, message: 'Periode tidak ditemukan.' }
   const rows: Violation[] = []
   for (let offset = 0; ; offset += 500) {

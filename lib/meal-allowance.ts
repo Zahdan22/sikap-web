@@ -4,6 +4,7 @@ export type MealAllowanceDisplayStatus = MealAllowanceClaimStatus | 'libur' | 'i
 // Jatah makan mulai diterapkan pada tanggal ini. Jadwal sebelumnya tetap
 // terlihat di riwayat, tetapi tidak boleh menghasilkan poin otomatis.
 export const MEAL_ALLOWANCE_EFFECTIVE_ON = '2026-11-19'
+export const MEAL_ALLOWANCE_PHOTO_BUCKET = 'meal-allowance-photos'
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 

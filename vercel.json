@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/meal-allowance-cleanup",
+      "schedule": "15 17 * * *"
+    }
+  ]
+}

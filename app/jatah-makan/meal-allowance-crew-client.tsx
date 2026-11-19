@@ -24,7 +24,7 @@ type TodayMeal = {
     updated_at: string
   } | null
 }
-type MealData = { periods: Period[]; period: Period | null; today: TodayMeal; history: MealAllowanceRow[] }
+type MealData = { period: Period | null; selectedDate: string | null; today: TodayMeal; history: MealAllowanceRow[] }
 
 const inputClass = 'mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-3 text-sm text-ink outline-none focus:border-brand'
 
@@ -35,8 +35,15 @@ function historyDescription(row: MealAllowanceRow) {
   if (row.status === 'missing') return 'Tidak isi jatah makan'
   if (row.status === 'libur') return 'Libur'
   if (row.status === 'izin') return 'Izin'
-  if (row.status === 'not_started' || row.status === 'not_due') return '—'
+  if (row.status === 'not_started') return 'Belum berlaku'
+  if (row.status === 'not_due') return 'Belum waktunya'
   return row.description || '—'
+}
+
+function shiftDate(date: string, amount: number) {
+  const next = new Date(`${date}T00:00:00Z`)
+  next.setUTCDate(next.getUTCDate() + amount)
+  return next.toISOString().slice(0, 10)
 }
 
 function canvasToJpeg(canvas: HTMLCanvasElement) {
@@ -68,10 +75,10 @@ export default function MealAllowanceCrewClient() {
     })
   }, [])
 
-  const load = useCallback(async (periodId?: number, resetForm = false) => {
+  const load = useCallback(async (selectedDate?: string, resetForm = false) => {
     setLoading(true)
     try {
-      const result = await loadMealAllowanceForCrew(periodId)
+      const result = await loadMealAllowanceForCrew(selectedDate)
       if (!result.success) {
         setError(result.message)
         return
@@ -148,7 +155,7 @@ export default function MealAllowanceCrewClient() {
       const result = await saveMealAllowanceClaim(form)
       if (!result.success) { toast(result.message, 'error'); return }
       toast(result.message, 'success')
-      await load(data?.period?.id, true)
+      await load(data?.selectedDate || undefined, true)
     } catch {
       toast('Laporan belum dapat disimpan. Coba lagi beberapa saat.', 'error')
     } finally {
@@ -166,7 +173,7 @@ export default function MealAllowanceCrewClient() {
       <PageHeader title="Jatah Makan Harian" backHref="/dashboard" />
       <main className="space-y-5 px-5 pt-5">
         {loading && !data && <p className="text-sm text-muted">Memuat jatah makan…</p>}
-        {error && <div role="alert" className="rounded-2xl border border-brand/20 bg-brand/5 p-4 text-sm text-brand"><p>{error}</p><button type="button" onClick={() => void load(data?.period?.id)} className="mt-2 font-semibold underline">Muat ulang</button></div>}
+        {error && <div role="alert" className="rounded-2xl border border-brand/20 bg-brand/5 p-4 text-sm text-brand"><p>{error}</p><button type="button" aria-label="Muat ulang data jatah makan" title="Muat ulang" onClick={() => void load(data?.selectedDate || undefined)} className="mt-2 inline-flex h-8 w-8 items-center justify-center rounded-lg text-xl font-semibold leading-none text-brand hover:bg-brand/10">↻</button></div>}
 
         {today && <>
           <section className="rounded-2xl border border-cream-dim bg-cream-card p-5">
@@ -221,23 +228,28 @@ export default function MealAllowanceCrewClient() {
         </>}
 
         {data && <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat jatah makan semua crew</h2><button type="button" onClick={() => void load(data.period?.id)} className="text-xs font-semibold text-brand">Muat ulang</button></div>
-          <label className="block text-sm text-muted">Periode kerja
-            <select value={data.period ? String(data.period.id) : ''} onChange={(event) => void load(event.target.value ? Number(event.target.value) : undefined)} disabled={loading} className={inputClass}>
-              <option value="">Pilih periode kerja</option>
-              {data.periods.map((period) => <option key={period.id} value={period.id}>{period.nama} ({period.tanggal_mulai} s.d. {period.tanggal_selesai})</option>)}
-            </select>
-          </label>
-          <div className="overflow-hidden rounded-2xl border border-cream-dim bg-cream-card">
-            {data.history.length === 0 ? <p className="p-5 text-sm text-muted">Belum ada data jatah makan pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-cream-dim bg-cream/60 text-xs uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 font-semibold">Tanggal</th><th className="px-4 py-3 font-semibold">Crew</th><th className="px-4 py-3 font-semibold">Keterangan</th><th className="px-4 py-3 font-semibold">Foto</th></tr></thead><tbody>
-              {data.history.map((row) => {
-                return <tr key={`${row.crew.id}-${row.date}`} className="border-b border-cream-dim last:border-0"><td className="px-4 py-3 font-medium text-ink">{formatDateWithDay(row.date)}</td><td className="px-4 py-3 text-ink">{row.crew.nama}<span className="block text-xs text-muted">@{row.crew.username}</span></td><td className="max-w-52 px-4 py-3 text-muted">{historyDescription(row)}</td><td className="px-4 py-3">{row.status === 'claimed' && row.photoUrl ? <a href={row.photoUrl} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-lg border border-cream-dim">
+          <div className="flex items-center justify-between gap-3"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Riwayat jatah makan semua crew</h2><button type="button" aria-label="Muat ulang riwayat jatah makan" title="Muat ulang" onClick={() => void load(data.selectedDate || undefined)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-xl font-semibold leading-none text-brand hover:bg-brand/10">↻</button></div>
+          {data.period && data.selectedDate ? <>
+            <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Periode kerja saat ini</p>
+              <p className="mt-1 font-semibold text-ink">{data.period.nama}</p>
+              <p className="mt-1 text-xs text-muted">{formatDateWithDay(data.period.tanggal_mulai)} s.d. {formatDateWithDay(data.period.tanggal_selesai)}</p>
+              <div className="mt-4 grid grid-cols-[auto_1fr_auto] items-center rounded-xl border border-cream-dim bg-white">
+                <button type="button" aria-label="Tanggal sebelumnya" disabled={loading || data.selectedDate <= data.period.tanggal_mulai} onClick={() => void load(shiftDate(data.selectedDate!, -1))} className="px-4 py-4 text-xl font-semibold text-brand disabled:text-muted disabled:opacity-50">‹</button>
+                <div className="border-x border-cream-dim px-3 py-3 text-center"><p className="text-xs font-semibold uppercase tracking-wide text-muted">Hari / tanggal</p><p className="mt-1 text-sm font-semibold text-ink">{formatDateWithDay(data.selectedDate)}</p></div>
+                <button type="button" aria-label="Tanggal berikutnya" disabled={loading || data.selectedDate >= data.period.tanggal_selesai} onClick={() => void load(shiftDate(data.selectedDate!, 1))} className="px-4 py-4 text-xl font-semibold text-brand disabled:text-muted disabled:opacity-50">›</button>
+              </div>
+            </section>
+            <div className="overflow-x-auto rounded-2xl border border-cream-dim bg-cream-card">
+              <table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-cream-dim bg-cream/60 text-xs uppercase tracking-wide text-muted"><tr><th className="px-4 py-3 font-semibold">Nama crew</th><th className="px-4 py-3 font-semibold">Foto</th><th className="px-4 py-3 font-semibold">Keterangan</th></tr></thead><tbody>
+                {data.history.map((row) => <tr key={`${row.crew.id}-${row.date}`} className="border-b border-cream-dim align-top last:border-0"><td className="min-w-44 px-4 py-3 text-ink">{row.crew.nama}<span className="block text-xs text-muted">@{row.crew.username}</span></td><td className="w-20 px-4 py-3">{row.status === 'claimed' && row.photoUrl ? <a href={row.photoUrl} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-lg border border-cream-dim">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={row.photoUrl} alt={`Foto makanan ${row.crew.nama} pada ${row.date}`} className="h-full w-full object-cover" />
-                </a> : <span className="text-muted">–</span>}</td></tr>
-              })}
-            </tbody></table></div>}
-          </div>
+                </a> : <span className="text-muted">–</span>}</td><td className="min-w-56 max-w-sm whitespace-pre-wrap break-words px-4 py-3 text-muted">{historyDescription(row)}</td></tr>)}
+              </tbody></table>
+              {!data.history.length && <p className="p-5 text-sm text-muted">Belum ada data jatah makan pada tanggal ini.</p>}
+            </div>
+          </> : <div className="rounded-2xl border border-cream-dim bg-cream-card p-5 text-sm text-muted">Tidak ada periode kerja yang sedang berjalan. Riwayat jatah makan periode sebelumnya sudah dibersihkan.</div>}
         </section>}
       </main>
     </div>

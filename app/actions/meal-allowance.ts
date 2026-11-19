@@ -3,18 +3,19 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { purgeCompletedMealAllowanceData } from '@/lib/meal-allowance-cleanup'
 import {
-  dateRangeInclusive,
+  MEAL_ALLOWANCE_PHOTO_BUCKET,
   jakartaDate,
   mealAllowanceAppliesOn,
   mealDeadlineLabel,
   mealDeadlinePassed,
+  isIsoDate,
   type MealAllowanceClaimStatus,
   type MealAllowanceDisplayStatus,
   isJpeg,
 } from '@/lib/meal-allowance'
 
-const MEAL_BUCKET = 'meal-allowance-photos'
 const MAX_MEAL_PHOTO_BYTES = 2_500_000
 
 type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
@@ -56,8 +57,6 @@ function failure(error: unknown) {
   return { success: false as const, message: error instanceof Error ? error.message : 'Jatah makan belum dapat dimuat. Coba lagi beberapa saat.' }
 }
 
-function maxDate(a: string, b: string) { return a > b ? a : b }
-function minDate(a: string, b: string) { return a < b ? a : b }
 function userDateKey(userId: string, date: string) { return `${userId}:${date}` }
 
 async function accessMealAllowance(): Promise<MealAccess> {
@@ -104,99 +103,88 @@ async function findClaim(userId: string, date: string) {
 async function signedUrls(claims: Claim[]) {
   const paths = [...new Set(claims.map((claim) => claim.photo_path).filter((path): path is string => Boolean(path)))]
   if (!paths.length) return new Map<string, string>()
-  const { data, error } = await supabaseAdmin.storage.from(MEAL_BUCKET).createSignedUrls(paths, 3_600)
+  const { data, error } = await supabaseAdmin.storage.from(MEAL_ALLOWANCE_PHOTO_BUCKET).createSignedUrls(paths, 3_600)
   if (error) throw new Error('Foto jatah makan belum dapat dibuka.')
   return new Map((data || []).flatMap((signed) => signed.path && signed.signedUrl ? [[signed.path, signed.signedUrl] as const] : []))
 }
 
-function datesOnLeave(leaves: (Leave & { user_id: string })[], start: string, end: string) {
-  const result = new Set<string>()
-  for (const leave of leaves) {
-    for (const date of dateRangeInclusive(maxDate(start, leave.tanggal_mulai), minDate(end, leave.tanggal_selesai))) result.add(userDateKey(leave.user_id, date))
-  }
-  return result
-}
-
-async function periods() {
+async function activePeriod(today: string) {
   const { data, error } = await supabaseAdmin.from('periode_kerja')
-    .select('id,nama,tanggal_mulai,tanggal_selesai').order('tanggal_mulai', { ascending: false }).range(0, 199)
-  if (error) throw new Error('Daftar periode kerja belum dapat dimuat.')
-  return (data || []) as WorkPeriod[]
+    .select('id,nama,tanggal_mulai,tanggal_selesai')
+    .lte('tanggal_mulai', today).gte('tanggal_selesai', today)
+    .order('tanggal_mulai', { ascending: false }).limit(2)
+  if (error) throw new Error('Periode kerja belum dapat dimuat.')
+  if ((data || []).length > 1) throw new Error('Ditemukan lebih dari satu periode kerja aktif. Hubungi manager.')
+  return (data?.[0] || null) as WorkPeriod | null
 }
 
-function choosePeriod(allPeriods: WorkPeriod[], requestedId?: number) {
-  if (requestedId !== undefined && (!Number.isSafeInteger(requestedId) || requestedId <= 0)) throw new Error('Periode kerja tidak valid.')
-  if (requestedId !== undefined) {
-    const requested = allPeriods.find((period) => period.id === requestedId)
-    if (!requested) throw new Error('Periode kerja tidak ditemukan.')
-    return requested
-  }
-  const today = jakartaDate()
-  return allPeriods.find((period) => period.tanggal_mulai <= today && today <= period.tanggal_selesai) || allPeriods[0] || null
+function selectedDateForPeriod(period: WorkPeriod | null, requestedDate: string | undefined, today: string) {
+  if (!period) return null
+  if (requestedDate !== undefined && !isIsoDate(requestedDate)) throw new Error('Tanggal jatah makan tidak valid.')
+  const date = requestedDate || today
+  if (date < period.tanggal_mulai || date > period.tanggal_selesai) throw new Error('Tanggal tersebut berada di luar periode kerja yang sedang berjalan.')
+  return date
 }
 
 function buildRows(input: {
-  period: WorkPeriod
+  date: string
   crew: Crew[]
   schedules: Schedule[]
   claims: Claim[]
   leaves: (Leave & { user_id: string })[]
   urls: Map<string, string>
 }) {
-  const dates = dateRangeInclusive(input.period.tanggal_mulai, input.period.tanggal_selesai)
   const scheduleByCrewDate = new Map(input.schedules.map((schedule) => [userDateKey(schedule.user_id, schedule.tanggal), schedule]))
   const claimByCrewDate = new Map(input.claims.map((claim) => [userDateKey(claim.user_id, claim.meal_date), claim]))
-  const leaveDates = datesOnLeave(input.leaves, input.period.tanggal_mulai, input.period.tanggal_selesai)
   const rows: MealAllowanceRow[] = []
 
-  for (const date of dates) {
-    for (const crew of input.crew) {
-      const key = userDateKey(crew.id, date)
-      const schedule = scheduleByCrewDate.get(key) || null
-      const claim = claimByCrewDate.get(key) || null
-      let status: MealAllowanceDisplayStatus
-      // Keep a valid report visible even if the schedule is later swapped or
-      // an approved leave is recorded afterwards. Missing-report logic below
-      // still follows the current schedule owner.
-      if (claim) status = claim.status
-      else if (leaveDates.has(key)) status = 'izin'
-      else if (!schedule) status = 'libur'
-      else if (!mealAllowanceAppliesOn(date)) status = 'not_started'
-      else status = mealDeadlinePassed(date) ? 'missing' : 'not_due'
+  for (const crew of input.crew) {
+    const key = userDateKey(crew.id, input.date)
+    const schedule = scheduleByCrewDate.get(key) || null
+    const claim = claimByCrewDate.get(key) || null
+    const onLeave = input.leaves.some((leave) => leave.user_id === crew.id && leave.tanggal_mulai <= input.date && leave.tanggal_selesai >= input.date)
+    let status: MealAllowanceDisplayStatus
+    // Keep a valid report visible even if the schedule is later swapped or
+    // an approved leave is recorded afterwards. Missing-report logic below
+    // still follows the current schedule owner.
+    if (claim) status = claim.status
+    else if (onLeave) status = 'izin'
+    else if (!schedule) status = 'libur'
+    else if (!mealAllowanceAppliesOn(input.date)) status = 'not_started'
+    else status = mealDeadlinePassed(input.date) ? 'missing' : 'not_due'
 
-      rows.push({
-        id: claim?.id || null,
-        date,
-        schedule: schedule ? { id: schedule.id, jam_mulai: schedule.jam_mulai, jam_selesai: schedule.jam_selesai } : null,
-        status,
-        description: claim?.description || null,
-        photoUrl: claim?.photo_path ? input.urls.get(claim.photo_path) || null : null,
-        submitted_at: claim?.submitted_at || null,
-        updated_at: claim?.updated_at || null,
-        crew,
-      })
-    }
+    rows.push({
+      id: claim?.id || null,
+      date: input.date,
+      schedule: schedule ? { id: schedule.id, jam_mulai: schedule.jam_mulai, jam_selesai: schedule.jam_selesai } : null,
+      status,
+      description: claim?.description || null,
+      photoUrl: claim?.photo_path ? input.urls.get(claim.photo_path) || null : null,
+      submitted_at: claim?.submitted_at || null,
+      updated_at: claim?.updated_at || null,
+      crew,
+    })
   }
   return rows
 }
 
-async function loadRowsForPeriod(period: WorkPeriod, crew: Crew[]) {
+async function loadRowsForDate(date: string, crew: Crew[]) {
   if (!crew.length) return [] as MealAllowanceRow[]
   const crewIds = crew.map((item) => item.id)
   const [scheduleResult, claimResult, leaveRows] = await Promise.all([
     supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai')
-      .in('user_id', crewIds).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai)
+      .in('user_id', crewIds).eq('tanggal', date)
       .order('tanggal').order('id'),
     supabaseAdmin.from('meal_allowance_claims').select('id,schedule_id,user_id,meal_date,status,description,photo_path,submitted_at,updated_at,version')
-      .in('user_id', crewIds).gte('meal_date', period.tanggal_mulai).lte('meal_date', period.tanggal_selesai)
+      .in('user_id', crewIds).eq('meal_date', date)
       .order('meal_date').order('submitted_at'),
-    approvedLeaves(crewIds, period.tanggal_mulai, period.tanggal_selesai),
+    approvedLeaves(crewIds, date, date),
   ])
-  if (scheduleResult.error || claimResult.error) throw new Error('Data jatah makan periode ini belum dapat dimuat.')
+  if (scheduleResult.error || claimResult.error) throw new Error('Data jatah makan belum dapat dimuat.')
   const claims = (claimResult.data || []) as Claim[]
   const urls = await signedUrls(claims)
   return buildRows({
-    period,
+    date,
     crew,
     schedules: (scheduleResult.data || []).filter((row): row is Schedule => Boolean(row.user_id)) as Schedule[],
     claims,
@@ -209,24 +197,29 @@ function refreshMealAllowance() {
   for (const path of ['/dashboard', '/jatah-makan', '/finance', '/finance/jatah-makan', '/pelanggaran', '/finance/pelanggaran']) revalidatePath(path)
 }
 
-export async function loadMealAllowanceForCrew(periodId?: number) {
+export async function loadMealAllowanceForCrew(selectedDate?: string) {
   try {
     const access = await accessMealAllowance()
     if (access.role !== 'crew') throw new Error('Halaman ini khusus untuk crew.')
     const today = jakartaDate()
-    const [todaySchedule, todayClaim, todayLeaves, availablePeriods, allCrewResult] = await Promise.all([
+    try {
+      await purgeCompletedMealAllowanceData()
+    } catch (cleanupError) {
+      console.error('[meal allowance cleanup before crew load]', cleanupError)
+    }
+    const [todaySchedule, todayClaim, todayLeaves, currentPeriod, allCrewResult] = await Promise.all([
       findSchedule(access.userId, today),
       findClaim(access.userId, today),
       approvedLeaves([access.userId], today, today),
-      periods(),
+      activePeriod(today),
       supabaseAdmin.from('users').select('id,nama,username').eq('role', 'crew').eq('status_aktif', true).order('nama'),
     ])
     if (allCrewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
     const isOnLeave = todayLeaves.length > 0
-    const selectedPeriod = choosePeriod(availablePeriods, periodId)
+    const visibleDate = selectedDateForPeriod(currentPeriod, selectedDate, today)
     const allCrew = (allCrewResult.data || []) as Crew[]
-    const history = selectedPeriod
-      ? await loadRowsForPeriod(selectedPeriod, allCrew)
+    const history = visibleDate
+      ? await loadRowsForDate(visibleDate, allCrew)
       : []
     // A report that was already sent stays editable until the calendar-day
     // deadline. Its submitted state is represented by `claim`, while this
@@ -243,8 +236,8 @@ export async function loadMealAllowanceForCrew(periodId?: number) {
     const urls = todayClaim ? await signedUrls([todayClaim]) : new Map<string, string>()
     return {
       success: true as const,
-      periods: availablePeriods,
-      period: selectedPeriod,
+      period: currentPeriod,
+      selectedDate: visibleDate,
       today: {
         date: today,
         schedule: todaySchedule ? { id: todaySchedule.id, jam_mulai: todaySchedule.jam_mulai, jam_selesai: todaySchedule.jam_selesai } : null,
@@ -265,23 +258,25 @@ export async function loadMealAllowanceForCrew(periodId?: number) {
   } catch (error) { return failure(error) }
 }
 
-export async function loadMealAllowanceForFinance(periodId?: number, crewId?: string) {
+export async function loadMealAllowanceForFinance(selectedDate?: string) {
   try {
     const access = await accessMealAllowance()
     if (access.role !== 'finance') throw new Error('Halaman ini khusus untuk Manager Keuangan.')
-    const [availablePeriods, crewResult] = await Promise.all([
-      periods(),
+    const today = jakartaDate()
+    try {
+      await purgeCompletedMealAllowanceData()
+    } catch (cleanupError) {
+      console.error('[meal allowance cleanup before finance load]', cleanupError)
+    }
+    const [currentPeriod, crewResult] = await Promise.all([
+      activePeriod(today),
       supabaseAdmin.from('users').select('id,nama,username').eq('role', 'crew').eq('status_aktif', true).order('nama'),
     ])
     if (crewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
     const allCrew = (crewResult.data || []) as Crew[]
-    const crew = crewId
-      ? allCrew.filter((item) => item.id === crewId)
-      : allCrew
-    if (crewId && !crew.length) throw new Error('Crew tidak ditemukan atau sedang nonaktif.')
-    const selectedPeriod = choosePeriod(availablePeriods, periodId)
-    const rows = selectedPeriod ? await loadRowsForPeriod(selectedPeriod, crew) : []
-    return { success: true as const, periods: availablePeriods, period: selectedPeriod, crew: allCrew, rows }
+    const visibleDate = selectedDateForPeriod(currentPeriod, selectedDate, today)
+    const rows = visibleDate ? await loadRowsForDate(visibleDate, allCrew) : []
+    return { success: true as const, period: currentPeriod, selectedDate: visibleDate, rows }
   } catch (error) { return failure(error) }
 }
 
@@ -331,7 +326,7 @@ export async function saveMealAllowanceClaim(formData: FormData) {
       if (photo) {
         const bytes = await validateMealPhoto(photo)
         uploaded = `${access.userId}/${today}/${crypto.randomUUID()}.jpg`
-        const { error: uploadError } = await supabaseAdmin.storage.from(MEAL_BUCKET).upload(uploaded, bytes, {
+        const { error: uploadError } = await supabaseAdmin.storage.from(MEAL_ALLOWANCE_PHOTO_BUCKET).upload(uploaded, bytes, {
           contentType: 'image/jpeg',
           upsert: false,
         })
@@ -369,7 +364,7 @@ export async function saveMealAllowanceClaim(formData: FormData) {
     persisted = true
 
     if (previousPhotoPath && previousPhotoPath !== photoPath) {
-      const { error: cleanupError } = await supabaseAdmin.storage.from(MEAL_BUCKET).remove([previousPhotoPath])
+      const { error: cleanupError } = await supabaseAdmin.storage.from(MEAL_ALLOWANCE_PHOTO_BUCKET).remove([previousPhotoPath])
       if (cleanupError) console.error('[meal allowance old photo cleanup]', cleanupError.message)
     }
     refreshMealAllowance()
@@ -379,7 +374,7 @@ export async function saveMealAllowanceClaim(formData: FormData) {
       // A response can fail after the database write reaches Postgres. Only remove
       // the fresh object after confirming that no row refers to it.
       const { data, error: referenceError } = await supabaseAdmin.from('meal_allowance_claims').select('id').eq('photo_path', uploaded).maybeSingle()
-      if (!referenceError && !data) await supabaseAdmin.storage.from(MEAL_BUCKET).remove([uploaded])
+      if (!referenceError && !data) await supabaseAdmin.storage.from(MEAL_ALLOWANCE_PHOTO_BUCKET).remove([uploaded])
     }
     return failure(error)
   }
