@@ -271,7 +271,7 @@ export default function FinanceCrewRateSettingsClient() {
 
   return (
     <div className="min-h-full bg-cream pb-24">
-      <PageHeader title="Kelola Tarif & Status" backHref="/finance/crew" />
+      <PageHeader title="Kelola Tarif & Status" backHref="/finance/pengaturan" />
       <main className="space-y-4 px-5 pt-4">
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4 text-sm leading-relaxed text-muted">
           Tarif baru memakai tanggal berlaku. Tanggal lama dapat dipakai untuk koreksi draf, sedangkan slip dan payroll yang sudah difinalisasi tidak berubah. Status atau level yang dinonaktifkan tetap tampil di riwayat lama.

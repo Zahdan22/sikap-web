@@ -51,7 +51,7 @@ export default function FinanceCrewClient() {
         {showMenu && <>
           <button aria-label="Tutup menu" onClick={() => setShowMenu(false)} className="fixed inset-0 z-30 cursor-default" />
           <div className="absolute right-5 top-16 z-40 w-56 rounded-xl border border-cream-dim bg-cream-card p-2 text-ink shadow-md">
-            <Link href="/finance/crew/tarif" onClick={() => setShowMenu(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-cream-dim">Kelola tarif & status</Link>
+            <Link href="/finance/pengaturan" onClick={() => setShowMenu(false)} className="block rounded-lg px-3 py-2 text-sm hover:bg-cream-dim">Pengaturan</Link>
           </div>
         </>}
       </header>

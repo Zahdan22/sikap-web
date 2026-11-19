@@ -6,6 +6,8 @@ import {
   MEAL_ALLOWANCE_EFFECTIVE_ON,
   MEAL_ALLOWANCE_PHOTO_BUCKET,
 } from '@/lib/meal-allowance'
+import { resolveAttendancePenaltyRule } from '@/lib/attendance-penalty-rules'
+import { loadAttendancePenaltyRuleHistory } from '@/lib/attendance-penalty-rule-store'
 
 const PAGE_SIZE = 500
 const STORAGE_REMOVE_CHUNK_SIZE = 1_000
@@ -123,17 +125,21 @@ async function cleanupState(periodId: number) {
 }
 
 async function snapshotMissingViolations(period: WorkPeriod, claims: MealClaim[]) {
-  const [schedules, leaves] = await Promise.all([
+  const [schedules, leaves, penaltyRulesResult] = await Promise.all([
     schedulesInPeriod(period),
     approvedLeavesInPeriod(period),
+    loadAttendancePenaltyRuleHistory(period.tanggal_selesai),
   ])
+  if (penaltyRulesResult.error) throw new Error('Aturan poin jatah makan belum dapat dimuat.')
   const crewIds = await activeCrewIds(schedules.flatMap((schedule) => schedule.user_id ? [schedule.user_id] : []))
   const reported = new Set(claims.map((claim) => claimKey(claim.user_id, claim.meal_date)))
   const missing = schedules.flatMap((schedule) => {
     if (!schedule.user_id || !crewIds.has(schedule.user_id)) return []
     if (schedule.tanggal < MEAL_ALLOWANCE_EFFECTIVE_ON || reported.has(claimKey(schedule.user_id, schedule.tanggal))) return []
     const excused = leaves.some((leave) => leave.user_id === schedule.user_id && leave.tanggal_mulai <= schedule.tanggal && leave.tanggal_selesai >= schedule.tanggal)
-    return excused ? [] : [{ schedule_id: schedule.id, user_id: schedule.user_id, tanggal: schedule.tanggal, poin: 4 }]
+    if (excused) return []
+    const rule = resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'missing_meal' })
+    return rule ? [{ schedule_id: schedule.id, user_id: schedule.user_id, tanggal: schedule.tanggal, poin: rule.points }] : []
   })
 
   for (const group of chunks(missing, PAGE_SIZE)) {

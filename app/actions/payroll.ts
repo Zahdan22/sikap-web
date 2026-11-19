@@ -7,7 +7,8 @@ import { loadApprovedOvertime } from '@/lib/overtime-payroll'
 import { loadPayrollViolations } from '@/lib/violation-payroll'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
 import { getShiftEndAt, isCheckOutGraceExpired } from '@/lib/attendance-status'
-import { lateCheckInFine } from '@/lib/attendance-violations'
+import { attendancePenaltyRuleVersionOn, resolveAttendancePenaltyRule, type AttendancePenaltyRule } from '@/lib/attendance-penalty-rules'
+import { loadAttendancePenaltyRuleHistory } from '@/lib/attendance-penalty-rule-store'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isManualPayrollComponentType, type ManualPayrollComponentType } from '@/lib/payroll-manual'
 
@@ -104,24 +105,22 @@ function hasShiftEnded(tanggal: string, jamMulai: string, jamSelesai: string) {
   return getShiftEndAt({ tanggal, jamMulai, jamSelesai }) <= new Date()
 }
 
-function getLatePenalty(minutesLate: number): AttendancePenalty | null {
-  // The Form Pelanggaran reads this same rate helper. Payroll retains the
-  // tier-specific "Kerja Ikhlas" override below for a late shift ≥30 minutes.
-  const amount = lateCheckInFine(minutesLate, true)
-  if (minutesLate >= 30 && amount !== null) return { reason: 'Telat ≥30 menit · potongan Senior Rp40.000', amount, points: 6 }
-  if (minutesLate >= 20 && amount !== null) return { reason: 'Telat 20–29 menit', amount, points: 5 }
-  if (minutesLate >= 15 && amount !== null) return { reason: 'Telat 15–19 menit', amount, points: 5 }
-  if (minutesLate >= 10 && amount !== null) return { reason: 'Telat 10–14 menit', amount, points: 4 }
-  if (minutesLate >= 5 && amount !== null) return { reason: 'Telat 5–9 menit', amount, points: 3 }
-  if (minutesLate > 0 && amount !== null) return { reason: 'Telat 1–4 menit', amount, points: 2 }
-  return null
+function configuredAttendancePenalty(rule: AttendancePenaltyRule | null, reason: string): AttendancePenalty | null {
+  if (!rule) return null
+  return {
+    reason,
+    // Only rules explicitly marked as a payroll deduction can reduce pay.
+    // This keeps disciplinary points and Kerja Ikhlas SOP separate.
+    amount: rule.payrollEffect === 'deduction' ? rule.fine : 0,
+    points: rule.points,
+  }
 }
 
 // `crewId` keeps a self-service slip fast: a crew member never needs the payroll
 // data of every other person just to view their own period. Tier movement is
 // deliberately manual; payroll only reads the effective-date history.
 async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient>>, start: string, end: string, period: PayrollPeriod | null, crewId?: string) {
-  const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: tierConfigs, error: tierConfigsError }, { data: plusConfigs, error: plusConfigsError }, { data: tierRateHistory, error: tierRateHistoryError }, { data: plusRateHistory, error: plusRateHistoryError }, { data: states, error: stateError }, overtime, violations, { data: adjustments, error: adjustmentsError }, { data: manualComponents, error: manualComponentsError }, { data: managementTitles, error: managementTitlesError }] = await Promise.all([
+  const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: tierConfigs, error: tierConfigsError }, { data: plusConfigs, error: plusConfigsError }, { data: tierRateHistory, error: tierRateHistoryError }, { data: plusRateHistory, error: plusRateHistoryError }, { data: states, error: stateError }, overtime, violations, { data: adjustments, error: adjustmentsError }, { data: manualComponents, error: manualComponentsError }, { data: managementTitles, error: managementTitlesError }, penaltyRulesResult] = await Promise.all([
     loadAllPayrollRows((from, to) => {
       let query = supabase.from('users').select('id, username, nama, status_aktif', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true)
       if (crewId) query = query.eq('id', crewId)
@@ -173,8 +172,9 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         return query.order('starts_on').order('id').range(from, to)
       })
       : Promise.resolve({ data: [], error: null }),
+    loadAttendancePenaltyRuleHistory(end),
   ])
-  const problem = usersError || schedulesError || historyError || tierConfigsError || plusConfigsError || tierRateHistoryError || plusRateHistoryError || stateError || adjustmentsError || manualComponentsError || managementTitlesError
+  const problem = usersError || schedulesError || historyError || tierConfigsError || plusConfigsError || tierRateHistoryError || plusRateHistoryError || stateError || adjustmentsError || manualComponentsError || managementTitlesError || penaltyRulesResult.error
   if (problem) return { success: false as const, message: problem.message }
   if (!overtime.success) return overtime
   if (!violations.success) return violations
@@ -252,20 +252,39 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     const attendanceComplete = Boolean(hasCheckIn && attendance?.jam_pulang_aktual)
     const penalties: AttendancePenalty[] = []
     let ikhlas = !hasCheckIn && shiftEnded
-    if (!hasCheckIn && shiftEnded) penalties.push({ reason: 'Tidak absen masuk · Kerja Ikhlas', amount: 0, points: 3 })
+    if (!hasCheckIn && shiftEnded) {
+      const missingCheckInRule = configuredAttendancePenalty(
+        resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'missing_checkin' }),
+        'Tidak absen masuk · Kerja Ikhlas',
+      )
+      if (missingCheckInRule) penalties.push(missingCheckInRule)
+    }
     if (hasCheckIn) {
       const minutesLate = Number(attendance?.menit_telat || 0)
       if (attendance?.status_masuk === 'telat' || minutesLate > 0) {
-        const latePenalty = getLatePenalty(minutesLate)
+        // The unpaid consequence is a fixed time-based SOP. The configurable
+        // rule only supplies the shown point and nominal deduction.
+        if (minutesLate >= 30 && !supportsSeniorPlus) ikhlas = true
+        const latePenalty = configuredAttendancePenalty(
+          resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkin', minutesLate, supportsSeniorPlus }),
+          minutesLate >= 30 && !supportsSeniorPlus
+            ? 'Telat ≥30 menit · Kerja Ikhlas, upah shift tidak dibayar'
+            : minutesLate >= 30
+              ? 'Telat ≥30 menit · potongan Senior'
+              : `Telat ${minutesLate} menit`,
+        )
         if (latePenalty) {
-          if (minutesLate >= 30 && !supportsSeniorPlus) {
-            ikhlas = true
-            penalties.push({ reason: 'Telat ≥30 menit · Kerja Ikhlas, upah shift tidak dibayar', amount: 0, points: 6 })
-          } else penalties.push(latePenalty)
+          penalties.push(minutesLate >= 30 && !supportsSeniorPlus
+            ? { ...latePenalty, amount: 0 }
+            : latePenalty)
         }
       }
       if ((checkoutGraceExpired && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas') {
-        penalties.push({ reason: !attendance?.jam_pulang_aktual ? 'Telat absen pulang (>45 menit)' : 'Telat absen pulang', amount: 2_000, points: 4 })
+        const lateCheckoutRule = configuredAttendancePenalty(
+          resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkout' }),
+          !attendance?.jam_pulang_aktual ? 'Telat absen pulang (>45 menit)' : 'Telat absen pulang',
+        )
+        if (lateCheckoutRule) penalties.push(lateCheckoutRule)
       }
     }
     const attendanceDeduction = penalties.reduce((sum, penalty) => sum + penalty.amount, 0)
@@ -283,7 +302,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       menitTelat: minutesLate, payable,
       status: !hasCheckIn ? shiftEnded ? 'Kerja Ikhlas · tidak absen masuk' : 'Belum check-in'
         : ikhlas ? 'Kerja Ikhlas · shift tidak dibayar'
-        : minutesLate >= 30 ? 'Telat ≥30 menit · potongan Rp40.000'
+        : minutesLate >= 30 ? 'Telat ≥30 menit · potongan berlaku'
         : !attendance?.jam_pulang_aktual ? checkoutGraceExpired ? 'Telat absen pulang (>45 menit)' : 'Belum check-out'
         : !tierEntry ? 'Tarif belum diketahui' : 'Hadir lengkap',
     }
@@ -852,7 +871,12 @@ async function syncDraftPayrollsFrom(access: FinanceAccess, effectiveOn: string)
 function revalidatePayrollRatePaths() {
   revalidatePath('/finance/crew')
   revalidatePath('/finance/crew/tarif')
+  revalidatePath('/finance/pengaturan')
+  revalidatePath('/finance/pengaturan/poin-denda')
   revalidatePath('/finance/payroll')
+  revalidatePath('/finance/pelanggaran')
+  revalidatePath('/manager/pelanggaran')
+  revalidatePath('/pelanggaran')
   revalidatePath('/penggajian')
 }
 
@@ -877,6 +901,109 @@ async function assertSeniorTierAvailability(access: FinanceAccess, tier: string,
   return existing
     ? { success: false as const, message: 'Hanya satu status aktif yang dapat memakai level Senior+. Nonaktifkan atau ubah status Senior yang lama terlebih dahulu.' }
     : { success: true as const }
+}
+
+function penaltyRuleDisplayOrder(rule: Pick<AttendancePenaltyRule, 'ruleKind' | 'minMinutes' | 'appliesTo'>) {
+  const kindOrder = { late_checkin: 0, missing_checkin: 1, late_checkout: 2, missing_meal: 3 }[rule.ruleKind]
+  return kindOrder * 10_000 + (rule.minMinutes ?? 9_999) + (rule.appliesTo === 'senior_plus' ? 1 : rule.appliesTo === 'non_senior_plus' ? 2 : 0)
+}
+
+/**
+ * Finance-only settings loader. The browser receives just the displayable rule
+ * history, while the table itself stays inaccessible through the public API.
+ */
+export async function loadAttendancePenaltyRuleSettings() {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  const historyResult = await loadAttendancePenaltyRuleHistory()
+  if (historyResult.error) return payrollFailure(historyResult.error, 'Aturan poin dan denda belum dapat dimuat. Coba lagi beberapa saat.')
+
+  const today = jakartaToday()
+  const keys = [...new Set(historyResult.data.map((rule) => rule.ruleKey))]
+  const rules = keys.map((ruleKey) => {
+    const history = historyResult.data.filter((rule) => rule.ruleKey === ruleKey).sort((a, b) => b.effectiveOn.localeCompare(a.effectiveOn) || b.id - a.id)
+    const current = attendancePenaltyRuleVersionOn(historyResult.data, ruleKey, today) || history[0]
+    return {
+      ruleKey: current.ruleKey,
+      label: current.label,
+      ruleKind: current.ruleKind,
+      minMinutes: current.minMinutes,
+      maxMinutes: current.maxMinutes,
+      appliesTo: current.appliesTo,
+      payrollEffect: current.payrollEffect,
+      points: current.points,
+      fine: current.fine,
+      isActive: current.isActive,
+      effectiveOn: current.effectiveOn,
+      history: history.map((version) => ({
+        id: version.id,
+        points: version.points,
+        fine: version.fine,
+        isActive: version.isActive,
+        effectiveOn: version.effectiveOn,
+      })),
+    }
+  }).sort((a, b) => penaltyRuleDisplayOrder(a) - penaltyRuleDisplayOrder(b) || a.label.localeCompare(b.label))
+  return { success: true as const, rules }
+}
+
+/**
+ * Fixed time bands stay in the database as immutable rule definitions. Finance
+ * can only version their points, monetary deduction, and active state.
+ */
+export async function saveAttendancePenaltyRuleConfig(ruleKey: string, points: number, fine: number, effectiveOn: string, isActive: boolean) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  const cleanKey = typeof ruleKey === 'string' ? ruleKey.trim() : ''
+  const cleanPoints = toWholeRupiah(points)
+  const requestedFine = toWholeRupiah(fine)
+  if (!/^[a-z0-9_]{3,80}$/.test(cleanKey)) return { success: false as const, message: 'Aturan yang dipilih tidak valid. Muat ulang halaman lalu coba lagi.' }
+  if (!Number.isSafeInteger(cleanPoints) || cleanPoints < 0 || cleanPoints > 1_000_000) return { success: false as const, message: 'Poin harus berupa angka bulat dari 0 sampai 1.000.000.' }
+  if (!Number.isSafeInteger(requestedFine) || requestedFine < 0 || requestedFine > 100_000_000) return { success: false as const, message: 'Nominal denda harus berupa angka bulat dari Rp0 sampai Rp100.000.000.' }
+  if (!validDate(effectiveOn) || typeof isActive !== 'boolean') return { success: false as const, message: 'Tanggal berlaku atau status aturan tidak valid.' }
+
+  const historyResult = await loadAttendancePenaltyRuleHistory()
+  if (historyResult.error) return payrollFailure(historyResult.error, 'Aturan poin dan denda belum dapat diperiksa. Coba lagi beberapa saat.')
+  const versions = historyResult.data.filter((rule) => rule.ruleKey === cleanKey).sort((a, b) => a.effectiveOn.localeCompare(b.effectiveOn) || a.id - b.id)
+  const firstVersion = versions[0]
+  const definition = attendancePenaltyRuleVersionOn(versions, cleanKey, effectiveOn)
+  if (!firstVersion || !definition) {
+    return { success: false as const, message: 'Aturan tidak ditemukan atau tanggal berlaku berada sebelum riwayat aturan pertama.' }
+  }
+
+  // A disciplinary or unpaid rule must never turn into a payroll cut merely
+  // because a client sent a non-zero nominal.
+  const storedFine = definition.payrollEffect === 'deduction' ? requestedFine : 0
+  const exactVersion = versions.find((rule) => rule.effectiveOn === effectiveOn)
+  const now = new Date().toISOString()
+  const payload = {
+    label: definition.label,
+    rule_kind: definition.ruleKind,
+    min_minutes: definition.minMinutes,
+    max_minutes: definition.maxMinutes,
+    applies_to: definition.appliesTo,
+    payroll_effect: definition.payrollEffect,
+    points: cleanPoints,
+    fine: storedFine,
+    is_active: isActive,
+    updated_by: access.userId,
+    updated_at: now,
+  }
+  const mutation = exactVersion
+    ? supabaseAdmin.from('attendance_penalty_rule_history').update(payload).eq('id', exactVersion.id)
+    : supabaseAdmin.from('attendance_penalty_rule_history').insert({
+      ...payload,
+      rule_key: definition.ruleKey,
+      effective_on: effectiveOn,
+      recorded_by: access.userId,
+    })
+  const { error } = await mutation
+  if (error) return payrollFailure(error, 'Aturan poin dan denda belum dapat disimpan. Coba lagi beberapa saat.')
+
+  const synced = await syncDraftPayrollsFrom(access, effectiveOn)
+  if (!synced.success) return { success: false as const, message: 'Aturan tersimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa payroll.' }
+  revalidatePayrollRatePaths()
+  return { success: true as const }
 }
 
 export async function loadPayrollRateSettings() {

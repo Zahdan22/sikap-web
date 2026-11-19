@@ -34,6 +34,11 @@ export default function AccountMenu({ role }: { role: 'crew' | 'manager' | 'fina
         <>
           <div onClick={() => setOpen(false)} className="fixed inset-0 z-40" />
           <div className="absolute right-0 top-8 z-50 w-52 rounded-xl border border-cream-dim bg-cream-card p-2 shadow-md">
+            {role === 'finance' && (
+              <Link href="/finance/pengaturan" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
+                Pengaturan
+              </Link>
+            )}
             <Link href="/settings" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
               Pengaturan Profil
             </Link>

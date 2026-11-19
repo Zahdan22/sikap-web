@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { isCheckOutGraceExpired } from '@/lib/attendance-status'
-import { lateCheckInFine } from '@/lib/attendance-violations'
+import { resolveAttendancePenaltyRule } from '@/lib/attendance-penalty-rules'
+import { loadAttendancePenaltyRuleHistory } from '@/lib/attendance-penalty-rule-store'
 import { MEAL_ALLOWANCE_EFFECTIVE_ON } from '@/lib/meal-allowance'
 import { purgeCompletedMealAllowanceData } from '@/lib/meal-allowance-cleanup'
 import { loadAllPayrollRows, loadPayrollRowsForIds } from '@/lib/payroll-pagination'
@@ -46,14 +47,15 @@ function seniorCapabilityOn(userId: string, date: string, histories: TierHistory
 }
 
 async function automaticAttendanceViolations(period: { tanggal_mulai: string; tanggal_selesai: string }) {
-  const [crewResult, schedulesResult, tierHistoriesResult, rateHistoriesResult, tierConfigsResult] = await Promise.all([
+  const [crewResult, schedulesResult, tierHistoriesResult, rateHistoriesResult, tierConfigsResult, penaltyRulesResult] = await Promise.all([
     loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
     loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
     loadAllPayrollRows<TierHistoryRow>((from, to) => supabaseAdmin.from('crew_payroll_tier_history').select('user_id,tier,effective_on,id', { count: 'exact' }).lte('effective_on', period.tanggal_selesai).order('effective_on').order('id').range(from, to)),
     loadAllPayrollRows<TierRateHistoryRow>((from, to) => supabaseAdmin.from('payroll_tier_rate_history').select('id,tier,supports_senior_plus,effective_on', { count: 'exact' }).lte('effective_on', period.tanggal_selesai).order('tier').order('effective_on').order('id').range(from, to)),
     supabaseAdmin.from('payroll_tier_rates').select('tier,supports_senior_plus'),
+    loadAttendancePenaltyRuleHistory(period.tanggal_selesai),
   ])
-  const problem = crewResult.error || schedulesResult.error || tierHistoriesResult.error || rateHistoriesResult.error || tierConfigsResult.error
+  const problem = crewResult.error || schedulesResult.error || tierHistoriesResult.error || rateHistoriesResult.error || tierConfigsResult.error || penaltyRulesResult.error
   if (problem) return { success: false as const, message: 'Data absensi otomatis belum dapat dimuat.' }
   const activeCrewIds = new Set((crewResult.data || []).map((row) => row.id))
   const schedules = (schedulesResult.data || []).filter((row) => row.user_id && activeCrewIds.has(row.user_id)) as (ScheduleRow & { user_id: string })[]
@@ -76,19 +78,24 @@ async function automaticAttendanceViolations(period: { tanggal_mulai: string; ta
     const minutesLate = Number(attendance.menit_telat || 0)
     if ((attendance.status_masuk === 'telat' || minutesLate > 0) && minutesLate > 0) {
       const supportsSeniorPlus = seniorCapabilityOn(schedule.user_id, schedule.tanggal, histories, rates, configs)
-      const fine = lateCheckInFine(minutesLate, supportsSeniorPlus)
-      if (fine !== null) rows.push({
+      const rule = resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkin', minutesLate, supportsSeniorPlus })
+      if (rule) rows.push({
         id: `attendance-${schedule.id}-late_checkin`, source: 'attendance', schedule_id: schedule.id, attendance_kind: 'late_checkin', user_id: schedule.user_id,
         tanggal: schedule.tanggal, kesalahan: `Telat absen masuk ${minutesLate} menit${minutesLate >= 30 && !supportsSeniorPlus ? ' · Kerja Ikhlas' : ''}`,
-        poin: pointsByKey.get(attendancePointKey(schedule.id, 'late_checkin')) ?? null, denda: fine,
+        poin: pointsByKey.get(attendancePointKey(schedule.id, 'late_checkin')) ?? rule.points,
+        denda: rule.payrollEffect === 'deduction' ? rule.fine : 0,
       })
     }
     const lateCheckout = (attendance.jam_pulang_aktual === null && isCheckOutGraceExpired({ tanggal: schedule.tanggal, jamMulai: schedule.jam_mulai, jamSelesai: schedule.jam_selesai })) || attendance.status_pulang === 'lewat_batas'
-    if (lateCheckout) rows.push({
-      id: `attendance-${schedule.id}-late_checkout`, source: 'attendance', schedule_id: schedule.id, attendance_kind: 'late_checkout', user_id: schedule.user_id,
-      tanggal: schedule.tanggal, kesalahan: attendance.jam_pulang_aktual ? 'Telat absen pulang' : 'Telat absen pulang (>45 menit)',
-      poin: pointsByKey.get(attendancePointKey(schedule.id, 'late_checkout')) ?? null, denda: 2_000,
-    })
+    if (lateCheckout) {
+      const rule = resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkout' })
+      if (rule) rows.push({
+        id: `attendance-${schedule.id}-late_checkout`, source: 'attendance', schedule_id: schedule.id, attendance_kind: 'late_checkout', user_id: schedule.user_id,
+        tanggal: schedule.tanggal, kesalahan: attendance.jam_pulang_aktual ? 'Telat absen pulang' : 'Telat absen pulang (>45 menit)',
+        poin: pointsByKey.get(attendancePointKey(schedule.id, 'late_checkout')) ?? rule.points,
+        denda: rule.payrollEffect === 'deduction' ? rule.fine : 0,
+      })
+    }
   }
   return { success: true as const, rows }
 }
@@ -98,14 +105,15 @@ async function automaticAttendanceViolations(period: { tanggal_mulai: string; ta
 // cleanup job snapshots only real missing reports into a dedicated table before
 // deleting temporary meal reports and food photos.
 async function automaticMealViolations(period: { id: number; tanggal_mulai: string; tanggal_selesai: string }) {
-  const [crewResult, schedulesResult, approvedLeaveResult, savedResult, cleanupResult] = await Promise.all([
+  const [crewResult, schedulesResult, approvedLeaveResult, savedResult, cleanupResult, penaltyRulesResult] = await Promise.all([
     loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
     loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
     loadAllPayrollRows<ApprovedLeaveRow>((from, to) => supabaseAdmin.from('leave_request').select('user_id,tanggal_mulai,tanggal_selesai', { count: 'exact' }).eq('status', 'disetujui').lte('tanggal_mulai', period.tanggal_selesai).gte('tanggal_selesai', period.tanggal_mulai).order('tanggal_mulai').order('id').range(from, to)),
     loadAllPayrollRows<SavedMealViolationRow>((from, to) => supabaseAdmin.from('meal_allowance_missing_violations').select('schedule_id,user_id,tanggal,poin', { count: 'exact' }).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('schedule_id').range(from, to)),
     supabaseAdmin.from('meal_allowance_period_cleanups').select('period_id').eq('period_id', period.id).maybeSingle(),
+    loadAttendancePenaltyRuleHistory(period.tanggal_selesai),
   ])
-  if (crewResult.error || schedulesResult.error || approvedLeaveResult.error || savedResult.error || cleanupResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
+  if (crewResult.error || schedulesResult.error || approvedLeaveResult.error || savedResult.error || cleanupResult.error || penaltyRulesResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
   const activeCrewIds = new Set((crewResult.data || []).map((row) => row.id))
   const schedules = (schedulesResult.data || []).filter((row) => row.user_id && activeCrewIds.has(row.user_id)) as (ScheduleRow & { user_id: string })[]
   const persisted: MealViolation[] = (savedResult.data || [])
@@ -138,10 +146,11 @@ async function automaticMealViolations(period: { id: number; tanggal_mulai: stri
     // `tanggal < today` means the cutoff (23:59:59) has definitely passed.
     const isApprovedLeave = approvedLeaves.some((leave) => leave.user_id === schedule.user_id && leave.tanggal_mulai <= schedule.tanggal && leave.tanggal_selesai >= schedule.tanggal)
     if (persistedScheduleIds.has(schedule.id) || schedule.tanggal < MEAL_ALLOWANCE_EFFECTIVE_ON || schedule.tanggal >= today || isApprovedLeave || claimKeys.has(`${schedule.user_id}:${schedule.tanggal}`)) continue
-    rows.push({
+    const rule = resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'missing_meal' })
+    if (rule) rows.push({
       id: `meal-${schedule.id}-missing`, source: 'meal', schedule_id: schedule.id,
       user_id: schedule.user_id, tanggal: schedule.tanggal,
-      kesalahan: 'Tidak mengisi jatah makan', poin: 4, denda: 0,
+      kesalahan: 'Tidak mengisi jatah makan', poin: rule.points, denda: 0,
     })
   }
   return { success: true as const, rows: [...persisted, ...rows] }

@@ -54,7 +54,7 @@ export default function FinanceMealAllowanceClient() {
   return <div className="min-h-full bg-cream pb-24">
     <PageHeader title="Jatah Makan Crew" backHref="/finance" rightSlot={<button type="button" aria-label="Muat ulang data jatah makan" title="Muat ulang" onClick={() => void load(data?.selectedDate || undefined)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-xl font-semibold leading-none text-white transition-colors hover:bg-white/10">↻</button>} />
     <main className="space-y-4 px-5 pt-5">
-      <p className="rounded-2xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">Pantau foto dan keterangan jatah makan crew. Laporan yang tidak diisi setelah pukul 23.59 akan tercatat sebagai pelanggaran otomatis 4 poin, tanpa memengaruhi payroll.</p>
+      <p className="rounded-2xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">Pantau foto dan keterangan jatah makan crew. Laporan yang tidak diisi setelah pukul 23.59 akan tercatat sebagai pelanggaran otomatis sesuai aturan poin yang berlaku, tanpa memengaruhi payroll.</p>
       {error && <p role="alert" className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{error}</p>}
       {loading && !data ? <p className="py-6 text-center text-sm text-muted">Memuat jatah makan…</p> : data?.period && data.selectedDate ? <>
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">
