@@ -21,9 +21,9 @@ export async function loginWithUsername(formData: FormData) {
     if (error) {
       return {
         ok: false as const,
-        message: error.status === 400
-          ? 'Username atau password salah.'
-          : `Login gagal (${error.status || 'koneksi'}): ${error.message}`,
+        // Do not expose Supabase or network internals on the login screen.
+        // The same message also avoids revealing whether a username exists.
+        message: 'Username, password, atau koneksi belum dapat diverifikasi. Coba lagi.',
       }
     }
 
@@ -54,7 +54,7 @@ export async function loginWithUsername(formData: FormData) {
           : '/dashboard'
     return { ok: true as const, destination }
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'
-    return { ok: false as const, message: `Tidak dapat menyelesaikan login: ${message}` }
+    console.error('[login]', error)
+    return { ok: false as const, message: 'Login belum dapat diproses. Periksa koneksi lalu coba lagi.' }
   }
 }

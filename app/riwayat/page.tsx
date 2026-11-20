@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getEmployeeSummaries, getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
-import { getPhotoSignedUrl } from '@/lib/storage'
+import { getEmployeeDetail, AttendanceDetail } from '@/lib/laporan'
 import { formatTimeLocal, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
@@ -24,37 +23,61 @@ export default function RiwayatPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
+
     async function load() {
       setLoading(true)
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const year = currentMonth.getFullYear()
-      const month = currentMonth.getMonth() + 1
-      const range = getMonthRange(year, month)
-
-      const data = await getEmployeeDetail(user.id, range.start, range.end)
-      setDetails(data)
-
-      setSummary({
-        hariHadir: data.filter((d) => d.jamMasukAktual).length,
-        hariTelat: data.filter((d) => d.statusMasuk === 'telat').length,
-        totalIkhlas: data.filter((d) => d.menitTelat >= 30).length,
-        totalJam: data.reduce((total, d) => total + (d.jamMasukAktual ? d.durasiJam : 0), 0),
-      })
-
-      const urls: Record<number, { masuk?: string; pulang?: string }> = {}
-      for (const d of data) {
-        urls[d.id] = {
-          masuk: d.fotoMasuk ? await getPhotoSignedUrl(d.fotoMasuk).catch(() => undefined) : undefined,
-          pulang: d.fotoPulang ? await getPhotoSignedUrl(d.fotoPulang).catch(() => undefined) : undefined,
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          if (!cancelled) {
+            setDetails([])
+            setPhotoUrls({})
+          }
+          return
         }
+
+        const year = currentMonth.getFullYear()
+        const month = currentMonth.getMonth() + 1
+        const range = getMonthRange(year, month)
+
+        const data = await getEmployeeDetail(user.id, range.start, range.end)
+        const photoPaths = [...new Set(data.flatMap((item) => [item.fotoMasuk, item.fotoPulang]).filter((path): path is string => Boolean(path)))]
+        const { data: signedPhotos } = photoPaths.length > 0
+          ? await supabase.storage.from('attendance-photos').createSignedUrls(photoPaths, 60 * 60)
+          : { data: [] as { path: string; signedUrl: string }[] }
+        const signedUrlByPath = new Map<string, string>()
+        for (const photo of signedPhotos || []) {
+          if (photo.path && photo.signedUrl) signedUrlByPath.set(photo.path, photo.signedUrl)
+        }
+        const urls: Record<number, { masuk?: string; pulang?: string }> = {}
+        for (const detail of data) {
+          urls[detail.id] = {
+            masuk: detail.fotoMasuk ? signedUrlByPath.get(detail.fotoMasuk) : undefined,
+            pulang: detail.fotoPulang ? signedUrlByPath.get(detail.fotoPulang) : undefined,
+          }
+        }
+
+        if (!cancelled) {
+          setDetails(data)
+          setSummary({
+            hariHadir: data.filter((d) => d.jamMasukAktual).length,
+            hariTelat: data.filter((d) => d.statusMasuk === 'telat').length,
+            totalIkhlas: data.filter((d) => d.menitTelat >= 30).length,
+            totalJam: data.reduce((total, d) => total + (d.jamMasukAktual ? d.durasiJam : 0), 0),
+          })
+          setPhotoUrls(urls)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      setPhotoUrls(urls)
-      setLoading(false)
     }
     load()
+
+    return () => {
+      cancelled = true
+    }
   }, [currentMonth])
 
   function goToPreviousMonth() {
