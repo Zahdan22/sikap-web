@@ -1,13 +1,15 @@
 'use server'
 
+import { randomInt } from 'node:crypto'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { usernameToEmail } from '@/lib/auth'
 import { requireManager } from '@/lib/manager-auth'
 import { loadAllPayrollRows } from '@/lib/payroll-pagination'
 
-const DEFAULT_CREW_PASSWORD = 'crew123'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TEMPORARY_PASSWORD_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'
 
 function resetCredentialMessage(error: unknown) {
   const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
@@ -15,6 +17,26 @@ function resetCredentialMessage(error: unknown) {
     : ''
   if (/duplicate|unique|already.*exist|already.*registered/.test(message)) return 'Username default sedang dipakai. Silakan coba lagi.'
   return 'Kredensial default belum dapat diatur. Coba lagi beberapa saat.'
+}
+
+function generateTemporaryPassword() {
+  return Array.from({ length: 16 }, () => TEMPORARY_PASSWORD_CHARACTERS[randomInt(TEMPORARY_PASSWORD_CHARACTERS.length)]).join('')
+}
+
+async function verifyManagerPassword(access: Extract<Awaited<ReturnType<typeof requireManager>>, { ok: true }>, password: unknown) {
+  const cleanPassword = typeof password === 'string' ? password : ''
+  if (!cleanPassword) return false
+
+  const { data: { user } } = await access.supabase.auth.getUser()
+  if (!user?.email || user.id !== access.userId) return false
+
+  const verifier = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
+  )
+  const { data, error } = await verifier.auth.signInWithPassword({ email: user.email, password: cleanPassword })
+  return !error && data.user?.id === access.userId
 }
 
 function nextDefaultCrewUsername(rows: { id: string; username: string }[], userId: string, unavailable: Set<string>) {
@@ -35,7 +57,7 @@ export async function createCrewAccount(
   const cleanUsername = username.trim().toLowerCase()
   const cleanName = nama.trim()
   if (!/^[a-z0-9._-]{3,32}$/.test(cleanUsername)) return { success: false, message: 'Username harus 3–32 karakter: huruf, angka, titik, garis bawah, atau tanda hubung.' }
-  if (password.length < 6) return { success: false, message: 'Password minimal 6 karakter.' }
+  if (password.length < 8 || password.length > 72) return { success: false, message: 'Password harus 8–72 karakter.' }
   if (cleanName.length < 2 || cleanName.length > 100) return { success: false, message: 'Nama harus 2–100 karakter.' }
 
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
@@ -61,10 +83,11 @@ export async function createCrewAccount(
   return { success: true }
 }
 
-export async function deleteCrewAccount(userId: string) {
+export async function deleteCrewAccount(userId: string, managerPassword: string) {
   const access = await requireManager()
   if (!access.ok) return { success: false, message: access.message }
   if (!userId || userId === access.userId) return { success: false, message: 'Target akun tidak valid.' }
+  if (!(await verifyManagerPassword(access, managerPassword))) return { success: false, message: 'Password manager salah. Penghapusan dibatalkan.' }
   const { data: target, error: targetError } = await access.supabase.from('users').select('role').eq('id', userId).maybeSingle()
   if (targetError) return { success: false, message: 'Gagal memeriksa akun target: ' + targetError.message }
   if (!target || target.role !== 'crew') return { success: false, message: 'Akun target tidak ditemukan atau bukan akun crew.' }
@@ -100,16 +123,17 @@ export async function setCrewActive(userId: string, active: boolean) {
   return { success: true }
 }
 
-// Password lama tidak pernah dibaca atau disimpan ulang. Admin 1 hanya dapat
-// mereset akses crew ke kredensial default yang dikembalikan sekali ini.
-export async function resetCrewCredentials(userId: string) {
+// Password lama tidak pernah dibaca atau disimpan ulang. Password sementara
+// dihasilkan secara acak dan hanya dikembalikan sekali kepada manager.
+export async function resetCrewCredentials(userId: string, managerPassword: string) {
   const access = await requireManager()
   if (!access.ok) return { success: false as const, message: access.message }
   if (!UUID_PATTERN.test(userId)) return { success: false as const, message: 'Data karyawan tidak valid. Muat ulang halaman lalu coba lagi.' }
+  if (!(await verifyManagerPassword(access, managerPassword))) return { success: false as const, message: 'Password manager salah. Reset akses dibatalkan.' }
 
   const { data: target, error: targetError } = await access.supabase
     .from('users')
-    .select('id, nama, username, role')
+    .select('id, nama, username, role, must_change_password')
     .eq('id', userId)
     .maybeSingle()
   if (targetError || !target || target.role !== 'crew') {
@@ -126,9 +150,10 @@ export async function resetCrewCredentials(userId: string) {
   const unavailable = new Set<string>()
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const username = nextDefaultCrewUsername(crewRows || [], userId, unavailable)
+    const temporaryPassword = generateTemporaryPassword()
     const { data: reservedProfile, error: reserveError } = await supabaseAdmin
       .from('users')
-      .update({ username })
+      .update({ username, must_change_password: true })
       .eq('id', userId)
       .eq('username', target.username)
       .select('id')
@@ -145,16 +170,16 @@ export async function resetCrewCredentials(userId: string) {
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
       email: usernameToEmail(username),
       email_confirm: true,
-      password: DEFAULT_CREW_PASSWORD,
+      password: temporaryPassword,
     })
     if (!authError) {
       revalidatePath('/manager/karyawan')
-      return { success: true as const, username, password: DEFAULT_CREW_PASSWORD, nama: target.nama }
+      return { success: true as const, username, password: temporaryPassword, nama: target.nama }
     }
 
     const { error: rollbackError } = await supabaseAdmin
       .from('users')
-      .update({ username: target.username })
+      .update({ username: target.username, must_change_password: target.must_change_password })
       .eq('id', userId)
       .eq('username', username)
     if (rollbackError) {

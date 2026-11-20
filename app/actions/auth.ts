@@ -33,7 +33,7 @@ export async function loginWithUsername(formData: FormData) {
 
     const { data: profile, error: profileError } = await supabase
       .from('users')
-      .select('status_aktif, role')
+      .select('status_aktif, role, must_change_password')
       .eq('id', data.user.id)
       .maybeSingle()
 
@@ -43,6 +43,10 @@ export async function loginWithUsername(formData: FormData) {
     if (!profile?.status_aktif) {
       await supabase.auth.signOut()
       return { ok: false as const, message: 'Akun tidak aktif. Hubungi manager penjadwalan.' }
+    }
+
+    if (profile.must_change_password) {
+      return { ok: true as const, destination: '/ubah-password-wajib' }
     }
 
     const destination = profile.role === 'owner'

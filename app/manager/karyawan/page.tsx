@@ -95,7 +95,7 @@ export default function KaryawanPage() {
 
     if (verifyError) { toast('Password salah. Penghapusan dibatalkan.', 'error'); return }
 
-    const result = await deleteCrewAccount(id)
+    const result = await deleteCrewAccount(id, inputPassword)
     if (!result.success) { toast('Error: ' + result.message, 'error'); return }
     toast('Karyawan berhasil dihapus', 'success')
     loadList()
@@ -104,22 +104,28 @@ export default function KaryawanPage() {
   async function handleResetCredentials(karyawan: Karyawan) {
     const ok = await confirm({
       title: `Reset akses ${karyawan.nama}?`,
-      description: 'Username akan diganti menjadi crew diikuti angka yang tersedia dan password menjadi crew123. Password lama tidak dapat dipulihkan.',
+      description: 'Username akan diganti menjadi crew diikuti angka yang tersedia. Sistem akan membuat password sementara acak yang wajib diganti crew saat pertama masuk.',
       confirmLabel: 'Reset kredensial',
       danger: true,
     })
     if (!ok) return
 
+    const managerPassword = await promptPassword({
+      title: 'Konfirmasi Password Manager',
+      description: 'Masukkan password akun manager untuk mereset akses crew.',
+    })
+    if (!managerPassword) return
+
     setResettingId(karyawan.id)
     try {
-      const result = await resetCrewCredentials(karyawan.id)
+      const result = await resetCrewCredentials(karyawan.id, managerPassword)
       if (!result.success) { toast(result.message, 'error'); return }
       setResetCredentials({ id: karyawan.id, nama: result.nama, username: result.username, password: result.password })
       setOpenAccountId(karyawan.id)
-      toast('Kredensial default berhasil dibuat. Sampaikan kepada karyawan.', 'success')
+      toast('Password sementara berhasil dibuat. Sampaikan kepada karyawan.', 'success')
       await loadList()
     } catch {
-      toast('Kredensial default belum dapat diatur. Coba lagi.', 'error')
+      toast('Password sementara belum dapat diatur. Coba lagi.', 'error')
     } finally {
       setResettingId(null)
     }
@@ -174,12 +180,12 @@ export default function KaryawanPage() {
           <div className="mt-1 flex items-center justify-between gap-3"><code className="min-w-0 truncate text-sm font-semibold text-ink">{k.username}</code><button type="button" onClick={() => void copyCredential(k.username, 'Username')} className="shrink-0 text-xs font-semibold text-brand">Salin</button></div>
         </div>
         {latestCredentials ? <div className="mt-3 rounded-xl border border-success/30 bg-success/10 p-3">
-          <p className="text-xs font-semibold text-success">Kredensial default terbaru untuk {latestCredentials.nama}</p>
+          <p className="text-xs font-semibold text-success">Kredensial sementara terbaru untuk {latestCredentials.nama}</p>
           <div className="mt-2 grid gap-2 text-sm"><div className="flex items-center justify-between gap-3"><span className="text-muted">Username</span><button type="button" onClick={() => void copyCredential(latestCredentials.username, 'Username')} className="font-semibold text-ink">{latestCredentials.username}</button></div><div className="flex items-center justify-between gap-3"><span className="text-muted">Password</span><button type="button" onClick={() => void copyCredential(latestCredentials.password, 'Password')} className="font-semibold text-ink">{latestCredentials.password}</button></div></div>
-          <p className="mt-3 text-[11px] text-muted">Sampaikan langsung kepada karyawan. Setelah mereka mengganti password, password baru tidak dapat dilihat kembali.</p>
-        </div> : <p className="mt-3 text-xs leading-5 text-muted">Password yang sedang dipakai tidak dapat ditampilkan. Jika karyawan lupa aksesnya, reset menjadi username <b>crew(angka)</b> dan password <b>crew123</b>.</p>}
+          <p className="mt-3 text-[11px] text-muted">Sampaikan langsung kepada karyawan. Password ini hanya tampil pada sesi ini dan wajib diganti setelah crew masuk.</p>
+        </div> : <p className="mt-3 text-xs leading-5 text-muted">Password yang sedang dipakai tidak dapat ditampilkan. Jika karyawan lupa aksesnya, buatkan username <b>crew(angka)</b> dan password sementara acak.</p>}
         <button type="button" disabled={resettingId === k.id} onClick={() => void handleResetCredentials(k)} className="mt-4 w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
-          {resettingId === k.id ? 'Mereset akses…' : 'Reset ke kredensial default'}
+          {resettingId === k.id ? 'Mereset akses…' : 'Reset akses crew'}
         </button>
       </section>}
     </article>
@@ -216,7 +222,7 @@ export default function KaryawanPage() {
             </div>
             <div className="mt-3">
               <label className="mb-1 block text-xs font-medium text-muted">Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6}
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
                 className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand" />
             </div>
             <button type="submit" disabled={loading} className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-60">

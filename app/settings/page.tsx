@@ -6,6 +6,8 @@ import { updateProfile } from '@/app/actions/profile'
 import { useDialog } from '@/components/ui/DialogProvider'
 import PageHeader from '@/components/PageHeader'
 
+const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$/
+
 export default function SettingsPage() {
   const { toast, confirm } = useDialog()
   const [nama, setNama] = useState('')
@@ -45,8 +47,8 @@ export default function SettingsPage() {
       toast('Password baru dan konfirmasi tidak sama', 'error')
       return
     }
-    if (newPassword.length < 6) {
-      toast('Password baru minimal 6 karakter', 'error')
+    if (!PASSWORD_PATTERN.test(newPassword)) {
+      toast('Password baru harus 8–72 karakter serta memuat huruf besar, huruf kecil, dan angka', 'error')
       return
     }
 
@@ -57,23 +59,20 @@ export default function SettingsPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user?.email) { toast('Gagal verifikasi sesi', 'error'); setSavingPassword(false); return }
+    if (!user) { toast('Gagal verifikasi sesi', 'error'); setSavingPassword(false); return }
 
-    const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email: user.email,
-      password: oldPassword,
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+      current_password: oldPassword,
     })
 
-    if (verifyError) {
-      toast('Password lama salah', 'error')
+    if (updateError) {
+      toast('Password lama salah atau password baru belum memenuhi ketentuan', 'error')
       setSavingPassword(false)
       return
     }
-
-    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
     setSavingPassword(false)
 
-    if (updateError) { toast('Error: ' + updateError.message, 'error'); return }
     toast('Password berhasil diubah', 'success')
     setOldPassword(''); setNewPassword(''); setConfirmPassword('')
   }
@@ -115,8 +114,9 @@ export default function SettingsPage() {
           </div>
           <div className="mt-3">
             <label className="mb-1 block text-xs font-medium text-muted">Password Baru</label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6}
+            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8}
               className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand" />
+            <p className="mt-1 text-[11px] text-muted">Minimal 8 karakter, memuat huruf besar, huruf kecil, dan angka.</p>
           </div>
           <div className="mt-3">
             <label className="mb-1 block text-xs font-medium text-muted">Konfirmasi Password Baru</label>

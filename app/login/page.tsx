@@ -31,9 +31,8 @@ export default function LoginPage() {
       }
       // The Server Action response has applied the session cookie before navigation starts.
       startTransition(() => router.replace(result.destination))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'
-      setErrorMsg(`Tidak dapat menyelesaikan login: ${message}`)
+    } catch {
+      setErrorMsg('Login belum dapat diproses. Periksa koneksi lalu coba lagi.')
     } finally {
       submitting.current = false
       setLoading(false)

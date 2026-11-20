@@ -4,6 +4,15 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { usernameToEmail } from '@/lib/auth'
 
+const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$/
+
+function dashboardForRole(role: string) {
+  if (role === 'owner') return '/owner'
+  if (role === 'payroll_staff') return '/payroll-management'
+  if (role === 'finance') return '/finance'
+  return '/dashboard'
+}
+
 export async function updateProfile(nama: string, username: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -37,4 +46,45 @@ export async function updateProfile(nama: string, username: string) {
   }
 
   return { success: true }
+}
+
+export async function changeRequiredPassword(currentPassword: string, newPassword: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false as const, message: 'Sesi login tidak valid. Silakan masuk lagi.' }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .select('role, status_aktif, must_change_password')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (profileError || !profile?.status_aktif) return { success: false as const, message: 'Akun tidak aktif atau belum dapat diverifikasi.' }
+  if (!profile.must_change_password) return { success: false as const, message: 'Password akun ini tidak sedang perlu diganti.' }
+  if (typeof currentPassword !== 'string' || !currentPassword) return { success: false as const, message: 'Masukkan password sementara.' }
+  if (typeof newPassword !== 'string' || !PASSWORD_PATTERN.test(newPassword)) {
+    return { success: false as const, message: 'Password baru harus 8–72 karakter serta memuat huruf besar, huruf kecil, dan angka.' }
+  }
+
+  const { error: passwordError } = await supabase.auth.updateUser({
+    password: newPassword,
+    current_password: currentPassword,
+  })
+  if (passwordError) {
+    console.error('[required password change]', passwordError.message)
+    return { success: false as const, message: 'Password sementara salah atau password baru belum memenuhi ketentuan.' }
+  }
+
+  const { data: updatedProfile, error: updateError } = await supabaseAdmin
+    .from('users')
+    .update({ must_change_password: false })
+    .eq('id', user.id)
+    .eq('must_change_password', true)
+    .select('id')
+    .maybeSingle()
+  if (updateError || !updatedProfile) {
+    console.error('[required password change profile]', updateError?.message)
+    return { success: false as const, message: 'Password sudah diperbarui, tetapi verifikasi belum tersimpan. Ulangi dengan password baru sebagai password sementara.' }
+  }
+
+  return { success: true as const, destination: dashboardForRole(profile.role) }
 }

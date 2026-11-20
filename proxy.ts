@@ -28,7 +28,7 @@ export async function proxy(request: NextRequest) {
   if (user && !request.nextUrl.pathname.startsWith('/api/')) {
     const { data: profile, error: profileError } = await supabase
       .from('users')
-      .select('status_aktif, role')
+      .select('status_aktif, role, must_change_password')
       .eq('id', user.id)
       .maybeSingle()
 
@@ -48,6 +48,15 @@ export async function proxy(request: NextRequest) {
         ? supabaseResponse : NextResponse.redirect(loginUrl)
       supabaseResponse.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie))
       return redirectResponse
+    }
+    if (profile.must_change_password && request.nextUrl.pathname !== '/ubah-password-wajib') {
+      const target = request.nextUrl.clone()
+      target.pathname = '/ubah-password-wajib'
+      target.search = ''
+      const response = NextResponse.redirect(target)
+      supabaseResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie))
+      response.headers.set('Cache-Control', 'private, no-store')
+      return response
     }
     if (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/') {
       const target = request.nextUrl.clone()
