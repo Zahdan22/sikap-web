@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useDialog } from '@/components/ui/DialogProvider'
 
-export default function AccountMenu({ role }: { role: 'crew' | 'manager' | 'finance' }) {
+export default function AccountMenu({ role }: { role: 'crew' | 'manager' | 'finance' | 'owner' | 'payroll_staff' }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
   const { confirm } = useDialog()
@@ -37,6 +37,11 @@ export default function AccountMenu({ role }: { role: 'crew' | 'manager' | 'fina
             {role === 'finance' && (
               <Link href="/finance/pengaturan" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
                 Pengaturan
+              </Link>
+            )}
+            {role === 'owner' && (
+              <Link href="/owner" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
+                Pusat Pengelolaan
               </Link>
             )}
             <Link href="/settings" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">

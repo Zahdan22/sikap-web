@@ -45,7 +45,14 @@ export async function loginWithUsername(formData: FormData) {
       return { ok: false as const, message: 'Akun tidak aktif. Hubungi manager penjadwalan.' }
     }
 
-    return { ok: true as const, destination: profile.role === 'finance' ? '/finance' : '/dashboard' }
+    const destination = profile.role === 'owner'
+      ? '/owner'
+      : profile.role === 'payroll_staff'
+        ? '/payroll-management'
+        : profile.role === 'finance'
+          ? '/finance'
+          : '/dashboard'
+    return { ok: true as const, destination }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Koneksi ke layanan login gagal.'
     return { ok: false as const, message: `Tidak dapat menyelesaikan login: ${message}` }

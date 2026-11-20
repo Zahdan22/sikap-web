@@ -6,7 +6,7 @@ import { useDialog } from '@/components/ui/DialogProvider'
 import { loadOutletInfo, updateOutletInfo } from '@/app/actions/outlet'
 import { getCurrentPosition, reverseGeocode } from '@/lib/geo'
 
-type Outlet = { nama: string; alamat: string; latitude: number; longitude: number; radiusMeter: number }
+type Outlet = { nama: string; alamat: string; latitude: number | null; longitude: number | null; radiusMeter: number }
 
 export default function OutletSettingsPage() {
   const { toast, promptPassword } = useDialog()
@@ -27,8 +27,8 @@ export default function OutletSettingsPage() {
     setOutlet(result.outlet)
     setNama(result.outlet.nama)
     setAlamat(result.outlet.alamat)
-    setLatitude(String(result.outlet.latitude))
-    setLongitude(String(result.outlet.longitude))
+    setLatitude(result.outlet.latitude === null ? '' : String(result.outlet.latitude))
+    setLongitude(result.outlet.longitude === null ? '' : String(result.outlet.longitude))
   }, [toast])
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function OutletSettingsPage() {
       <PageHeader title="Informasi Outlet" backHref="/dashboard" />
       <main className="space-y-4 px-5 pt-5">
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-4 text-sm leading-relaxed text-muted">
-          Atur identitas dan titik absensi outlet ini. Radius absensi ditetapkan 50 meter.
+          Atur identitas dan titik absensi outlet ini. Radius absensi ditetapkan 50 meter. Outlet baru tidak bisa dipakai untuk absensi sebelum titik GPS disimpan.
         </section>
 
         <section className="rounded-2xl border border-cream-dim bg-cream-card p-5">

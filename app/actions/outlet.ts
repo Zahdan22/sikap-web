@@ -53,8 +53,8 @@ export async function loadOutletInfo() {
       id: data.id,
       nama: data.nama,
       alamat: data.alamat || '',
-      latitude: Number(data.latitude),
-      longitude: Number(data.longitude),
+      latitude: data.latitude === null ? null : Number(data.latitude),
+      longitude: data.longitude === null ? null : Number(data.longitude),
       radiusMeter: Number(data.radius_meter),
     },
   }
@@ -85,7 +85,7 @@ export async function updateOutletInfo(input: OutletUpdate) {
 
   const { error } = await access.supabase
     .from('outlets')
-    .update({ nama, alamat: alamat || null, latitude: input.latitude, longitude: input.longitude, radius_meter: 50, updated_at: new Date().toISOString() })
+    .update({ nama, alamat: alamat || null, latitude: input.latitude, longitude: input.longitude, radius_meter: 50, is_active: true, setup_complete: true, updated_at: new Date().toISOString() })
     .eq('id', access.outletId)
   if (error) return { success: false as const, message: 'Informasi outlet belum dapat disimpan. Coba lagi beberapa saat.' }
 

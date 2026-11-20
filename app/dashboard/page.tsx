@@ -17,6 +17,8 @@ export default async function DashboardPage() {
     .single()
 
   if (!profile?.status_aktif) redirect('/login')
+  if (profile?.role === 'owner') redirect('/owner')
+  if (profile?.role === 'payroll_staff') redirect('/payroll-management')
   if (profile?.role === 'finance') redirect('/finance')
   return <DashboardClient nama={profile?.nama || ''} role={profile?.role || 'crew'} />
 }
