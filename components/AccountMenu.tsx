@@ -43,9 +43,14 @@ export default function AccountMenu({ role }: { role: 'crew' | 'manager' | 'fina
               Pengaturan Profil
             </Link>
             {role === 'manager' && (
-              <Link href="/manager/karyawan" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
-                Kelola Karyawan
-              </Link>
+              <>
+                <Link href="/manager/karyawan" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
+                  Kelola Karyawan
+                </Link>
+                <Link href="/outlet" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2 text-sm text-ink hover:bg-cream-dim">
+                  Informasi Outlet
+                </Link>
+              </>
             )}
             <button onClick={handleLogout} className="block w-full rounded-lg px-3 py-2 text-left text-sm text-brand hover:bg-cream-dim">
               Logout

@@ -6,11 +6,11 @@ import { revalidatePath } from 'next/cache'
 export async function createPreset(nama: string) {
   const access = await requireManager()
   if (!access.ok) return { success: false, message: access.message }
-  const { supabase, userId } = access
+  const { supabase, userId, outletId } = access
 
   const { data, error } = await supabase
     .from('jam_kerja_preset')
-    .insert({ nama, dibuat_oleh: userId })
+    .insert({ nama, dibuat_oleh: userId, outlet_id: outletId })
     .select('id')
     .single()
 
@@ -22,8 +22,8 @@ export async function createPreset(nama: string) {
 export async function deletePreset(id: number) {
   const access = await requireManager()
   if (!access.ok) return { success: false, message: access.message }
-  const { supabase } = access
-  const { error } = await supabase.from('jam_kerja_preset').delete().eq('id', id)
+  const { supabase, outletId } = access
+  const { error } = await supabase.from('jam_kerja_preset').delete().eq('id', id).eq('outlet_id', outletId)
   if (error) return { success: false, message: error.message }
   revalidatePath('/manager/jadwal')
   return { success: true }

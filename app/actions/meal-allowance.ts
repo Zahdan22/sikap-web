@@ -50,6 +50,7 @@ export type MealAllowanceRow = {
 type MealAccess = {
   supabase: Awaited<ReturnType<typeof createClient>>
   userId: string
+  outletId: string
   role: 'crew' | 'finance'
 }
 
@@ -64,17 +65,18 @@ async function accessMealAllowance(): Promise<MealAccess> {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) throw new Error('Sesi login berakhir. Silakan login kembali.')
   const { data: profile, error: profileError } = await supabase
-    .from('users').select('role,status_aktif').eq('id', user.id).single()
-  if (profileError || !profile?.status_aktif || !['crew', 'finance'].includes(profile.role)) {
+    .from('users').select('role,status_aktif,outlet_id').eq('id', user.id).single()
+  if (profileError || !profile?.status_aktif || !profile.outlet_id || !['crew', 'finance'].includes(profile.role)) {
     throw new Error('Akun tidak memiliki akses jatah makan.')
   }
-  return { supabase, userId: user.id, role: profile.role as MealAccess['role'] }
+  return { supabase, userId: user.id, outletId: profile.outlet_id, role: profile.role as MealAccess['role'] }
 }
 
-async function approvedLeaves(userIds: string[], start: string, end: string) {
+async function approvedLeaves(userIds: string[], start: string, end: string, outletId: string) {
   if (!userIds.length) return [] as (Leave & { user_id: string })[]
   const { data, error } = await supabaseAdmin.from('leave_request')
     .select('user_id,tanggal_mulai,tanggal_selesai')
+    .eq('outlet_id', outletId)
     .in('user_id', userIds)
     .eq('status', 'disetujui')
     .lte('tanggal_mulai', end)
@@ -83,19 +85,19 @@ async function approvedLeaves(userIds: string[], start: string, end: string) {
   return (data || []) as (Leave & { user_id: string })[]
 }
 
-async function findSchedule(userId: string, date: string) {
+async function findSchedule(userId: string, date: string, outletId: string) {
   const { data, error } = await supabaseAdmin.from('schedule')
     .select('id,user_id,tanggal,jam_mulai,jam_selesai')
-    .eq('user_id', userId).eq('tanggal', date).order('id').limit(2)
+    .eq('user_id', userId).eq('outlet_id', outletId).eq('tanggal', date).order('id').limit(2)
   if (error) throw new Error('Jadwal hari ini belum dapat dimuat.')
   if ((data || []).length > 1) throw new Error('Ditemukan lebih dari satu jadwal pada hari ini. Hubungi manager penjadwalan.')
   return (data?.[0] || null) as Schedule | null
 }
 
-async function findClaim(userId: string, date: string) {
+async function findClaim(userId: string, date: string, outletId: string) {
   const { data, error } = await supabaseAdmin.from('meal_allowance_claims')
     .select('id,schedule_id,user_id,meal_date,status,description,photo_path,submitted_at,updated_at,version')
-    .eq('user_id', userId).eq('meal_date', date).maybeSingle()
+    .eq('user_id', userId).eq('outlet_id', outletId).eq('meal_date', date).maybeSingle()
   if (error) throw new Error('Laporan jatah makan belum dapat dimuat.')
   return data as Claim | null
 }
@@ -108,9 +110,10 @@ async function signedUrls(claims: Claim[]) {
   return new Map((data || []).flatMap((signed) => signed.path && signed.signedUrl ? [[signed.path, signed.signedUrl] as const] : []))
 }
 
-async function activePeriod(today: string) {
+async function activePeriod(today: string, outletId: string) {
   const { data, error } = await supabaseAdmin.from('periode_kerja')
     .select('id,nama,tanggal_mulai,tanggal_selesai')
+    .eq('outlet_id', outletId)
     .lte('tanggal_mulai', today).gte('tanggal_selesai', today)
     .order('tanggal_mulai', { ascending: false }).limit(2)
   if (error) throw new Error('Periode kerja belum dapat dimuat.')
@@ -168,17 +171,17 @@ function buildRows(input: {
   return rows
 }
 
-async function loadRowsForDate(date: string, crew: Crew[]) {
+async function loadRowsForDate(date: string, crew: Crew[], outletId: string) {
   if (!crew.length) return [] as MealAllowanceRow[]
   const crewIds = crew.map((item) => item.id)
   const [scheduleResult, claimResult, leaveRows] = await Promise.all([
     supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai')
-      .in('user_id', crewIds).eq('tanggal', date)
+      .in('user_id', crewIds).eq('outlet_id', outletId).eq('tanggal', date)
       .order('tanggal').order('id'),
     supabaseAdmin.from('meal_allowance_claims').select('id,schedule_id,user_id,meal_date,status,description,photo_path,submitted_at,updated_at,version')
-      .in('user_id', crewIds).eq('meal_date', date)
+      .in('user_id', crewIds).eq('outlet_id', outletId).eq('meal_date', date)
       .order('meal_date').order('submitted_at'),
-    approvedLeaves(crewIds, date, date),
+    approvedLeaves(crewIds, date, date, outletId),
   ])
   if (scheduleResult.error || claimResult.error) throw new Error('Data jatah makan belum dapat dimuat.')
   const claims = (claimResult.data || []) as Claim[]
@@ -203,23 +206,23 @@ export async function loadMealAllowanceForCrew(selectedDate?: string) {
     if (access.role !== 'crew') throw new Error('Halaman ini khusus untuk crew.')
     const today = jakartaDate()
     try {
-      await purgeCompletedMealAllowanceData()
+      await purgeCompletedMealAllowanceData(access.outletId)
     } catch (cleanupError) {
       console.error('[meal allowance cleanup before crew load]', cleanupError)
     }
     const [todaySchedule, todayClaim, todayLeaves, currentPeriod, allCrewResult] = await Promise.all([
-      findSchedule(access.userId, today),
-      findClaim(access.userId, today),
-      approvedLeaves([access.userId], today, today),
-      activePeriod(today),
-      supabaseAdmin.from('users').select('id,nama,username').eq('role', 'crew').eq('status_aktif', true).order('nama'),
+      findSchedule(access.userId, today, access.outletId),
+      findClaim(access.userId, today, access.outletId),
+      approvedLeaves([access.userId], today, today, access.outletId),
+      activePeriod(today, access.outletId),
+      supabaseAdmin.from('users').select('id,nama,username').eq('outlet_id', access.outletId).eq('role', 'crew').eq('status_aktif', true).order('nama'),
     ])
     if (allCrewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
     const isOnLeave = todayLeaves.length > 0
     const visibleDate = selectedDateForPeriod(currentPeriod, selectedDate, today)
     const allCrew = (allCrewResult.data || []) as Crew[]
     const history = visibleDate
-      ? await loadRowsForDate(visibleDate, allCrew)
+      ? await loadRowsForDate(visibleDate, allCrew, access.outletId)
       : []
     // A report that was already sent stays editable until the calendar-day
     // deadline. Its submitted state is represented by `claim`, while this
@@ -264,18 +267,18 @@ export async function loadMealAllowanceForFinance(selectedDate?: string) {
     if (access.role !== 'finance') throw new Error('Halaman ini khusus untuk Manager Keuangan.')
     const today = jakartaDate()
     try {
-      await purgeCompletedMealAllowanceData()
+      await purgeCompletedMealAllowanceData(access.outletId)
     } catch (cleanupError) {
       console.error('[meal allowance cleanup before finance load]', cleanupError)
     }
     const [currentPeriod, crewResult] = await Promise.all([
-      activePeriod(today),
-      supabaseAdmin.from('users').select('id,nama,username').eq('role', 'crew').eq('status_aktif', true).order('nama'),
+      activePeriod(today, access.outletId),
+      supabaseAdmin.from('users').select('id,nama,username').eq('outlet_id', access.outletId).eq('role', 'crew').eq('status_aktif', true).order('nama'),
     ])
     if (crewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
     const allCrew = (crewResult.data || []) as Crew[]
     const visibleDate = selectedDateForPeriod(currentPeriod, selectedDate, today)
-    const rows = visibleDate ? await loadRowsForDate(visibleDate, allCrew) : []
+    const rows = visibleDate ? await loadRowsForDate(visibleDate, allCrew, access.outletId) : []
     return { success: true as const, period: currentPeriod, selectedDate: visibleDate, rows }
   } catch (error) { return failure(error) }
 }
@@ -298,9 +301,9 @@ export async function saveMealAllowanceClaim(formData: FormData) {
     const now = new Date()
     const today = jakartaDate(now)
     const [schedule, leaveRows, existing] = await Promise.all([
-      findSchedule(access.userId, today),
-      approvedLeaves([access.userId], today, today),
-      findClaim(access.userId, today),
+      findSchedule(access.userId, today, access.outletId),
+      approvedLeaves([access.userId], today, today, access.outletId),
+      findClaim(access.userId, today, access.outletId),
     ])
     if (leaveRows.length) throw new Error('Kamu sedang izin pada hari ini, sehingga tidak perlu mengisi jatah makan.')
     if (!schedule) throw new Error('Tidak ada jadwal kerja hari ini.')
@@ -345,6 +348,7 @@ export async function saveMealAllowanceClaim(formData: FormData) {
     const payload = {
       schedule_id: schedule.id,
       user_id: access.userId,
+      outlet_id: access.outletId,
       meal_date: schedule.tanggal,
       status,
       description: status === 'claimed' ? description : null,

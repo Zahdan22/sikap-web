@@ -15,10 +15,10 @@ async function accessViolations() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false as const, message: 'Belum login.' }
-  const { data: profile, error } = await supabase.from('users').select('role, status_aktif').eq('id', user.id).single()
-  if (error || !profile?.status_aktif || !['crew','manager','finance'].includes(profile.role)) return { ok: false as const, message: 'Akun tidak memiliki akses.' }
+  const { data: profile, error } = await supabase.from('users').select('role, status_aktif, outlet_id').eq('id', user.id).single()
+  if (error || !profile?.status_aktif || !profile.outlet_id || !['crew','manager','finance'].includes(profile.role)) return { ok: false as const, message: 'Akun tidak memiliki akses.' }
   const role = profile.role as 'crew' | 'manager' | 'finance'
-  return { ok: true as const, supabase, userId: user.id, role, manager: role !== 'crew', finance: role === 'finance' }
+  return { ok: true as const, supabase, userId: user.id, outletId: profile.outlet_id, role, manager: role !== 'crew', finance: role === 'finance' }
 }
 function refresh() {
   for (const route of ['/pelanggaran','/manager/pelanggaran','/finance/pelanggaran','/dashboard','/finance','/finance/payroll','/penggajian','/jatah-makan','/finance/jatah-makan']) revalidatePath(route)
@@ -46,14 +46,14 @@ function seniorCapabilityOn(userId: string, date: string, histories: TierHistory
   return Boolean(configs.find((row) => row.tier === history.tier)?.supports_senior_plus)
 }
 
-async function automaticAttendanceViolations(period: { tanggal_mulai: string; tanggal_selesai: string }) {
+async function automaticAttendanceViolations(period: { tanggal_mulai: string; tanggal_selesai: string }, outletId: string) {
   const [crewResult, schedulesResult, tierHistoriesResult, rateHistoriesResult, tierConfigsResult, penaltyRulesResult] = await Promise.all([
-    loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
-    loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
-    loadAllPayrollRows<TierHistoryRow>((from, to) => supabaseAdmin.from('crew_payroll_tier_history').select('user_id,tier,effective_on,id', { count: 'exact' }).lte('effective_on', period.tanggal_selesai).order('effective_on').order('id').range(from, to)),
-    loadAllPayrollRows<TierRateHistoryRow>((from, to) => supabaseAdmin.from('payroll_tier_rate_history').select('id,tier,supports_senior_plus,effective_on', { count: 'exact' }).lte('effective_on', period.tanggal_selesai).order('tier').order('effective_on').order('id').range(from, to)),
-    supabaseAdmin.from('payroll_tier_rates').select('tier,supports_senior_plus'),
-    loadAttendancePenaltyRuleHistory(period.tanggal_selesai),
+    loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('outlet_id', outletId).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
+    loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).eq('outlet_id', outletId).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
+    loadAllPayrollRows<TierHistoryRow>((from, to) => supabaseAdmin.from('crew_payroll_tier_history').select('user_id,tier,effective_on,id', { count: 'exact' }).eq('outlet_id', outletId).lte('effective_on', period.tanggal_selesai).order('effective_on').order('id').range(from, to)),
+    loadAllPayrollRows<TierRateHistoryRow>((from, to) => supabaseAdmin.from('payroll_tier_rate_history').select('id,tier,supports_senior_plus,effective_on', { count: 'exact' }).eq('outlet_id', outletId).lte('effective_on', period.tanggal_selesai).order('tier').order('effective_on').order('id').range(from, to)),
+    supabaseAdmin.from('payroll_tier_rates').select('tier,supports_senior_plus').eq('outlet_id', outletId),
+    loadAttendancePenaltyRuleHistory(outletId, period.tanggal_selesai),
   ])
   const problem = crewResult.error || schedulesResult.error || tierHistoriesResult.error || rateHistoriesResult.error || tierConfigsResult.error || penaltyRulesResult.error
   if (problem) return { success: false as const, message: 'Data absensi otomatis belum dapat dimuat.' }
@@ -104,14 +104,14 @@ async function automaticAttendanceViolations(period: { tanggal_mulai: string; ta
 // or schedule transfer is reflected immediately. Once a period closes, the
 // cleanup job snapshots only real missing reports into a dedicated table before
 // deleting temporary meal reports and food photos.
-async function automaticMealViolations(period: { id: number; tanggal_mulai: string; tanggal_selesai: string }) {
+async function automaticMealViolations(period: { id: number; tanggal_mulai: string; tanggal_selesai: string }, outletId: string) {
   const [crewResult, schedulesResult, approvedLeaveResult, savedResult, cleanupResult, penaltyRulesResult] = await Promise.all([
-    loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
-    loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
-    loadAllPayrollRows<ApprovedLeaveRow>((from, to) => supabaseAdmin.from('leave_request').select('user_id,tanggal_mulai,tanggal_selesai', { count: 'exact' }).eq('status', 'disetujui').lte('tanggal_mulai', period.tanggal_selesai).gte('tanggal_selesai', period.tanggal_mulai).order('tanggal_mulai').order('id').range(from, to)),
+    loadAllPayrollRows<{ id: string }>((from, to) => supabaseAdmin.from('users').select('id', { count: 'exact' }).eq('outlet_id', outletId).eq('role', 'crew').eq('status_aktif', true).order('id').range(from, to)),
+    loadAllPayrollRows<ScheduleRow>((from, to) => supabaseAdmin.from('schedule').select('id,user_id,tanggal,jam_mulai,jam_selesai', { count: 'exact' }).eq('outlet_id', outletId).not('user_id', 'is', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('id').range(from, to)),
+    loadAllPayrollRows<ApprovedLeaveRow>((from, to) => supabaseAdmin.from('leave_request').select('user_id,tanggal_mulai,tanggal_selesai', { count: 'exact' }).eq('outlet_id', outletId).eq('status', 'disetujui').lte('tanggal_mulai', period.tanggal_selesai).gte('tanggal_selesai', period.tanggal_mulai).order('tanggal_mulai').order('id').range(from, to)),
     loadAllPayrollRows<SavedMealViolationRow>((from, to) => supabaseAdmin.from('meal_allowance_missing_violations').select('schedule_id,user_id,tanggal,poin', { count: 'exact' }).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai).order('tanggal').order('schedule_id').range(from, to)),
     supabaseAdmin.from('meal_allowance_period_cleanups').select('period_id').eq('period_id', period.id).maybeSingle(),
-    loadAttendancePenaltyRuleHistory(period.tanggal_selesai),
+    loadAttendancePenaltyRuleHistory(outletId, period.tanggal_selesai),
   ])
   if (crewResult.error || schedulesResult.error || approvedLeaveResult.error || savedResult.error || cleanupResult.error || penaltyRulesResult.error) return { success: false as const, message: 'Data jatah makan otomatis belum dapat dimuat.' }
   const activeCrewIds = new Set((crewResult.data || []).map((row) => row.id))
@@ -129,6 +129,7 @@ async function automaticMealViolations(period: { id: number; tanggal_mulai: stri
     .from('meal_allowance_claims')
     .select('user_id,meal_date', { count: 'exact' })
     .in('user_id', [...activeCrewIds])
+    .eq('outlet_id', outletId)
     .gte('meal_date', period.tanggal_mulai)
     .lte('meal_date', period.tanggal_selesai)
     .order('meal_date')
@@ -170,7 +171,7 @@ export async function loadViolations(periodId: number) {
   if (!access.ok) return { success: false as const, message: access.message }
   if (!Number.isSafeInteger(periodId) || periodId <= 0) return { success: false as const, message: 'Pilih periode kerja.' }
   try {
-    await purgeCompletedMealAllowanceData()
+    await purgeCompletedMealAllowanceData(access.outletId)
   } catch (cleanupError) {
     console.error('[meal allowance cleanup before violations]', cleanupError)
   }
@@ -180,7 +181,7 @@ export async function loadViolations(periodId: number) {
   for (let offset = 0; ; offset += 500) {
     const { data, error: rowsError } = await access.supabase.from('crew_violations')
       .select('id, user_id, tanggal, kesalahan, poin, denda, reviewed_at, reviewed_by, version, created_at, crew:users!user_id!inner(status_aktif)')
-      .is('deleted_at', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai)
+      .eq('outlet_id', access.outletId).is('deleted_at', null).gte('tanggal', period.tanggal_mulai).lte('tanggal', period.tanggal_selesai)
       .eq('crew.status_aktif', true)
       .order('tanggal', { ascending: true }).order('id', { ascending: true }).range(offset, offset + 499)
     if (rowsError) return { success: false as const, message: violationError(rowsError.message) }
@@ -191,8 +192,8 @@ export async function loadViolations(periodId: number) {
   // crew_violations. An approved attendance correction therefore changes (or
   // removes) the matching late row immediately without leaving stale data.
   const [attendanceAutomatic, mealAutomatic] = await Promise.all([
-    automaticAttendanceViolations(period),
-    automaticMealViolations(period),
+    automaticAttendanceViolations(period, access.outletId),
+    automaticMealViolations(period, access.outletId),
   ])
   if (!attendanceAutomatic.success) return attendanceAutomatic
   if (!mealAutomatic.success) return mealAutomatic
@@ -205,11 +206,12 @@ function isAttendanceViolationKind(value: unknown): value is AttendanceViolation
   return value === 'late_checkin' || value === 'late_checkout'
 }
 
-async function automaticViolationStillApplies(scheduleId: number, kind: AttendanceViolationKind): Promise<AutomaticViolationApplicability> {
+async function automaticViolationStillApplies(scheduleId: number, kind: AttendanceViolationKind, outletId: string): Promise<AutomaticViolationApplicability> {
   const { data: schedule, error: scheduleError } = await supabaseAdmin
     .from('schedule')
     .select('id,user_id,tanggal,jam_mulai,jam_selesai')
     .eq('id', scheduleId)
+    .eq('outlet_id', outletId)
     .maybeSingle()
   if (scheduleError || !schedule?.user_id) return { applies: false as const, message: 'Data jadwal sudah tidak tersedia.' }
 
@@ -243,7 +245,7 @@ export async function saveAttendanceViolationPoint(scheduleId: number, kind: Att
     return { success: false as const, message: 'Poin harus berupa angka bulat nol atau lebih.' }
   }
 
-  const current = await automaticViolationStillApplies(scheduleId, kind)
+  const current = await automaticViolationStillApplies(scheduleId, kind, access.outletId)
   if (!current.applies) return { success: false as const, message: current.message || 'Pelanggaran absensi ini sudah tidak berlaku.' }
 
   const result = points === null

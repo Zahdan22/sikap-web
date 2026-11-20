@@ -31,12 +31,21 @@ function setup({ rowLimit = 1000, failPageOf = null, failMessage = 'Page unavail
     periode_kerja: [],
     payroll_adjustments: [], payroll_items: [], crew_violations: [],
     crew_payroll_manual_components: [], crew_management_titles: [],
+    attendance_penalty_rule_history: [
+      { id: 1, rule_key: 'late_checkin_30_plus_senior', label: 'Telat absen masuk ≥30 menit · Senior', rule_kind: 'late_checkin', min_minutes: 30, max_minutes: null, applies_to: 'senior_plus', payroll_effect: 'deduction', points: 6, fine: 40000, is_active: true, effective_on: '1900-01-01', created_at: '1900-01-01T00:00:00Z' },
+      { id: 2, rule_key: 'late_checkout', label: 'Telat absen pulang', rule_kind: 'late_checkout', min_minutes: null, max_minutes: null, applies_to: 'all', payroll_effect: 'deduction', points: 4, fine: 2000, is_active: true, effective_on: '1900-01-01', created_at: '1900-01-01T00:00:00Z' },
+    ],
     overtime_requests: [
       { id: 1, user_id: 'crew-1', tanggal: '2025-01-05', jam_mulai: '00:00', jam_selesai: '02:30', jam_dibayar: 2, nominal: 16000, status: 'disetujui', keterangan: 'Ramai' },
       { id: 2, user_id: 'crew-1', tanggal: '2025-01-06', jam_dibayar: 1, nominal: 8000, status: 'pending' },
       { id: 3, user_id: 'crew-1', tanggal: '2025-01-07', jam_dibayar: 3, nominal: 24000, status: 'ditolak' },
       { id: 4, user_id: 'crew-1', tanggal: '2025-02-01', jam_dibayar: 4, nominal: 32000, status: 'disetujui' },
     ],
+  }
+  // The production schema scopes payroll roots by outlet.  Keep the fixture
+  // explicit about that boundary so the test client exercises those filters.
+  for (const rows of Object.values(tables)) {
+    for (const row of rows) row.outlet_id = 'outlet-tjap'
   }
   const calls = []
   const client = {
@@ -50,7 +59,7 @@ function setup({ rowLimit = 1000, failPageOf = null, failMessage = 'Page unavail
       const orders = []
       const query = {
         select() { return query },
-        eq(key, value) { rows = rows.filter((row) => row[key] === value); return query },
+        eq(key, value) { rows = rows.filter((row) => key === 'outlet_id' && row[key] === undefined ? value === 'outlet-tjap' : row[key] === value); return query },
         is(key, value) { rows = rows.filter((row) => row[key] === value); return query },
         gte(key, value) { rows = rows.filter((row) => row[key] >= value); return query },
         lte(key, value) { rows = rows.filter((row) => row[key] <= value); return query },
@@ -81,7 +90,7 @@ function setup({ rowLimit = 1000, failPageOf = null, failMessage = 'Page unavail
     const module = { exports: {} }
     new Function('require', 'module', 'exports', compiled)((id) => {
       if (id === 'next/cache') return { revalidatePath() {} }
-      if (id === '@/lib/finance-auth') return { requireFinance: async () => ({ ok: true, supabase: client, userId: 'finance' }) }
+      if (id === '@/lib/finance-auth') return { requireFinance: async () => ({ ok: true, supabase: client, userId: 'finance', outletId: 'outlet-tjap' }) }
       if (id === '@/lib/supabase/server') return { createClient: async () => client }
       if (id === '@/lib/supabase-admin') return { supabaseAdmin: client }
       if (id.startsWith('@/')) return load(`${id.slice(2)}.ts`)

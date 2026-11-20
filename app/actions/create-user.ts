@@ -51,6 +51,7 @@ export async function createCrewAccount(
     username: cleanUsername,
     nama: cleanName,
     role: 'crew',
+    outlet_id: access.outletId,
   })
 
   if (profileError) {
@@ -116,7 +117,7 @@ export async function resetCrewCredentials(userId: string) {
   }
 
   const { data: crewRows, error: crewError } = await loadAllPayrollRows<{ id: string; username: string }>((from, to) =>
-    supabaseAdmin.from('users').select('id, username', { count: 'exact' }).eq('role', 'crew').order('username').range(from, to)
+    supabaseAdmin.from('users').select('id, username', { count: 'exact' }).eq('role', 'crew').eq('outlet_id', access.outletId).order('username').range(from, to)
   )
   if (crewError) return { success: false as const, message: 'Daftar username belum dapat dimuat. Coba lagi beberapa saat.' }
 

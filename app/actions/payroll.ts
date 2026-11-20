@@ -119,38 +119,38 @@ function configuredAttendancePenalty(rule: AttendancePenaltyRule | null, reason:
 // `crewId` keeps a self-service slip fast: a crew member never needs the payroll
 // data of every other person just to view their own period. Tier movement is
 // deliberately manual; payroll only reads the effective-date history.
-async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient>>, start: string, end: string, period: PayrollPeriod | null, crewId?: string) {
+async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient>>, outletId: string, start: string, end: string, period: PayrollPeriod | null, crewId?: string) {
   const [{ data: users, error: usersError }, { data: schedules, error: schedulesError }, { data: histories, error: historyError }, { data: tierConfigs, error: tierConfigsError }, { data: plusConfigs, error: plusConfigsError }, { data: tierRateHistory, error: tierRateHistoryError }, { data: plusRateHistory, error: plusRateHistoryError }, { data: states, error: stateError }, overtime, violations, { data: adjustments, error: adjustmentsError }, { data: manualComponents, error: manualComponentsError }, { data: managementTitles, error: managementTitlesError }, penaltyRulesResult] = await Promise.all([
     loadAllPayrollRows((from, to) => {
-      let query = supabase.from('users').select('id, username, nama, status_aktif', { count: 'exact' }).eq('role', 'crew').eq('status_aktif', true)
+      let query = supabase.from('users').select('id, username, nama, status_aktif', { count: 'exact' }).eq('outlet_id', outletId).eq('role', 'crew').eq('status_aktif', true)
       if (crewId) query = query.eq('id', crewId)
       return query.order('nama').order('id').range(from, to)
     }),
     loadAllPayrollRows((from, to) => {
-      let query = supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam', { count: 'exact' }).gte('tanggal', start).lte('tanggal', end).not('user_id', 'is', null)
+      let query = supabase.from('schedule').select('id, user_id, tanggal, jam_mulai, jam_selesai, durasi_jam', { count: 'exact' }).eq('outlet_id', outletId).gte('tanggal', start).lte('tanggal', end).not('user_id', 'is', null)
       if (crewId) query = query.eq('user_id', crewId)
       return query.order('tanggal').order('id').range(from, to)
     }),
     loadAllPayrollRows((from, to) => {
-      let query = supabase.from('crew_payroll_tier_history').select('user_id, tier, senior_plus_level, effective_on, id', { count: 'exact' }).lte('effective_on', end)
+      let query = supabase.from('crew_payroll_tier_history').select('user_id, tier, senior_plus_level, effective_on, id', { count: 'exact' }).eq('outlet_id', outletId).lte('effective_on', end)
       if (crewId) query = query.eq('user_id', crewId)
       return query.order('effective_on').order('id').range(from, to)
     }),
-    supabase.from('payroll_tier_rates').select('tier, label, is_active, supports_senior_plus, hourly_rate'),
-    supabase.from('payroll_senior_plus_rates').select('level, label, is_active, daily_bonus'),
+    supabase.from('payroll_tier_rates').select('tier, label, is_active, supports_senior_plus, hourly_rate').eq('outlet_id', outletId),
+    supabase.from('payroll_senior_plus_rates').select('level, label, is_active, daily_bonus').eq('outlet_id', outletId),
     loadAllPayrollRows((from, to) => supabase.from('payroll_tier_rate_history')
-      .select('id, tier, hourly_rate, supports_senior_plus, effective_on', { count: 'exact' }).lte('effective_on', end)
+      .select('id, tier, hourly_rate, supports_senior_plus, effective_on', { count: 'exact' }).eq('outlet_id', outletId).lte('effective_on', end)
       .order('tier').order('effective_on').order('id').range(from, to)),
     loadAllPayrollRows((from, to) => supabase.from('payroll_senior_plus_rate_history')
-      .select('id, level, daily_bonus, effective_on', { count: 'exact' }).lte('effective_on', end)
+      .select('id, level, daily_bonus, effective_on', { count: 'exact' }).eq('outlet_id', outletId).lte('effective_on', end)
       .order('level').order('effective_on').order('id').range(from, to)),
     loadAllPayrollRows((from, to) => {
-      let query = supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level', { count: 'exact' })
+      let query = supabase.from('crew_payroll_status').select('user_id, tier, completed_days_in_tier, senior_plus_level', { count: 'exact' }).eq('outlet_id', outletId)
       if (crewId) query = query.eq('user_id', crewId)
       return query.order('user_id').range(from, to)
     }),
-    loadApprovedOvertime(supabase, start, end, crewId),
-    loadPayrollViolations(supabase, start, end, crewId),
+    loadApprovedOvertime(supabase, outletId, start, end, crewId),
+    loadPayrollViolations(supabase, outletId, start, end, crewId),
     period
       ? loadAllPayrollRows((from, to) => {
         let query = supabase.from('payroll_adjustments').select('id, user_id, adjustment_type, amount, reason', { count: 'exact' }).eq('payroll_period_id', period.id)
@@ -172,7 +172,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         return query.order('starts_on').order('id').range(from, to)
       })
       : Promise.resolve({ data: [], error: null }),
-    loadAttendancePenaltyRuleHistory(end),
+    loadAttendancePenaltyRuleHistory(outletId, end),
   ])
   const problem = usersError || schedulesError || historyError || tierConfigsError || plusConfigsError || tierRateHistoryError || plusRateHistoryError || stateError || adjustmentsError || manualComponentsError || managementTitlesError || penaltyRulesResult.error
   if (problem) return { success: false as const, message: problem.message }
@@ -858,7 +858,7 @@ async function syncDraftPayrollsFrom(access: FinanceAccess, effectiveOn: string)
       status: 'draft',
       attendance_revision: Number(draftPeriod.attendance_revision || 0),
     }
-    const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' })
+    const report = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' })
     if (!report.success) return payrollFailure(report.message, 'Draf payroll belum dapat diperbarui. Coba lagi beberapa saat.')
     const records = report.rows.map((row) => payrollItemRecord(period, row))
     if (!records.length) continue
@@ -915,7 +915,7 @@ function penaltyRuleDisplayOrder(rule: Pick<AttendancePenaltyRule, 'ruleKind' | 
 export async function loadAttendancePenaltyRuleSettings() {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
-  const historyResult = await loadAttendancePenaltyRuleHistory()
+  const historyResult = await loadAttendancePenaltyRuleHistory(access.outletId)
   if (historyResult.error) return payrollFailure(historyResult.error, 'Aturan poin dan denda belum dapat dimuat. Coba lagi beberapa saat.')
 
   const today = jakartaToday()
@@ -962,7 +962,7 @@ export async function saveAttendancePenaltyRuleConfig(ruleKey: string, points: n
   if (!Number.isSafeInteger(requestedFine) || requestedFine < 0 || requestedFine > 100_000_000) return { success: false as const, message: 'Nominal denda harus berupa angka bulat dari Rp0 sampai Rp100.000.000.' }
   if (!validDate(effectiveOn) || typeof isActive !== 'boolean') return { success: false as const, message: 'Tanggal berlaku atau status aturan tidak valid.' }
 
-  const historyResult = await loadAttendancePenaltyRuleHistory()
+  const historyResult = await loadAttendancePenaltyRuleHistory(access.outletId)
   if (historyResult.error) return payrollFailure(historyResult.error, 'Aturan poin dan denda belum dapat diperiksa. Coba lagi beberapa saat.')
   const versions = historyResult.data.filter((rule) => rule.ruleKey === cleanKey).sort((a, b) => a.effectiveOn.localeCompare(b.effectiveOn) || a.id - b.id)
   const firstVersion = versions[0]
@@ -990,12 +990,13 @@ export async function saveAttendancePenaltyRuleConfig(ruleKey: string, points: n
     updated_at: now,
   }
   const mutation = exactVersion
-    ? supabaseAdmin.from('attendance_penalty_rule_history').update(payload).eq('id', exactVersion.id)
+    ? supabaseAdmin.from('attendance_penalty_rule_history').update(payload).eq('id', exactVersion.id).eq('outlet_id', access.outletId)
     : supabaseAdmin.from('attendance_penalty_rule_history').insert({
       ...payload,
       rule_key: definition.ruleKey,
       effective_on: effectiveOn,
       recorded_by: access.userId,
+      outlet_id: access.outletId,
     })
   const { error } = await mutation
   if (error) return payrollFailure(error, 'Aturan poin dan denda belum dapat disimpan. Coba lagi beberapa saat.')
@@ -1076,7 +1077,8 @@ export async function savePayrollTierConfig(tier: string | null, label: string, 
   const { error: rateError } = await access.supabase.from('payroll_tier_rate_history').upsert({
     tier: code, hourly_rate: amount, supports_senior_plus: supportsSeniorPlus, effective_on: effectiveOn, recorded_by: access.userId,
     updated_by: access.userId, updated_at: now,
-  }, { onConflict: 'tier,effective_on' })
+    outlet_id: access.outletId,
+  }, { onConflict: 'outlet_id,tier,effective_on' })
   if (rateError) return payrollFailure(rateError, 'Tarif status belum dapat disimpan. Coba lagi beberapa saat.')
   // Rate and Senior capability are both stored with the effective date, so
   // only overlapping draft periods need recalculating.
@@ -1125,7 +1127,8 @@ export async function saveSeniorPlusRateConfig(level: number | null, label: stri
   const { error: rateError } = await access.supabase.from('payroll_senior_plus_rate_history').upsert({
     level: cleanLevel, daily_bonus: amount, effective_on: effectiveOn, recorded_by: access.userId,
     updated_by: access.userId, updated_at: now,
-  }, { onConflict: 'level,effective_on' })
+    outlet_id: access.outletId,
+  }, { onConflict: 'outlet_id,level,effective_on' })
   if (rateError) return payrollFailure(rateError, 'Tunjangan masa kerja belum dapat disimpan. Coba lagi beberapa saat.')
   const synced = await syncDraftPayrollsFrom(access, effectiveOn)
   if (!synced.success) return { success: false as const, message: 'Tunjangan masa kerja berhasil disimpan, tetapi draf payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa payroll.' }
@@ -1245,7 +1248,7 @@ async function ensureCrewTarget(access: FinanceAccess, userId: string) {
 }
 
 async function syncDraftPayrollItem(access: FinanceAccess, period: DraftPayrollPeriod, userId: string) {
-  const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' }, userId)
+  const report = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' }, userId)
   if (!report.success) return payrollFailure(report.message, 'Rincian payroll belum dapat diperbarui. Coba lagi beberapa saat.')
   const row = report.rows.find((item) => item.userId === userId)
   if (!row) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
@@ -1256,7 +1259,7 @@ async function syncDraftPayrollItem(access: FinanceAccess, period: DraftPayrollP
 }
 
 async function validateProjectedPayrollNet(access: FinanceAccess, period: DraftPayrollPeriod, userId: string, netChange: number) {
-  const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' }, userId)
+  const report = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' }, userId)
   if (!report.success) return payrollFailure(report.message, 'Dampak perubahan pada payroll belum dapat diperiksa. Coba lagi beberapa saat.')
   const row = report.rows.find((item) => item.userId === userId)
   if (!row) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
@@ -1274,14 +1277,14 @@ export async function loadPayrollReport(start: string, end: string) {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
   if (!validDate(start) || !validDate(end) || start > end) return { success: false as const, message: 'Rentang tanggal tidak valid.' }
-  const findPeriod = () => access.supabase.from('payroll_periods').select('id, status').eq('period_start', start).eq('period_end', end).maybeSingle()
+  const findPeriod = () => access.supabase.from('payroll_periods').select('id, status').eq('outlet_id', access.outletId).eq('period_start', start).eq('period_end', end).maybeSingle()
   const period = await findPeriod()
   if (period.error) return { success: false as const, message: period.error.message }
   const knownPeriod: PayrollPeriod | null = period.data
     ? { id: period.data.id, status: period.data.status as PayrollPeriod['status'] }
     : null
   if (knownPeriod?.status === 'finalized') return loadFinalPayroll(access.supabase, knownPeriod.id)
-  const report = await calculatePayroll(access.supabase, start, end, knownPeriod)
+  const report = await calculatePayroll(access.supabase, access.outletId, start, end, knownPeriod)
   // A finalization during calculation must not label live numbers as final.
   const latest = await findPeriod()
   if (latest.error) return { success: false as const, message: latest.error.message }
@@ -1326,9 +1329,9 @@ async function requireCrewPayrollAccess() {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return { ok: false as const, message: 'Sesi login tidak valid.' }
-  const { data: profile, error } = await supabase.from('users').select('role, status_aktif').eq('id', user.id).maybeSingle()
-  if (error || !profile?.status_aktif || profile.role !== 'crew') return { ok: false as const, message: 'Akses slip gaji hanya tersedia untuk akun crew aktif.' }
-  return { ok: true as const, supabase, userId: user.id }
+  const { data: profile, error } = await supabase.from('users').select('role, status_aktif, outlet_id').eq('id', user.id).maybeSingle()
+  if (error || !profile?.status_aktif || profile.role !== 'crew' || !profile.outlet_id) return { ok: false as const, message: 'Akses slip gaji hanya tersedia untuk akun crew aktif.' }
+  return { ok: true as const, supabase, userId: user.id, outletId: profile.outlet_id }
 }
 
 export async function loadCrewPayrollWorkPeriods() {
@@ -1352,14 +1355,14 @@ export async function loadOwnPayrollSlip(workPeriodId: number) {
   // calculates the authenticated crew member's row and never returns another crew's data.
   const admin = supabaseAdmin as unknown as Awaited<ReturnType<typeof createClient>>
   const { data: payrollPeriod, error: payrollPeriodError } = await admin.from('payroll_periods')
-    .select('id, status').eq('period_start', workPeriod.tanggal_mulai).eq('period_end', workPeriod.tanggal_selesai).maybeSingle()
+    .select('id, status').eq('outlet_id', access.outletId).eq('period_start', workPeriod.tanggal_mulai).eq('period_end', workPeriod.tanggal_selesai).maybeSingle()
   if (payrollPeriodError) return { success: false as const, message: payrollPeriodError.message }
   const period: PayrollPeriod | null = payrollPeriod
     ? { id: payrollPeriod.id, status: payrollPeriod.status as PayrollPeriod['status'] }
     : null
   const report = period?.status === 'finalized'
     ? await loadFinalPayroll(admin, period.id, access.userId)
-    : await calculatePayroll(admin, workPeriod.tanggal_mulai, workPeriod.tanggal_selesai, period, access.userId)
+    : await calculatePayroll(admin, access.outletId, workPeriod.tanggal_mulai, workPeriod.tanggal_selesai, period, access.userId)
   if (!report.success) return report
   const row = report.rows.find((item) => item.userId === access.userId)
   if (!row) return { success: false as const, message: 'Data payroll Anda tidak ditemukan pada periode ini.' }
@@ -1398,13 +1401,13 @@ export async function savePayrollDraft(start: string, end: string) {
   if (!access.ok) return { success: false as const, message: access.message }
   if (!validDate(start) || !validDate(end) || start > end) return { success: false as const, message: 'Rentang tanggal tidak valid.' }
 
-  const existing = await access.supabase.from('payroll_periods').select('id, status, attendance_revision').eq('period_start', start).eq('period_end', end).maybeSingle()
+  const existing = await access.supabase.from('payroll_periods').select('id, status, attendance_revision').eq('outlet_id', access.outletId).eq('period_start', start).eq('period_end', end).maybeSingle()
   if (existing.error) return { success: false as const, message: existing.error.message }
   if (existing.data?.status === 'finalized') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
   let periodId = existing.data?.id
   const attendanceRevision = existing.data?.attendance_revision || 0
   if (!periodId) {
-    const { data, error } = await access.supabase.from('payroll_periods').insert({ period_start: start, period_end: end, created_by: access.userId }).select('id').single()
+    const { data, error } = await access.supabase.from('payroll_periods').insert({ outlet_id: access.outletId, period_start: start, period_end: end, created_by: access.userId }).select('id').single()
     if (error || !data) return { success: false as const, message: error?.message || 'Gagal membuat periode payroll.' }
     periodId = data.id
   }
@@ -1417,7 +1420,7 @@ export async function savePayrollDraft(start: string, end: string) {
     attendance_revision: attendanceRevision,
   }
 
-  const report = await calculatePayroll(access.supabase, start, end, { id: draftPeriod.id, status: 'draft' })
+  const report = await calculatePayroll(access.supabase, access.outletId, start, end, { id: draftPeriod.id, status: 'draft' })
   if (!report.success) return report
   if (report.rows.some((row) => row.unratedDays > 0)) return { success: false as const, message: 'Ada absensi lengkap yang belum punya riwayat tier pada tanggal jadwalnya. Atur tier dan hari awal crew terlebih dahulu.' }
   const negative = report.rows.find((row) => row.netPay < 0)
@@ -1445,7 +1448,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
   if (period.status !== 'draft') return { success: false as const, message: 'Periode payroll sudah dikunci.' }
   const { data: targetCrew, error: targetError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
   if (targetError || !targetCrew) return { success: false as const, message: targetError?.message || 'Crew tidak ditemukan.' }
-  const currentReport = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' })
+  const currentReport = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' })
   if (!currentReport.success) return currentReport
   const targetRow = currentReport.rows.find((row) => row.userId === userId)
   if (!targetRow) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
@@ -1460,7 +1463,7 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
     recorded_by: access.userId,
   })
   if (error) return { success: false as const, message: error.message }
-  const report = await calculatePayroll(access.supabase, period.period_start, period.period_end, { id: period.id, status: 'draft' })
+  const report = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' })
   if (!report.success) return report
   const row = report.rows.find((item) => item.userId === userId)
   if (row) {
@@ -1499,7 +1502,7 @@ export async function finalizePayroll(periodId: number) {
   }
   // Recalculate immediately before locking so that a tier/status correction or
   // manual component saved after the last draft cannot be frozen as stale data.
-  const report = await calculatePayroll(access.supabase, draftPeriod.period_start, draftPeriod.period_end, { id: draftPeriod.id, status: 'draft' })
+  const report = await calculatePayroll(access.supabase, access.outletId, draftPeriod.period_start, draftPeriod.period_end, { id: draftPeriod.id, status: 'draft' })
   if (!report.success) return report
   if (report.rows.some((row) => row.unratedDays > 0)) return { success: false as const, message: 'Ada absensi lengkap yang belum punya riwayat tier. Lengkapi status crew sebelum finalisasi.' }
   const negative = report.rows.find((row) => row.netPay < 0)

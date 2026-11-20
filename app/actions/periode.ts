@@ -12,13 +12,14 @@ async function requirePeriodManager() {
 export async function createPeriode(nama: string, tanggalMulai: string, tanggalSelesai: string) {
   const access = await requirePeriodManager()
   if (!access.ok) return { success: false, message: access.message }
-  const { supabase, userId } = access
+  const { supabase, userId, outletId } = access
 
   const { error } = await supabase.from('periode_kerja').insert({
     nama,
     tanggal_mulai: tanggalMulai,
     tanggal_selesai: tanggalSelesai,
     dibuat_oleh: userId,
+    outlet_id: outletId,
   })
 
   if (error) return { success: false, message: error.message }

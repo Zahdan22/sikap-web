@@ -33,13 +33,14 @@ async function validateActorAndLocation(latitude: number, longitude: number) {
   if (authError || !user) return { error: 'Sesi login tidak valid. Silakan login kembali.' } as const
   if (!validCoordinates(latitude, longitude)) return { error: 'Koordinat lokasi tidak valid.' } as const
 
-  const [profileResult, officeResult] = await Promise.all([
-    supabase.from('users').select('role, status_aktif').eq('id', user.id).single(),
-    supabase.from('office_location').select('latitude, longitude, radius_meter, nama_lokasi').limit(1).maybeSingle(),
-  ])
+  const profileResult = await supabase
+    .from('users').select('role, status_aktif, outlet_id').eq('id', user.id).single()
   const { data: profile, error: profileError } = profileResult
   if (profileError) return { error: 'Gagal memeriksa akun: ' + profileError.message } as const
-  if (profile.role !== 'crew' || !profile.status_aktif) return { error: 'Hanya crew aktif yang dapat melakukan absensi.' } as const
+  if (profile.role !== 'crew' || !profile.status_aktif || !profile.outlet_id) return { error: 'Hanya crew aktif yang dapat melakukan absensi.' } as const
+
+  const officeResult = await supabase
+    .from('outlets').select('latitude, longitude, radius_meter, nama').eq('id', profile.outlet_id).eq('is_active', true).maybeSingle()
 
   const { data: office, error: officeError } = officeResult
   if (officeError || !office) return { error: 'Gagal membaca lokasi kantor: ' + (officeError?.message || 'Lokasi belum dikonfigurasi') } as const
@@ -51,7 +52,7 @@ async function validateActorAndLocation(latitude: number, longitude: number) {
     return { error: 'Konfigurasi lokasi kantor tidak valid.' } as const
   }
   const distance = calculateDistance(latitude, longitude, officeLatitude, officeLongitude)
-  if (distance > radius) return { error: `Di luar radius ${office.nama_lokasi} — jarak ${Math.round(distance)}m, maksimal ${radius}m.` } as const
+  if (distance > radius) return { error: `Di luar radius ${office.nama} — jarak ${Math.round(distance)}m, maksimal ${radius}m.` } as const
 
   return { supabase, user, distance } as const
 }

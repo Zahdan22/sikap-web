@@ -35,22 +35,26 @@ function claimKey(userId: string, date: string) {
   return `${userId}:${date}`
 }
 
-async function finishedPeriods(today: string) {
+async function finishedPeriods(today: string, outletId: string) {
   const { data, error } = await supabaseAdmin
     .from('periode_kerja')
     .select('id,tanggal_mulai,tanggal_selesai')
+    .eq('outlet_id', outletId)
     .lt('tanggal_selesai', today)
     .order('tanggal_selesai', { ascending: true })
   if (error) throw new Error('Periode jatah makan yang telah selesai belum dapat dimuat.')
   return (data || []) as WorkPeriod[]
 }
 
-async function claimsInPeriod(period: WorkPeriod) {
+async function claimsInPeriod(period: WorkPeriod, crewIds: string[], outletId: string) {
+  if (!crewIds.length) return [] as MealClaim[]
   const rows: MealClaim[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabaseAdmin
       .from('meal_allowance_claims')
       .select('id,user_id,meal_date,photo_path')
+      .eq('outlet_id', outletId)
+      .in('user_id', crewIds)
       .gte('meal_date', period.tanggal_mulai)
       .lte('meal_date', period.tanggal_selesai)
       .order('id')
@@ -62,12 +66,13 @@ async function claimsInPeriod(period: WorkPeriod) {
   }
 }
 
-async function schedulesInPeriod(period: WorkPeriod) {
+async function schedulesInPeriod(period: WorkPeriod, outletId: string) {
   const rows: Schedule[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabaseAdmin
       .from('schedule')
       .select('id,user_id,tanggal')
+      .eq('outlet_id', outletId)
       .not('user_id', 'is', null)
       .gte('tanggal', period.tanggal_mulai)
       .lte('tanggal', period.tanggal_selesai)
@@ -80,12 +85,13 @@ async function schedulesInPeriod(period: WorkPeriod) {
   }
 }
 
-async function approvedLeavesInPeriod(period: WorkPeriod) {
+async function approvedLeavesInPeriod(period: WorkPeriod, outletId: string) {
   const rows: ApprovedLeave[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabaseAdmin
       .from('leave_request')
       .select('user_id,tanggal_mulai,tanggal_selesai')
+      .eq('outlet_id', outletId)
       .eq('status', 'disetujui')
       .lte('tanggal_mulai', period.tanggal_selesai)
       .gte('tanggal_selesai', period.tanggal_mulai)
@@ -98,7 +104,7 @@ async function approvedLeavesInPeriod(period: WorkPeriod) {
   }
 }
 
-async function activeCrewIds(userIds: string[]) {
+async function activeCrewIds(userIds: string[], outletId: string) {
   const ids = new Set<string>()
   for (const group of chunks([...new Set(userIds)], PAGE_SIZE)) {
     if (!group.length) continue
@@ -106,6 +112,7 @@ async function activeCrewIds(userIds: string[]) {
       .from('users')
       .select('id')
       .in('id', group)
+      .eq('outlet_id', outletId)
       .eq('role', 'crew')
       .eq('status_aktif', true)
     if (error) throw new Error('Data crew jatah makan belum dapat dimuat.')
@@ -124,14 +131,14 @@ async function cleanupState(periodId: number) {
   return data as CleanupState | null
 }
 
-async function snapshotMissingViolations(period: WorkPeriod, claims: MealClaim[]) {
+async function snapshotMissingViolations(period: WorkPeriod, claims: MealClaim[], outletId: string) {
   const [schedules, leaves, penaltyRulesResult] = await Promise.all([
-    schedulesInPeriod(period),
-    approvedLeavesInPeriod(period),
-    loadAttendancePenaltyRuleHistory(period.tanggal_selesai),
+    schedulesInPeriod(period, outletId),
+    approvedLeavesInPeriod(period, outletId),
+    loadAttendancePenaltyRuleHistory(outletId, period.tanggal_selesai),
   ])
   if (penaltyRulesResult.error) throw new Error('Aturan poin jatah makan belum dapat dimuat.')
-  const crewIds = await activeCrewIds(schedules.flatMap((schedule) => schedule.user_id ? [schedule.user_id] : []))
+  const crewIds = await activeCrewIds(schedules.flatMap((schedule) => schedule.user_id ? [schedule.user_id] : []), outletId)
   const reported = new Set(claims.map((claim) => claimKey(claim.user_id, claim.meal_date)))
   const missing = schedules.flatMap((schedule) => {
     if (!schedule.user_id || !crewIds.has(schedule.user_id)) return []
@@ -189,11 +196,11 @@ async function markClaimsDeleted(periodId: number, timestamp: string) {
  * periods. The missing-report snapshot happens first so only real violations
  * survive after claims are removed.
  */
-export async function purgeCompletedMealAllowanceData(now = new Date()): Promise<MealAllowanceCleanupSummary> {
+export async function purgeCompletedMealAllowanceData(outletId: string, now = new Date()): Promise<MealAllowanceCleanupSummary> {
   const today = jakartaDate(now)
   const summary: MealAllowanceCleanupSummary = { periods: 0, missingViolations: 0, claims: 0, photos: 0 }
 
-  for (const period of await finishedPeriods(today)) {
+  for (const period of await finishedPeriods(today, outletId)) {
     const state = await cleanupState(period.id)
     // A completed period is immutable: its reports have already been removed
     // and missing reports have been retained. Do not reread every old period
@@ -203,9 +210,10 @@ export async function purgeCompletedMealAllowanceData(now = new Date()): Promise
       continue
     }
 
-    const claims = await claimsInPeriod(period)
+    const crewIds = await activeCrewIds([...(await schedulesInPeriod(period, outletId)).flatMap((schedule) => schedule.user_id ? [schedule.user_id] : [])], outletId)
+    const claims = await claimsInPeriod(period, [...crewIds], outletId)
     if (!state) {
-      summary.missingViolations += await snapshotMissingViolations(period, claims)
+      summary.missingViolations += await snapshotMissingViolations(period, claims, outletId)
       await markSnapshotComplete(period.id, now.toISOString())
     }
 

@@ -1,5 +1,3 @@
-import 'server-only'
-
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { AttendancePenaltyRule, AttendancePenaltyPayrollEffect, AttendancePenaltyRuleAudience, AttendancePenaltyRuleKind } from '@/lib/attendance-penalty-rules'
 
@@ -38,10 +36,11 @@ function normalizeRule(row: PenaltyRuleRow): AttendancePenaltyRule {
 }
 
 /** Server-only read: direct browser access to policy configuration is denied. */
-export async function loadAttendancePenaltyRuleHistory(through?: string) {
+export async function loadAttendancePenaltyRuleHistory(outletId: string, through?: string) {
   let query = supabaseAdmin
     .from('attendance_penalty_rule_history')
     .select('id,rule_key,label,rule_kind,min_minutes,max_minutes,applies_to,payroll_effect,points,fine,is_active,effective_on,created_at')
+    .eq('outlet_id', outletId)
     .order('rule_key')
     .order('effective_on')
     .order('id')

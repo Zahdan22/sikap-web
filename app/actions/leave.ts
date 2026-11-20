@@ -37,9 +37,9 @@ export async function createLeaveRequest(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
   const { data: requester, error: requesterError } = await supabase.from('users')
-    .select('role, status_aktif').eq('id', user.id).single()
+    .select('role, status_aktif, outlet_id').eq('id', user.id).single()
   if (requesterError) return { success: false, message: 'Gagal memeriksa akun: ' + requesterError.message }
-  if (requester.role !== 'crew' || !requester.status_aktif) return { success: false, message: 'Hanya crew aktif yang dapat mengajukan izin.' }
+  if (requester.role !== 'crew' || !requester.status_aktif || !requester.outlet_id) return { success: false, message: 'Hanya crew aktif yang dapat mengajukan izin.' }
   if (!['sakit', 'keperluan_pribadi'].includes(jenis) || !['crew', 'freelance'].includes(penggantiType)) {
     return { success: false, message: 'Jenis pengajuan tidak valid.' }
   }
@@ -80,6 +80,7 @@ export async function createLeaveRequest(formData: FormData) {
 
   const { error } = await supabaseAdmin.from('leave_request').insert({
     user_id: user.id,
+    outlet_id: requester.outlet_id,
     jenis,
     tanggal_mulai: tanggalMulai,
     tanggal_selesai: tanggalSelesai,

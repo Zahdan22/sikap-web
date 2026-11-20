@@ -6,9 +6,9 @@ export async function requireManager() {
   if (authError || !user) return { ok: false as const, message: 'Sesi login tidak valid.' }
 
   const { data: profile, error: profileError } = await supabase
-    .from('users').select('role, status_aktif').eq('id', user.id).single()
+    .from('users').select('role, status_aktif, outlet_id').eq('id', user.id).single()
   if (profileError) return { ok: false as const, message: 'Gagal memeriksa role manager: ' + profileError.message }
-  if (profile.role !== 'manager' || !profile.status_aktif) return { ok: false as const, message: 'Akses khusus manager aktif.' }
+  if (profile.role !== 'manager' || !profile.status_aktif || !profile.outlet_id) return { ok: false as const, message: 'Akses khusus manager aktif.' }
 
-  return { ok: true as const, supabase, userId: user.id }
+  return { ok: true as const, supabase, userId: user.id, outletId: profile.outlet_id }
 }

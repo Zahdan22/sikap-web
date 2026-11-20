@@ -32,9 +32,9 @@ export async function createSwapRequest(
     return { success: false, message: 'Pertukaran hanya dapat diajukan untuk jadwal hari ini atau mendatang.' }
   }
   const { data: requester, error: requesterError } = await supabase.from('users')
-    .select('role, status_aktif').eq('id', user.id).single()
+    .select('role, status_aktif, outlet_id').eq('id', user.id).single()
   if (requesterError) return { success: false, message: 'Gagal memeriksa akun: ' + requesterError.message }
-  if (requester.role !== 'crew' || !requester.status_aktif) return { success: false, message: 'Hanya crew aktif yang dapat mengajukan tukar shift.' }
+  if (requester.role !== 'crew' || !requester.status_aktif || !requester.outlet_id) return { success: false, message: 'Hanya crew aktif yang dapat mengajukan tukar shift.' }
   const { data: ownSchedule, error: ownScheduleError } = await supabase.from('schedule')
     .select('id').eq('user_id', user.id).eq('tanggal', tanggal).maybeSingle()
   if (ownScheduleError) return { success: false, message: 'Gagal memeriksa jadwal: ' + ownScheduleError.message }
@@ -92,6 +92,7 @@ export async function createSwapRequest(
     target_id: targetType === 'crew' ? targetId : null,
     target_nama_freelance: targetType === 'freelance' ? targetNamaFreelance : null,
     alasan,
+    outlet_id: requester.outlet_id,
   })
 
   if (error) return { success: false, message: error.message }

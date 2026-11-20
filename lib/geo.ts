@@ -87,10 +87,18 @@ export async function checkLocationWithinRadius(): Promise<LocationCheckResult> 
   const position = await getCurrentPosition()
 
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Sesi login tidak ditemukan')
+
+  const { data: profile, error: profileError } = await supabase
+    .from('users').select('outlet_id').eq('id', user.id).single()
+  if (profileError || !profile?.outlet_id) throw new Error('Outlet akun tidak ditemukan')
+
   const { data: office, error } = await supabase
-    .from('office_location')
-    .select('latitude, longitude, radius_meter, nama_lokasi')
-    .limit(1)
+    .from('outlets')
+    .select('latitude, longitude, radius_meter, nama')
+    .eq('id', profile.outlet_id)
+    .eq('is_active', true)
     .single()
 
   if (error || !office) {
@@ -110,8 +118,8 @@ export async function checkLocationWithinRadius(): Promise<LocationCheckResult> 
     isValid,
     distance,
     message: isValid
-      ? `Dalam radius ${office.nama_lokasi} (${Math.round(distance)}m dari titik pusat)`
-      : `Di luar radius ${office.nama_lokasi} — jarak ${Math.round(distance)}m, maksimal ${office.radius_meter}m`,
+      ? `Dalam radius ${office.nama} (${Math.round(distance)}m dari titik pusat)`
+      : `Di luar radius ${office.nama} — jarak ${Math.round(distance)}m, maksimal ${office.radius_meter}m`,
     position,
   }
 }
