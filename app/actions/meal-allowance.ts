@@ -7,7 +7,6 @@ import { purgeCompletedMealAllowanceData } from '@/lib/meal-allowance-cleanup'
 import {
   MEAL_ALLOWANCE_PHOTO_BUCKET,
   jakartaDate,
-  mealAllowanceAppliesOn,
   mealDeadlineLabel,
   mealDeadlinePassed,
   isIsoDate,
@@ -15,6 +14,8 @@ import {
   type MealAllowanceDisplayStatus,
   isJpeg,
 } from '@/lib/meal-allowance'
+import { mealAllowancePointsApplyOn } from '@/lib/meal-allowance-point-settings'
+import { loadMealAllowancePointSetting } from '@/lib/meal-allowance-point-settings-store'
 
 const MAX_MEAL_PHOTO_BYTES = 2_500_000
 
@@ -153,7 +154,6 @@ function buildRows(input: {
     if (claim) status = claim.status
     else if (onLeave) status = 'izin'
     else if (!schedule) status = 'libur'
-    else if (!mealAllowanceAppliesOn(input.date)) status = 'not_started'
     else status = mealDeadlinePassed(input.date) ? 'missing' : 'not_due'
 
     rows.push({
@@ -210,14 +210,15 @@ export async function loadMealAllowanceForCrew(selectedDate?: string) {
     } catch (cleanupError) {
       console.error('[meal allowance cleanup before crew load]', cleanupError)
     }
-    const [todaySchedule, todayClaim, todayLeaves, currentPeriod, allCrewResult] = await Promise.all([
+    const [todaySchedule, todayClaim, todayLeaves, currentPeriod, allCrewResult, pointSettingResult] = await Promise.all([
       findSchedule(access.userId, today, access.outletId),
       findClaim(access.userId, today, access.outletId),
       approvedLeaves([access.userId], today, today, access.outletId),
       activePeriod(today, access.outletId),
       supabaseAdmin.from('users').select('id,nama,username').eq('outlet_id', access.outletId).eq('role', 'crew').eq('status_aktif', true).order('nama'),
+      loadMealAllowancePointSetting(access.outletId),
     ])
-    if (allCrewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
+    if (allCrewResult.error || pointSettingResult.error) throw new Error('Data jatah makan belum dapat dimuat.')
     const isOnLeave = todayLeaves.length > 0
     const visibleDate = selectedDateForPeriod(currentPeriod, selectedDate, today)
     const allCrew = (allCrewResult.data || []) as Crew[]
@@ -231,11 +232,9 @@ export async function loadMealAllowanceForCrew(selectedDate?: string) {
       ? 'izin'
       : !todaySchedule
         ? 'libur'
-        : !mealAllowanceAppliesOn(today)
-          ? 'not_started'
         : mealDeadlinePassed(today)
-            ? 'missing'
-            : 'available'
+          ? 'missing'
+          : 'available'
     const urls = todayClaim ? await signedUrls([todayClaim]) : new Map<string, string>()
     return {
       success: true as const,
@@ -246,6 +245,7 @@ export async function loadMealAllowanceForCrew(selectedDate?: string) {
         schedule: todaySchedule ? { id: todaySchedule.id, jam_mulai: todaySchedule.jam_mulai, jam_selesai: todaySchedule.jam_selesai } : null,
         status: todayStatus,
         cutoffLabel: mealDeadlineLabel(today),
+        pointsApply: mealAllowancePointsApplyOn(today, pointSettingResult.data),
         claim: todayClaim ? {
           id: todayClaim.id,
           version: todayClaim.version,
@@ -307,7 +307,6 @@ export async function saveMealAllowanceClaim(formData: FormData) {
     ])
     if (leaveRows.length) throw new Error('Kamu sedang izin pada hari ini, sehingga tidak perlu mengisi jatah makan.')
     if (!schedule) throw new Error('Tidak ada jadwal kerja hari ini.')
-    if (!mealAllowanceAppliesOn(schedule.tanggal)) throw new Error('Kewajiban jatah makan baru berlaku mulai 19 November 2026.')
     if (mealDeadlinePassed(schedule.tanggal, now)) throw new Error(`Batas pengisian jatah makan adalah ${mealDeadlineLabel(schedule.tanggal)}.`)
 
     const statusValue = String(formData.get('status') || '')

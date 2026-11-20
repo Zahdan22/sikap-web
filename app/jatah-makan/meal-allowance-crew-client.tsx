@@ -12,8 +12,9 @@ type Period = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai
 type TodayMeal = {
   date: string
   schedule: { id: number; jam_mulai: string; jam_selesai: string } | null
-  status: 'available' | 'libur' | 'izin' | 'missing' | 'not_started'
+  status: 'available' | 'libur' | 'izin' | 'missing'
   cutoffLabel: string
+  pointsApply: boolean
   claim: {
     id: string
     version: number
@@ -38,7 +39,6 @@ function historyDescription(row: MealAllowanceRow) {
   if (row.status === 'missing') return 'Tidak isi jatah makan'
   if (row.status === 'libur') return 'Libur'
   if (row.status === 'izin') return 'Izin'
-  if (row.status === 'not_started') return 'Belum berlaku'
   if (row.status === 'not_due') return 'Belum waktunya'
   return row.description || '—'
 }
@@ -243,8 +243,7 @@ export default function MealAllowanceCrewClient() {
             {today.status === 'available' && <p className="mt-3 rounded-xl bg-brand/5 px-3 py-2 text-xs text-muted">Isi laporan sebelum pukul <strong className="text-ink">23.59 WIB</strong>.</p>}
             {today.status === 'libur' && <p className="mt-3 rounded-xl bg-muted/10 px-3 py-2 text-sm text-muted">Hari ini kamu libur, jadi tidak perlu mengisi jatah makan.</p>}
             {today.status === 'izin' && <p className="mt-3 rounded-xl bg-success/10 px-3 py-2 text-sm text-success">Kamu sedang izin hari ini. Laporan jatah makan tidak diperlukan.</p>}
-            {today.status === 'not_started' && <p className="mt-3 rounded-xl bg-muted/10 px-3 py-2 text-sm text-muted">Kewajiban jatah makan mulai berlaku 19 November 2026.</p>}
-            {today.status === 'missing' && <p className="mt-3 rounded-xl bg-brand/10 px-3 py-2 text-sm text-brand">Batas pengisian hari ini sudah lewat. Pelanggaran otomatis tercatat di Form Pelanggaran sesuai aturan poin yang berlaku.</p>}
+            {today.status === 'missing' && <p className="mt-3 rounded-xl bg-brand/10 px-3 py-2 text-sm text-brand">Batas pengisian hari ini sudah lewat. {today.pointsApply ? 'Pelanggaran otomatis tercatat di Form Pelanggaran sesuai aturan poin yang berlaku.' : 'Tidak ada poin jatah makan yang diterapkan untuk tanggal ini.'}</p>}
           </section>
 
           {canEdit && <form onSubmit={submit} className="space-y-4 rounded-2xl border border-cream-dim bg-cream-card p-5">

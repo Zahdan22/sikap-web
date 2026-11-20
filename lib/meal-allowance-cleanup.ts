@@ -3,11 +3,12 @@ import 'server-only'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
   jakartaDate,
-  MEAL_ALLOWANCE_EFFECTIVE_ON,
   MEAL_ALLOWANCE_PHOTO_BUCKET,
 } from '@/lib/meal-allowance'
 import { resolveAttendancePenaltyRule } from '@/lib/attendance-penalty-rules'
 import { loadAttendancePenaltyRuleHistory } from '@/lib/attendance-penalty-rule-store'
+import { mealAllowancePointsApplyOn, type MealAllowancePointSetting } from '@/lib/meal-allowance-point-settings'
+import { loadMealAllowancePointSetting } from '@/lib/meal-allowance-point-settings-store'
 
 const PAGE_SIZE = 500
 const STORAGE_REMOVE_CHUNK_SIZE = 1_000
@@ -131,7 +132,7 @@ async function cleanupState(periodId: number) {
   return data as CleanupState | null
 }
 
-async function snapshotMissingViolations(period: WorkPeriod, claims: MealClaim[], outletId: string) {
+async function snapshotMissingViolations(period: WorkPeriod, claims: MealClaim[], outletId: string, pointSetting: MealAllowancePointSetting) {
   const [schedules, leaves, penaltyRulesResult] = await Promise.all([
     schedulesInPeriod(period, outletId),
     approvedLeavesInPeriod(period, outletId),
@@ -142,11 +143,11 @@ async function snapshotMissingViolations(period: WorkPeriod, claims: MealClaim[]
   const reported = new Set(claims.map((claim) => claimKey(claim.user_id, claim.meal_date)))
   const missing = schedules.flatMap((schedule) => {
     if (!schedule.user_id || !crewIds.has(schedule.user_id)) return []
-    if (schedule.tanggal < MEAL_ALLOWANCE_EFFECTIVE_ON || reported.has(claimKey(schedule.user_id, schedule.tanggal))) return []
+    if (!mealAllowancePointsApplyOn(schedule.tanggal, pointSetting) || reported.has(claimKey(schedule.user_id, schedule.tanggal))) return []
     const excused = leaves.some((leave) => leave.user_id === schedule.user_id && leave.tanggal_mulai <= schedule.tanggal && leave.tanggal_selesai >= schedule.tanggal)
     if (excused) return []
     const rule = resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'missing_meal' })
-    return rule ? [{ schedule_id: schedule.id, user_id: schedule.user_id, tanggal: schedule.tanggal, poin: rule.points }] : []
+    return rule ? [{ schedule_id: schedule.id, user_id: schedule.user_id, outlet_id: outletId, tanggal: schedule.tanggal, poin: rule.points }] : []
   })
 
   for (const group of chunks(missing, PAGE_SIZE)) {
@@ -199,6 +200,8 @@ async function markClaimsDeleted(periodId: number, timestamp: string) {
 export async function purgeCompletedMealAllowanceData(outletId: string, now = new Date()): Promise<MealAllowanceCleanupSummary> {
   const today = jakartaDate(now)
   const summary: MealAllowanceCleanupSummary = { periods: 0, missingViolations: 0, claims: 0, photos: 0 }
+  const pointSettingResult = await loadMealAllowancePointSetting(outletId)
+  if (pointSettingResult.error) throw new Error('Pengaturan poin jatah makan belum dapat dimuat.')
 
   for (const period of await finishedPeriods(today, outletId)) {
     const state = await cleanupState(period.id)
@@ -213,7 +216,7 @@ export async function purgeCompletedMealAllowanceData(outletId: string, now = ne
     const crewIds = await activeCrewIds([...(await schedulesInPeriod(period, outletId)).flatMap((schedule) => schedule.user_id ? [schedule.user_id] : [])], outletId)
     const claims = await claimsInPeriod(period, [...crewIds], outletId)
     if (!state) {
-      summary.missingViolations += await snapshotMissingViolations(period, claims, outletId)
+      summary.missingViolations += await snapshotMissingViolations(period, claims, outletId, pointSettingResult.data)
       await markSnapshotComplete(period.id, now.toISOString())
     }
 

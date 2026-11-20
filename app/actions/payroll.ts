@@ -1007,6 +1007,58 @@ export async function saveAttendancePenaltyRuleConfig(ruleKey: string, points: n
   return { success: true as const }
 }
 
+/**
+ * Meal reports are always available. This setting only controls whether a
+ * missing report becomes a non-payroll disciplinary-point row for this outlet.
+ */
+export async function loadMealAllowancePointSettings() {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+
+  const { data, error } = await supabaseAdmin
+    .from('meal_allowance_point_settings')
+    .select('is_enabled,effective_from')
+    .eq('outlet_id', access.outletId)
+    .maybeSingle()
+  if (error) return payrollFailure(error, 'Pengaturan poin jatah makan belum dapat dimuat. Coba lagi beberapa saat.')
+
+  return {
+    success: true as const,
+    isEnabled: data?.is_enabled === true,
+    effectiveFrom: data?.effective_from || null,
+  }
+}
+
+export async function saveMealAllowancePointSettings(isEnabled: boolean, effectiveFrom: string | null) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  if (typeof isEnabled !== 'boolean') return { success: false as const, message: 'Status poin jatah makan tidak valid.' }
+
+  const cleanEffectiveFrom = typeof effectiveFrom === 'string' ? effectiveFrom.trim() : ''
+  if (isEnabled && !validDate(cleanEffectiveFrom)) {
+    return { success: false as const, message: 'Tentukan tanggal mulai berlaku poin jatah makan.' }
+  }
+
+  const { error } = await supabaseAdmin
+    .from('meal_allowance_point_settings')
+    .upsert({
+      outlet_id: access.outletId,
+      is_enabled: isEnabled,
+      effective_from: isEnabled ? cleanEffectiveFrom : null,
+      updated_by: access.userId,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'outlet_id' })
+  if (error) return payrollFailure(error, 'Pengaturan poin jatah makan belum dapat disimpan. Coba lagi beberapa saat.')
+
+  // The database trigger removes automatic meal-point rows that no longer
+  // apply in the same transaction as this update. Revalidate every view that
+  // can show those rows or the meal deadline status.
+  for (const path of ['/finance/pengaturan/poin-denda', '/finance/jatah-makan', '/jatah-makan', '/pelanggaran', '/finance/pelanggaran', '/dashboard', '/finance']) {
+    revalidatePath(path)
+  }
+  return { success: true as const }
+}
+
 export async function loadPayrollRateSettings() {
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
