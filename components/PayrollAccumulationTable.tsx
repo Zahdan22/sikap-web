@@ -1,5 +1,6 @@
 type PayrollAccumulationTableProps = {
   grossBasePay: number
+  managementTitlePay: number
   referralBonus: number
   operationalBonus: number
   noLateReward: number
@@ -20,6 +21,7 @@ const idr = new Intl.NumberFormat('id-ID', {
  */
 export default function PayrollAccumulationTable({
   grossBasePay,
+  managementTitlePay,
   referralBonus,
   operationalBonus,
   noLateReward,
@@ -28,6 +30,7 @@ export default function PayrollAccumulationTable({
   lateFine,
 }: PayrollAccumulationTableProps) {
   const subtotal = grossBasePay
+    + managementTitlePay
     + referralBonus
     + operationalBonus
     + noLateReward
@@ -42,9 +45,13 @@ export default function PayrollAccumulationTable({
         <table className="w-full text-left text-xs">
           <tbody>
             <tr className="border-b border-cream-dim">
-              <th className="bg-cream px-3 py-2 font-medium text-muted">Total gaji pokok</th>
+              <th className="bg-cream px-3 py-2 font-medium text-muted">Total gaji pokok operasional</th>
               <td className="px-3 py-2 text-right font-semibold text-ink">{idr.format(grossBasePay)}</td>
             </tr>
+            {managementTitlePay > 0 && <tr className="border-b border-cream-dim">
+              <th className="bg-cream px-3 py-2 font-medium text-muted">Total gaji manajemen</th>
+              <td className="px-3 py-2 text-right font-semibold text-success">{idr.format(managementTitlePay)}</td>
+            </tr>}
             <tr className="border-b border-cream-dim">
               <th className="bg-cream px-3 py-2 font-medium text-muted">Bonus bawa teman</th>
               <td className="px-3 py-2 text-right font-semibold text-success">{idr.format(referralBonus)}</td>

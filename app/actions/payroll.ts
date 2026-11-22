@@ -468,9 +468,9 @@ function payrollSlipSummary(row: PayrollRow) {
     basePay: row.basePay,
     seniorPlusPay: row.seniorPlusPay,
     managementTitlePay: row.managementTitlePay,
-    // Gaji pokok pada tabel slip adalah nominal bruto sebelum potongan:
-    // akumulasi shift, tunjangan masa kerja, dan gelar management.
-    grossBasePay: Math.round(row.basePay + row.seniorPlusPay + row.managementTitlePay),
+    // Gaji pokok slip hanya menunjukkan penghasilan operasional. Gelar
+    // management ditampilkan sebagai baris tersendiri agar mudah dibedakan.
+    grossBasePay: Math.round(row.basePay + row.seniorPlusPay),
     referralBonus: row.referralBonus,
     operationalBonus: row.operationalBonus,
     noLateReward: row.noLateReward,

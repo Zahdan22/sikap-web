@@ -87,6 +87,7 @@ export default function PayrollSayaClient() {
 
           <PayrollAccumulationTable
             grossBasePay={result.summary.grossBasePay}
+            managementTitlePay={result.summary.managementTitlePay}
             referralBonus={result.summary.referralBonus}
             operationalBonus={result.summary.operationalBonus}
             noLateReward={result.summary.noLateReward}
