@@ -10,6 +10,7 @@ import { loadAllPayrollRows } from '@/lib/payroll-pagination'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TEMPORARY_PASSWORD_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%'
+const CREW_STORAGE_BUCKETS = ['attendance-photos', 'attendance-corrections', 'leave-attachments', 'meal-allowance-photos', 'violation-appeals'] as const
 
 function resetCredentialMessage(error: unknown) {
   const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
@@ -29,6 +30,65 @@ function createCrewMessage(error: unknown) {
 
 function generateTemporaryPassword() {
   return Array.from({ length: 16 }, () => TEMPORARY_PASSWORD_CHARACTERS[randomInt(TEMPORARY_PASSWORD_CHARACTERS.length)]).join('')
+}
+
+function deletionAvailableAt(deactivatedAt: string) {
+  const date = new Date(deactivatedAt)
+  const day = date.getUTCDate()
+  date.setUTCDate(1)
+  date.setUTCMonth(date.getUTCMonth() + 2)
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+  date.setUTCDate(Math.min(day, lastDay))
+  return date
+}
+
+function formatDeletionDate(date: Date) {
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'long', timeZone: 'Asia/Jakarta' }).format(date)
+}
+
+async function removeCrewStorageFiles(userId: string) {
+  const [attendanceResult, correctionResult, leaveResult, mealResult, appealResult] = await Promise.all([
+    loadAllPayrollRows<{ foto_masuk: string | null; foto_pulang: string | null }>((from, to) =>
+      supabaseAdmin.from('attendance').select('foto_masuk,foto_pulang', { count: 'exact' }).eq('user_id', userId).order('id').range(from, to)
+    ),
+    loadAllPayrollRows<{ evidence_path: string | null }>((from, to) =>
+      supabaseAdmin.from('attendance_corrections').select('evidence_path', { count: 'exact' }).eq('user_id', userId).order('id').range(from, to)
+    ),
+    loadAllPayrollRows<{ bukti_path: string | null }>((from, to) =>
+      supabaseAdmin.from('leave_request').select('bukti_path', { count: 'exact' }).eq('user_id', userId).order('id').range(from, to)
+    ),
+    loadAllPayrollRows<{ photo_path: string | null }>((from, to) =>
+      supabaseAdmin.from('meal_allowance_claims').select('photo_path', { count: 'exact' }).eq('user_id', userId).order('id').range(from, to)
+    ),
+    loadAllPayrollRows<{ evidence_path: string | null }>((from, to) =>
+      supabaseAdmin.from('violation_appeals').select('evidence_path', { count: 'exact' }).eq('user_id', userId).order('id').range(from, to)
+    ),
+  ])
+  const results = [attendanceResult, correctionResult, leaveResult, mealResult, appealResult]
+  if (results.some((result) => result.error)) throw new Error('Data foto karyawan belum dapat diperiksa. Coba lagi beberapa saat.')
+
+  const pathsByBucket = new Map<typeof CREW_STORAGE_BUCKETS[number], Set<string>>(
+    CREW_STORAGE_BUCKETS.map((bucket) => [bucket, new Set<string>()])
+  )
+  const add = (bucket: typeof CREW_STORAGE_BUCKETS[number], path: string | null) => {
+    if (path) pathsByBucket.get(bucket)!.add(path)
+  }
+  for (const row of attendanceResult.data || []) {
+    add('attendance-photos', row.foto_masuk)
+    add('attendance-photos', row.foto_pulang)
+  }
+  for (const row of correctionResult.data || []) add('attendance-corrections', row.evidence_path)
+  for (const row of leaveResult.data || []) add('leave-attachments', row.bukti_path)
+  for (const row of mealResult.data || []) add('meal-allowance-photos', row.photo_path)
+  for (const row of appealResult.data || []) add('violation-appeals', row.evidence_path)
+
+  for (const [bucket, paths] of pathsByBucket) {
+    const values = [...paths]
+    for (let index = 0; index < values.length; index += 100) {
+      const { error } = await supabaseAdmin.storage.from(bucket).remove(values.slice(index, index + 100))
+      if (error) throw new Error('Foto karyawan belum dapat dihapus. Coba lagi beberapa saat.')
+    }
+  }
 }
 
 async function verifyManagerPassword(access: Extract<Awaited<ReturnType<typeof requireManager>>, { ok: true }>, password: unknown) {
@@ -117,40 +177,57 @@ export async function createCrewAccount(
 export async function deleteCrewAccount(userId: string, managerPassword: string) {
   const access = await requireManager()
   if (!access.ok) return { success: false, message: access.message }
-  if (!userId || userId === access.userId) return { success: false, message: 'Target akun tidak valid.' }
+  if (!UUID_PATTERN.test(userId) || userId === access.userId) return { success: false, message: 'Target akun tidak valid.' }
   if (!(await verifyManagerPassword(access, managerPassword))) return { success: false, message: 'Password manager salah. Penghapusan dibatalkan.' }
-  const { data: target, error: targetError } = await access.supabase.from('users').select('role').eq('id', userId).maybeSingle()
+  const { data: target, error: targetError } = await access.supabase
+    .from('users').select('role,status_aktif,deactivated_at').eq('id', userId).eq('outlet_id', access.outletId).maybeSingle()
   if (targetError) return { success: false, message: 'Gagal memeriksa akun target: ' + targetError.message }
   if (!target || target.role !== 'crew') return { success: false, message: 'Akun target tidak ditemukan atau bukan akun crew.' }
+  if (target.status_aktif) return { success: false, message: 'Nonaktifkan akun crew terlebih dahulu sebelum menghapusnya secara permanen.' }
+  if (!target.deactivated_at) return { success: false, message: 'Tanggal akun dinonaktifkan belum tersedia. Coba lagi beberapa saat.' }
+  const availableAt = deletionAvailableAt(target.deactivated_at)
+  if (Date.now() < availableAt.getTime()) {
+    return { success: false, message: `Akun baru dapat dihapus permanen mulai ${formatDeletionDate(availableAt)}.` }
+  }
+
+  try {
+    await removeCrewStorageFiles(userId)
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : 'Foto karyawan belum dapat dihapus.' }
+  }
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
-  if (error) return { success: false, message: error.message }
+  if (error) return { success: false, message: 'Akun karyawan belum dapat dihapus. Coba lagi beberapa saat.' }
 
+  revalidatePath('/manager/karyawan')
   return { success: true }
 }
 
 export async function setCrewActive(userId: string, active: boolean) {
   const access = await requireManager()
   if (!access.ok) return { success: false, message: access.message }
-  const { data: target, error: targetError } = await access.supabase.from('users').select('role').eq('id', userId).maybeSingle()
+  if (!UUID_PATTERN.test(userId)) return { success: false, message: 'Target akun tidak valid.' }
+  const { data: target, error: targetError } = await access.supabase
+    .from('users').select('role').eq('id', userId).eq('outlet_id', access.outletId).maybeSingle()
   if (targetError) return { success: false, message: 'Gagal memeriksa akun target: ' + targetError.message }
   if (!target || target.role !== 'crew') return { success: false, message: 'Akun target tidak ditemukan atau bukan akun crew.' }
   if (active) {
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: 'none' })
     if (authError) return { success: false, message: 'Gagal mengaktifkan login crew: ' + authError.message }
 
-    const { error } = await supabaseAdmin.from('users').update({ status_aktif: true }).eq('id', userId)
+    const { error } = await supabaseAdmin.from('users').update({ status_aktif: true, deactivated_at: null }).eq('id', userId)
     if (error) {
       await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
       return { success: false, message: 'Gagal mengaktifkan profil crew: ' + error.message }
     }
   } else {
-    const { error } = await supabaseAdmin.from('users').update({ status_aktif: false }).eq('id', userId)
+    const { error } = await supabaseAdmin.from('users').update({ status_aktif: false, deactivated_at: new Date().toISOString() }).eq('id', userId)
     if (error) return { success: false, message: error.message }
 
     const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: '876000h' })
     if (authError) return { success: false, message: 'Akun sudah diblokir dari data aplikasi, tetapi sesi Auth gagal dicabut: ' + authError.message }
   }
+  revalidatePath('/manager/karyawan')
   return { success: true }
 }
 
@@ -166,6 +243,7 @@ export async function resetCrewCredentials(userId: string, managerPassword: stri
     .from('users')
     .select('id, nama, username, role, must_change_password')
     .eq('id', userId)
+    .eq('outlet_id', access.outletId)
     .maybeSingle()
   if (targetError || !target || target.role !== 'crew') {
     return { success: false as const, message: 'Akun crew tidak ditemukan.' }
