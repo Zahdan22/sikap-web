@@ -21,6 +21,7 @@ export default function KaryawanPage() {
   const [nama, setNama] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [showInactive, setShowInactive] = useState(false)
@@ -51,9 +52,9 @@ export default function KaryawanPage() {
     const result = await createCrewAccount(username, password, nama)
 
     setLoading(false)
-    if (!result.success) { toast('Error: ' + result.message, 'error'); return }
+    if (!result.success) { toast(result.message || 'Akun karyawan belum dapat dibuat. Coba lagi beberapa saat.', 'error'); return }
     toast('Karyawan berhasil ditambahkan', 'success')
-    setNama(''); setUsername(''); setPassword(''); setShowForm(false)
+    setNama(''); setUsername(''); setPassword(''); setShowPassword(false); setShowForm(false)
     loadList()
   }
 
@@ -222,8 +223,23 @@ export default function KaryawanPage() {
             </div>
             <div className="mt-3">
               <label className="mb-1 block text-xs font-medium text-muted">Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
-                className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 text-sm text-ink outline-none focus:border-brand" />
+              <div className="relative">
+                <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8}
+                  className="w-full rounded-xl border border-cream-dim bg-white px-4 py-2.5 pr-12 text-sm text-ink outline-none focus:border-brand" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((shown) => !shown)}
+                  aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-muted transition-colors hover:text-brand"
+                >
+                  {showPassword ? (
+                    <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 3 18 18" /><path d="M10.6 10.7a2 2 0 0 0 2.7 2.7" /><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c5.4 0 9.3 5.3 9.8 6-.5.8-1.7 2.5-3.5 3.8" /><path d="M6.2 6.2C3.8 7.8 2.4 10.4 2.2 10.8c.6.9 4.4 5.2 9.8 5.2 1.2 0 2.4-.2 3.4-.7" /></svg>
+                  ) : (
+                    <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                  )}
+                </button>
+              </div>
             </div>
             <button type="submit" disabled={loading} className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-60">
               {loading ? 'Menambahkan...' : 'Tambah Karyawan'}

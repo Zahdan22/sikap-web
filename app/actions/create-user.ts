@@ -19,6 +19,14 @@ function resetCredentialMessage(error: unknown) {
   return 'Kredensial default belum dapat diatur. Coba lagi beberapa saat.'
 }
 
+function createCrewMessage(error: unknown) {
+  const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+    ? error.message.toLowerCase()
+    : ''
+  if (/duplicate|unique|already.*exist|already.*registered/.test(message)) return 'Username ini sudah dipakai. Gunakan username lain.'
+  return 'Akun karyawan belum dapat dibuat. Coba lagi beberapa saat.'
+}
+
 function generateTemporaryPassword() {
   return Array.from({ length: 16 }, () => TEMPORARY_PASSWORD_CHARACTERS[randomInt(TEMPORARY_PASSWORD_CHARACTERS.length)]).join('')
 }
@@ -60,13 +68,34 @@ export async function createCrewAccount(
   if (password.length < 8 || password.length > 72) return { success: false, message: 'Password harus 8–72 karakter.' }
   if (cleanName.length < 2 || cleanName.length > 100) return { success: false, message: 'Nama harus 2–100 karakter.' }
 
+  // A crew starts at Pra-Training. Check the outlet setup before an Auth
+  // account is created so managers receive a useful instruction instead of a
+  // database error (and no temporary account has to be cleaned up).
+  const { data: initialTier, error: initialTierError } = await supabaseAdmin
+    .from('payroll_tier_rates')
+    .select('tier')
+    .eq('outlet_id', access.outletId)
+    .eq('tier', 'pra_training')
+    .eq('is_active', true)
+    .maybeSingle()
+  if (initialTierError) {
+    console.error('[create crew initial tier]', initialTierError.message)
+    return { success: false, message: 'Pengaturan payroll outlet belum dapat diperiksa. Coba lagi beberapa saat.' }
+  }
+  if (!initialTier) {
+    return { success: false, message: 'Tarif status Pra-Training untuk outlet ini belum diatur. Minta Manager Keuangan melengkapinya di Pengaturan sebelum menambah crew.' }
+  }
+
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email: usernameToEmail(cleanUsername),
     password,
     email_confirm: true,
   })
 
-  if (error || !data.user) return { success: false, message: error?.message }
+  if (error || !data.user) {
+    if (error) console.error('[create crew auth]', error.message)
+    return { success: false, message: createCrewMessage(error) }
+  }
 
   const { error: profileError } = await supabaseAdmin.from('users').insert({
     id: data.user.id,
@@ -78,7 +107,9 @@ export async function createCrewAccount(
 
   if (profileError) {
     const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(data.user.id)
-    return { success: false, message: `Gagal membuat profil crew: ${profileError.message}${cleanupError ? `. Akun Auth yatim juga gagal dibersihkan: ${cleanupError.message}` : '. Akun Auth sementara sudah dibersihkan.'}` }
+    console.error('[create crew profile]', profileError.message)
+    if (cleanupError) console.error('[create crew auth cleanup]', cleanupError.message)
+    return { success: false, message: 'Akun karyawan belum dapat dibuat. Coba lagi beberapa saat.' }
   }
   return { success: true }
 }
