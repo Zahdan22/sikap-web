@@ -12,19 +12,24 @@ import { loadJobdeskPresets } from '@/app/actions/jobdesk-presets'
 import type { JobdeskPreset } from '@/lib/jobdesk-presets'
 import {
   Crew, CrewScheduleState, getCrewList, getJamKerjaOptions, getJobdeskOptions,
-  getPresets, getScheduleStateForDate, getScheduleDayStatus, JamKerjaOpsi, JamKerjaPreset,
+  getPresets, getScheduleStateForDate, getScheduleDayStatus, getScheduleWorkspaceConfig, JamKerjaOpsi, JamKerjaPreset,
   JobdeskOption, JobdeskTimeBlock, formatMinuteClock,
 } from '@/lib/jadwal'
+import { normalizeJobdeskBlocks, replaceJobdeskBlockRange } from '@/lib/jobdesk-blocks'
 
 const EMPTY: CrewScheduleState = { jamKerjaOpsiId: 'libur', jobdeskIds: [], jobdeskBlocks: [], existingScheduleId: null }
 const DAY_START = 6 * 60
 // Kolom terakhir dimulai pukul 00:00 +1 dan mencakup sampai pukul 02:00 +1.
 const DAY_END = 26 * 60
-const SLOT_MINUTES = 120
-const slots = Array.from({ length: (DAY_END - DAY_START) / SLOT_MINUTES }, (_, i) => ({
-  start: DAY_START + i * SLOT_MINUTES,
-  end: DAY_START + (i + 1) * SLOT_MINUTES,
-}))
+const FIXED_SLOT_MINUTES = 120
+const FLEXIBLE_SLOT_MINUTES = 30
+function createSlots(minutes: number) {
+  return Array.from({ length: (DAY_END - DAY_START) / minutes }, (_, i) => ({
+    start: DAY_START + i * minutes,
+    end: DAY_START + (i + 1) * minutes,
+  }))
+}
+const fixedSlots = createSlots(FIXED_SLOT_MINUTES)
 const hourSlots = Array.from({ length: (DAY_END - DAY_START) / 60 }, (_, i) => ({
   start: DAY_START + i * 60,
   end: DAY_START + (i + 1) * 60,
@@ -55,6 +60,19 @@ function cellJobdeskIds(state: CrewScheduleState, options: JamKerjaOpsi[], slot:
     : state.jobdeskIds
 }
 
+function blocksForShift(state: CrewScheduleState, shift: { start: number; end: number }) {
+  if (state.jobdeskBlocks.length > 0) return normalizeJobdeskBlocks(state.jobdeskBlocks)
+  return state.jobdeskIds.length > 0
+    ? [{ mulaiMenit: shift.start, selesaiMenit: shift.end, jobdeskIds: [...state.jobdeskIds] }]
+    : []
+}
+
+function durationLabel(minutes: number) {
+  if (minutes < 60) return `${minutes} menit`
+  if (minutes % 60 === 0) return `${minutes / 60} jam`
+  return `${Math.floor(minutes / 60)} jam ${minutes % 60} menit`
+}
+
 export default function JadwalPage() {
   const { toast } = useDialog()
   const [date, setDate] = useState(() => new Date())
@@ -74,6 +92,8 @@ export default function JadwalPage() {
   const [openedDate, setOpenedDate] = useState<string | null>(null)
   const editorVisible = dayStatus?.date === dateString && (Boolean(dayStatus.updatedAt) || openedDate === dateString)
   const [editing, setEditing] = useState<{ crewId: string; slot: { start: number; end: number } } | null>(null)
+  const [editingDuration, setEditingDuration] = useState(FIXED_SLOT_MINUTES)
+  const [flexibleJobdeskBlocks, setFlexibleJobdeskBlocks] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showJamKerjaModal, setShowJamKerjaModal] = useState(false)
   const [showJobdeskModal, setShowJobdeskModal] = useState(false)
@@ -89,11 +109,12 @@ export default function JadwalPage() {
   useEffect(() => { void refreshJobdeskPresets() }, [refreshJobdeskPresets])
 
   useEffect(() => {
-    Promise.all([getCrewList(), getPresets(), getJobdeskOptions()]).then(([crewRows, presetRows, jobdeskRows]) => {
+    Promise.all([getCrewList(), getPresets(), getJobdeskOptions(), getScheduleWorkspaceConfig()]).then(([crewRows, presetRows, jobdeskRows, workspace]) => {
       setCrews(crewRows)
       setPresets(presetRows)
       setPresetId(presetRows[0]?.id ?? null)
       setJobdesks(jobdeskRows)
+      setFlexibleJobdeskBlocks(workspace.flexibleJobdeskBlocks)
       setBaseLoaded(true)
     }).catch((error) => { setLoadError('Gagal memuat data jadwal: ' + (error as Error).message); setLoading(false) })
   }, [toast])
@@ -120,6 +141,7 @@ export default function JadwalPage() {
   const dayLabel = useMemo(() => new Date(`${dateString}T00:00:00`).toLocaleDateString('id-ID', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   }), [dateString])
+  const scheduleSlots = useMemo(() => flexibleJobdeskBlocks ? createSlots(FLEXIBLE_SLOT_MINUTES) : fixedSlots, [flexibleJobdeskBlocks])
 
   function selectDate(nextDate: Date) {
     if (saving || Number.isNaN(nextDate.getTime())) return
@@ -140,27 +162,41 @@ export default function JadwalPage() {
     }))
   }
 
+  function openJobdeskEditor(crewId: string, slot: { start: number; end: number }) {
+    const shift = shiftMinutes(states[crewId] || EMPTY, shifts)
+    const start = shift ? Math.max(shift.start, slot.start) : slot.start
+    const end = shift ? Math.min(shift.end, slot.end) : slot.end
+    setEditing({ crewId, slot })
+    setEditingDuration(Math.max(FLEXIBLE_SLOT_MINUTES, flexibleJobdeskBlocks ? FLEXIBLE_SLOT_MINUTES : end - start))
+    setSelectedJobdeskPresetId('')
+  }
+
+  const editingRange = useMemo(() => {
+    if (!editing) return null
+    const shift = shiftMinutes(states[editing.crewId] || EMPTY, shifts)
+    if (!shift) return null
+    const start = Math.max(shift.start, editing.slot.start)
+    const maximumEnd = Math.min(shift.end, editing.slot.end + (flexibleJobdeskBlocks ? shift.end - editing.slot.end : 0))
+    const end = flexibleJobdeskBlocks
+      ? Math.min(maximumEnd, start + editingDuration)
+      : Math.min(shift.end, editing.slot.end)
+    return end > start ? { start, end, maximumEnd } : null
+  }, [editing, editingDuration, flexibleJobdeskBlocks, shifts, states])
+
   function updateCellJobdesks(getNextIds: (currentIds: number[]) => number[]) {
     if (!editing) return
     const state = states[editing.crewId] || EMPTY
     const shift = shiftMinutes(state, shifts)
     if (!shift) return
-    const start = Math.max(shift.start, editing.slot.start)
-    const end = Math.min(shift.end, editing.slot.end)
+    const range = editingRange
+    if (!range) return
+    const { start, end } = range
     setStates((previous) => {
       const current = previous[editing.crewId] || EMPTY
       const ids = cellJobdeskIds(current, shifts, editing.slot)
       const nextIds = getNextIds(ids)
-      const blocks = current.jobdeskBlocks.length
-        ? current.jobdeskBlocks.filter((block) => !(block.mulaiMenit < end && block.selesaiMenit > start))
-        : slots.flatMap((slot) => {
-          const slotStart = Math.max(shift.start, slot.start)
-          const slotEnd = Math.min(shift.end, slot.end)
-          if (slotEnd <= slotStart || !(slotStart < start || slotEnd > end) || current.jobdeskIds.length === 0) return []
-          return [{ mulaiMenit: slotStart, selesaiMenit: slotEnd, jobdeskIds: [...current.jobdeskIds] }]
-        })
-      if (nextIds.length) blocks.push({ mulaiMenit: start, selesaiMenit: end, jobdeskIds: nextIds })
-      return { ...previous, [editing.crewId]: { ...current, jobdeskIds: [], jobdeskBlocks: blocks.sort((a, b) => a.mulaiMenit - b.mulaiMenit) } }
+      const blocks = replaceJobdeskBlockRange(blocksForShift(current, shift), start, end, nextIds)
+      return { ...previous, [editing.crewId]: { ...current, jobdeskIds: [], jobdeskBlocks: blocks } }
     })
   }
 
@@ -191,13 +227,17 @@ export default function JadwalPage() {
       const payload = crews.map((crew) => {
         const state = states[crew.id] || EMPTY
         const shift = shiftMinutes(state, shifts)
-        const blocks: JobdeskTimeBlock[] = shift ? slots.flatMap((slot) => {
-          const start = Math.max(slot.start, shift.start)
-          const end = Math.min(slot.end, shift.end)
-          if (end <= start) return []
-          const ids = cellJobdeskIds(state, shifts, slot)
-          return ids.length ? [{ mulaiMenit: start, selesaiMenit: end, jobdeskIds: ids }] : []
-        }) : []
+        const blocks: JobdeskTimeBlock[] = shift
+          ? flexibleJobdeskBlocks
+            ? blocksForShift(state, shift)
+            : scheduleSlots.flatMap((slot) => {
+              const start = Math.max(slot.start, shift.start)
+              const end = Math.min(slot.end, shift.end)
+              if (end <= start) return []
+              const ids = cellJobdeskIds(state, shifts, slot)
+              return ids.length ? [{ mulaiMenit: start, selesaiMenit: end, jobdeskIds: ids }] : []
+            })
+          : []
         return { userId: crew.id, jamKerjaOpsiId: state.jamKerjaOpsiId, jobdeskIds: [...new Set(blocks.flatMap((block) => block.jobdeskIds))], jobdeskBlocks: blocks }
       })
       const result = await simpanJadwalHariIni(dateString, payload)
@@ -232,7 +272,7 @@ export default function JadwalPage() {
         </div>
         <div className="flex items-center justify-between rounded-2xl border border-cream-dim bg-cream-card px-4 py-3">
           <button disabled={saving} onClick={() => selectDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1))} className="px-2 text-xl text-brand" aria-label="Hari sebelumnya">‹</button>
-          <div className="text-center"><p className="text-xs font-semibold capitalize text-ink">{dayLabel}</p>{editorVisible && <p className="mt-0.5 text-[10px] text-muted">Klik sel waktu untuk mengatur jobdesk</p>}</div>
+          <div className="text-center"><p className="text-xs font-semibold capitalize text-ink">{dayLabel}</p>{editorVisible && <p className="mt-0.5 text-[10px] text-muted">{flexibleJobdeskBlocks ? 'Klik slot 30 menit, lalu pilih durasi blok jobdesk.' : 'Klik sel waktu untuk mengatur jobdesk'}</p>}</div>
           <button disabled={saving} onClick={() => selectDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1))} className="px-2 text-xl text-brand" aria-label="Hari berikutnya">›</button>
         </div>
       </section>
@@ -254,7 +294,7 @@ export default function JadwalPage() {
             <table className="border-separate border-spacing-0 text-left">
               <thead><tr>
                 <th className="sticky left-0 z-20 min-w-36 border-b border-r border-cream-dim bg-cream-card px-3 py-3 text-[10px] uppercase text-muted">Crew / Shift</th>
-                {hourSlots.map((hour) => <th key={hour.start} aria-label={formatMinuteClock(hour.start)} className="min-w-16 border-b border-r border-cream-dim px-1 py-3 text-center text-[10px] font-semibold text-muted">{formatMinuteClock(hour.start).replace(' +1', '')}</th>)}
+                {(flexibleJobdeskBlocks ? scheduleSlots : hourSlots).map((slot) => <th key={slot.start} aria-label={formatMinuteClock(slot.start)} className={`${flexibleJobdeskBlocks ? 'min-w-12' : 'min-w-16'} border-b border-r border-cream-dim px-1 py-3 text-center text-[10px] font-semibold text-muted`}>{formatMinuteClock(slot.start).replace(' +1', '')}</th>)}
               </tr></thead>
               <tbody>{crews.map((crew) => {
                 const state = states[crew.id] || EMPTY
@@ -267,14 +307,27 @@ export default function JadwalPage() {
                       {shifts.map((shift) => <option key={shift.id} value={shift.id}>{shift.label} · {shift.jam_mulai.slice(0, 5)}–{shift.jam_selesai.slice(0, 5)}</option>)}
                     </select>
                   </th>
-                  {slots.flatMap((slot) => {
+                  {flexibleJobdeskBlocks ? scheduleSlots.map((slot) => {
+                    const shift = shiftMinutes(state, shifts)
+                    const start = shift ? Math.max(slot.start, shift.start) : slot.start
+                    const end = shift ? Math.min(slot.end, shift.end) : slot.end
+                    const active = Boolean(shift && start < end)
+                    const ids = active ? cellJobdeskIds(state, shifts, slot) : []
+                    return <td key={slot.start} className={`h-20 min-w-12 border-b border-r border-cream-dim p-1 ${active ? '' : 'bg-black/[0.025]'}`}>
+                      <div className="relative h-full w-full">
+                        {active && <button disabled={saving} onClick={() => openJobdeskEditor(crew.id, slot)} className="absolute inset-y-0 flex w-full flex-wrap content-center justify-center gap-0.5 overflow-hidden rounded-lg bg-amber-100 px-0.5 py-1 text-center hover:ring-2 hover:ring-brand/30" title={`${formatMinuteClock(start)}–${formatMinuteClock(end)} · ${ids.length ? ids.map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan || '—').join(', ') : 'Belum diatur'}`}>
+                          {ids.length ? ids.map((id) => <span key={id} className="max-w-full break-all rounded bg-white/70 px-0.5 py-1 text-[8px] font-semibold text-ink">{jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan || '—'}</span>) : <span className="text-[8px] text-muted">+</span>}
+                        </button>}
+                      </div>
+                    </td>
+                  }) : fixedSlots.flatMap((slot) => {
                     const shift = shiftMinutes(state, shifts)
                     const activeStart = shift ? Math.max(slot.start, shift.start) : slot.start
                     const activeEnd = shift ? Math.min(slot.end, shift.end) : slot.end
                     const active = shift && activeStart < activeEnd
                     const ids = active ? cellJobdeskIds(state, shifts, slot) : []
                     const blockHours = hourSlots.filter((hour) => hour.start >= slot.start && hour.start < slot.end)
-                    const button = (start: number, end: number, widthPercent = 100) => <button disabled={saving} onClick={() => { setEditing({ crewId: crew.id, slot }); setSelectedJobdeskPresetId('') }} className="absolute inset-y-0 flex w-full flex-wrap content-center justify-center gap-1 overflow-hidden rounded-lg bg-amber-100 px-1 py-1 text-center hover:ring-2 hover:ring-brand/30" style={{ left: 0, width: `${widthPercent}%` }} title={`${formatMinuteClock(start)}–${formatMinuteClock(end)} · ${ids.length ? ids.map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan || '—').join(', ') : 'Belum diatur'}`}>
+                    const button = (start: number, end: number, widthPercent = 100) => <button disabled={saving} onClick={() => openJobdeskEditor(crew.id, slot)} className="absolute inset-y-0 flex w-full flex-wrap content-center justify-center gap-1 overflow-hidden rounded-lg bg-amber-100 px-1 py-1 text-center hover:ring-2 hover:ring-brand/30" style={{ left: 0, width: `${widthPercent}%` }} title={`${formatMinuteClock(start)}–${formatMinuteClock(end)} · ${ids.length ? ids.map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan || '—').join(', ') : 'Belum diatur'}`}>
                       {ids.length ? ids.map((id) => <span key={id} className="max-w-full break-all rounded bg-white/70 px-1 py-1 text-[9px] font-semibold text-ink">{jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan || '—'}</span>) : <span className="text-[9px] text-muted">+ Jobdesk</span>}
                     </button>
 
@@ -304,7 +357,13 @@ export default function JadwalPage() {
       {editing && <div onClick={() => setEditing(null)} className="fixed inset-0 z-50 flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6">
         <div onClick={(event) => event.stopPropagation()} className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-cream-card p-5 sm:max-w-md sm:rounded-3xl">
           <p className="text-sm font-semibold text-ink">Atur Jobdesk</p>
-          <p className="mt-1 text-xs text-muted">{crews.find((crew) => crew.id === editing.crewId)?.nama} · {formatMinuteClock(Math.max(editing.slot.start, shiftMinutes(states[editing.crewId] || EMPTY, shifts)?.start || 0))}–{formatMinuteClock(Math.min(editing.slot.end, shiftMinutes(states[editing.crewId] || EMPTY, shifts)?.end || editing.slot.end))}</p>
+          <p className="mt-1 text-xs text-muted">{crews.find((crew) => crew.id === editing.crewId)?.nama} · {editingRange ? `${formatMinuteClock(editingRange.start)}–${formatMinuteClock(editingRange.end)}` : 'Pilih shift terlebih dahulu'}</p>
+          {flexibleJobdeskBlocks && editingRange && <label className="mt-4 block text-xs text-muted">Durasi blok
+            <select value={editingDuration} onChange={(event) => setEditingDuration(Number(event.target.value))} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">
+              {Array.from({ length: Math.floor((editingRange.maximumEnd - editingRange.start) / FLEXIBLE_SLOT_MINUTES) }, (_, index) => (index + 1) * FLEXIBLE_SLOT_MINUTES).map((minutes) => <option key={minutes} value={minutes}>{durationLabel(minutes)} · sampai {formatMinuteClock(editingRange.start + minutes)}</option>)}
+            </select>
+            <span className="mt-1 block leading-relaxed">Semua waktu dalam shift harus terisi jobdesk. Pilih durasi lebih panjang untuk langsung membuat blok 1–4 jam atau sesuai kebutuhan.</span>
+          </label>}
           <label className="mt-4 block text-xs text-muted">Preset jobdesk
             <select value={selectedJobdeskPresetId} onChange={(event) => applyJobdeskPreset(event.target.value)} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink">
               <option value="">Pilih preset jobdesk</option>

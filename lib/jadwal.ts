@@ -35,6 +35,32 @@ export type CrewScheduleState = {
 
 export type JobdeskTimeBlock = { mulaiMenit: number; selesaiMenit: number; jobdeskIds: number[]; labels?: string[] }
 
+export type ScheduleWorkspaceConfig = {
+  flexibleJobdeskBlocks: boolean
+}
+
+export async function getScheduleWorkspaceConfig(): Promise<ScheduleWorkspaceConfig> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Sesi login tidak ditemukan')
+
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .select('outlet_id')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (profileError || !profile?.outlet_id) throw new Error('Outlet akun tidak ditemukan')
+
+  const { data: outlet, error: outletError } = await supabase
+    .from('outlets')
+    .select('flexible_jobdesk_blocks')
+    .eq('id', profile.outlet_id)
+    .maybeSingle()
+  if (outletError || !outlet) throw new Error('Informasi outlet tidak ditemukan')
+
+  return { flexibleJobdeskBlocks: outlet.flexible_jobdesk_blocks === true }
+}
+
 export function formatMinuteClock(minute: number) {
   const hour = Math.floor(minute / 60) % 24
   const mins = minute % 60

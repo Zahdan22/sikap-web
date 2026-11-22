@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { blocksCoverShift } from '@/lib/jobdesk-blocks'
 
 type CrewPayload = {
   userId: string
@@ -15,9 +16,12 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, message: 'Belum login' }
 
-  const { data: profile, error: profileError } = await supabase.from('users').select('role, status_aktif').eq('id', user.id).single()
+  const { data: profile, error: profileError } = await supabase.from('users').select('role, status_aktif, outlet_id').eq('id', user.id).single()
   if (profileError) return { success: false, message: 'Gagal memeriksa akses manager: ' + profileError.message }
-  if (profile?.role !== 'manager' || !profile.status_aktif) return { success: false, message: 'Hanya manager aktif yang dapat mengelola jadwal' }
+  if (profile?.role !== 'manager' || !profile.status_aktif || !profile.outlet_id) return { success: false, message: 'Hanya manager aktif yang dapat mengelola jadwal' }
+  const { data: outlet, error: outletError } = await supabase.from('outlets').select('flexible_jobdesk_blocks').eq('id', profile.outlet_id).maybeSingle()
+  if (outletError || !outlet) return { success: false, message: 'Gagal memeriksa pengaturan outlet.' }
+  const flexibleWarkopJobdesk = outlet.flexible_jobdesk_blocks === true
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || !Array.isArray(payload) || payload.length > 200
     || payload.some((item) => !item || typeof item.userId !== 'string' || !Array.isArray(item.jobdeskIds))) {
     return { success: false, message: 'Tanggal atau data jadwal tidak valid' }
@@ -28,13 +32,13 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
   if (statusError) return { success: false, message: /schema cache|does not exist/i.test(statusError.message)
     ? 'Jalankan migrasi 202610110002_schedule_day_status.sql di Supabase terlebih dahulu.'
     : 'Gagal memeriksa status jadwal: ' + statusError.message }
-  const { data: crewRows, error: crewError } = await supabase.from('users').select('id').eq('role', 'crew').eq('status_aktif', true)
+  const { data: crewRows, error: crewError } = await supabase.from('users').select('id').eq('role', 'crew').eq('status_aktif', true).eq('outlet_id', profile.outlet_id)
   if (crewError) return { success: false, message: 'Gagal memeriksa daftar crew: ' + crewError.message }
   const crewIds = new Set((crewRows || []).map((row) => row.id))
 
   const { data: jamKerjaOptions, error: optionsError } = await supabase.from('jam_kerja_opsi').select('*')
   if (optionsError) return { success: false, message: 'Gagal memuat pilihan jam kerja: ' + optionsError.message }
-  const { data: jobdesks, error: jobdeskError } = await supabase.from('jobdesk').select('id')
+  const { data: jobdesks, error: jobdeskError } = await supabase.from('jobdesk').select('id').eq('outlet_id', profile.outlet_id)
   if (jobdeskError) return { success: false, message: 'Gagal memuat jobdesk: ' + jobdeskError.message }
   const validJobdeskIds = new Set((jobdesks || []).map((row) => row.id))
 
@@ -58,6 +62,9 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
     }
     if (new Set(item.jobdeskIds).size !== item.jobdeskIds.length) return { success: false, message: 'Jobdesk duplikat ditemukan' }
     const blocks = item.jobdeskBlocks || []
+    if (flexibleWarkopJobdesk && (item.jobdeskBlocks === undefined || !blocksTableAvailable)) {
+      return { success: false, message: 'Pembagian jobdesk Warkop belum siap. Muat ulang halaman lalu isi seluruh blok jobdesk.' }
+    }
     const orderedBlocks = [...blocks].sort((a, b) => a.mulaiMenit - b.mulaiMenit)
     if (orderedBlocks.some((block, index) => index > 0 && orderedBlocks[index - 1].selesaiMenit > block.mulaiMenit)) {
       return { success: false, message: 'Rentang blok jobdesk tidak boleh saling tumpang tindih' }
@@ -69,11 +76,14 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
         return { success: false, message: 'Pembagian jobdesk atau rentang waktunya tidak valid' }
       }
       if (new Set(block.jobdeskIds).size !== block.jobdeskIds.length) return { success: false, message: 'Ada jobdesk duplikat dalam satu blok waktu' }
+      if (flexibleWarkopJobdesk && (block.jobdeskIds.length === 0 || block.mulaiMenit % 30 !== 0 || block.selesaiMenit % 30 !== 0)) {
+        return { success: false, message: 'Jobdesk Warkop harus diisi penuh dalam blok kelipatan 30 menit.' }
+      }
     }
 
     const { data: existing, error: existingError } = await supabase
       .from('schedule').select('id, jam_mulai, jam_selesai, durasi_jam')
-      .eq('user_id', item.userId).eq('tanggal', tanggal).maybeSingle()
+      .eq('user_id', item.userId).eq('tanggal', tanggal).eq('outlet_id', profile.outlet_id).maybeSingle()
     if (existingError) return { success: false, message: `Gagal membaca jadwal ${tanggal}: ${existingError.message}` }
 
     const { data: oldJobdesk, error: oldJobdeskError } = existing
@@ -86,7 +96,7 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
         const { count, error: attendanceError } = await supabase.from('attendance').select('id', { count: 'exact', head: true }).eq('schedule_id', existing.id)
         if (attendanceError) return { success: false, message: 'Gagal memeriksa absensi terkait: ' + attendanceError.message }
         if (count) return { success: false, message: 'Jadwal tidak bisa dihapus karena sudah memiliki data absensi' }
-        const { error } = await supabase.from('schedule').delete().eq('id', existing.id)
+        const { error } = await supabase.from('schedule').delete().eq('id', existing.id).eq('outlet_id', profile.outlet_id)
         if (error) return { success: false, message: 'Gagal menghapus jadwal: ' + error.message }
       }
       continue
@@ -100,7 +110,7 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
     }
     if (!existing && !option) return { success: false, message: 'Jadwal lama tidak ditemukan; pilih jam kerja yang tersedia.' }
 
-    if (item.jobdeskBlocks !== undefined && blocksTableAvailable) {
+    if ((item.jobdeskBlocks !== undefined && blocksTableAvailable) || flexibleWarkopJobdesk) {
       const startText = option?.jam_mulai || existing?.jam_mulai
       const endText = option?.jam_selesai || existing?.jam_selesai
       if (startText && endText) {
@@ -111,6 +121,9 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
         if (shiftEnd <= shiftStart) shiftEnd += 1440
         if (blocks.some((block) => block.mulaiMenit < shiftStart || block.selesaiMenit > shiftEnd)) {
           return { success: false, message: 'Jobdesk harus berada di dalam rentang jam shift crew.' }
+        }
+        if (flexibleWarkopJobdesk && !blocksCoverShift(blocks, shiftStart, shiftEnd)) {
+          return { success: false, message: 'Jobdesk Warkop harus menutup seluruh jam shift tanpa jeda atau waktu bertumpuk.' }
         }
       }
     }
@@ -125,12 +138,12 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
     if (existing && option) {
       const { error } = await supabase.from('schedule').update({
         jam_mulai: option.jam_mulai, jam_selesai: option.jam_selesai, durasi_jam: option.durasi_jam,
-      }).eq('id', existing.id)
+      }).eq('id', existing.id).eq('outlet_id', profile.outlet_id)
       if (error) return { success: false, message: 'Gagal memperbarui jadwal: ' + error.message }
     } else if (!existing && option) {
       const { data: created, error } = await supabase.from('schedule').insert({
         user_id: item.userId, tanggal, jam_mulai: option.jam_mulai, jam_selesai: option.jam_selesai,
-        durasi_jam: option.durasi_jam, dibuat_oleh: user.id,
+        durasi_jam: option.durasi_jam, dibuat_oleh: user.id, outlet_id: profile.outlet_id,
       }).select('id').single()
       if (error || !created) return { success: false, message: 'Gagal membuat jadwal: ' + (error?.message || 'Jadwal tidak tersimpan') }
       scheduleId = created.id
@@ -141,10 +154,10 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
     if (deleteJobdeskError) {
       const rollbackErrors: string[] = []
       if (existing && option) {
-        const { error } = await supabase.from('schedule').update({ jam_mulai: existing.jam_mulai, jam_selesai: existing.jam_selesai, durasi_jam: existing.durasi_jam }).eq('id', scheduleId)
+        const { error } = await supabase.from('schedule').update({ jam_mulai: existing.jam_mulai, jam_selesai: existing.jam_selesai, durasi_jam: existing.durasi_jam }).eq('id', scheduleId).eq('outlet_id', profile.outlet_id)
         if (error) rollbackErrors.push('jadwal lama: ' + error.message)
       } else if (!existing) {
-        const { error } = await supabase.from('schedule').delete().eq('id', scheduleId)
+        const { error } = await supabase.from('schedule').delete().eq('id', scheduleId).eq('outlet_id', profile.outlet_id)
         if (error) rollbackErrors.push('jadwal baru: ' + error.message)
       }
       return { success: false, message: `Gagal memperbarui jobdesk: ${deleteJobdeskError.message}${rollbackErrors.length ? `. Pemulihan juga gagal: ${rollbackErrors.join('; ')}` : existing && option ? '. Perubahan jam dipulihkan.' : ''}` }
@@ -156,10 +169,10 @@ export async function simpanJadwalHariIni(tanggal: string, payload: CrewPayload[
       if (insertJobdeskError) {
         const rollbackErrors: string[] = []
         if (existing && option) {
-          const { error } = await supabase.from('schedule').update({ jam_mulai: existing.jam_mulai, jam_selesai: existing.jam_selesai, durasi_jam: existing.durasi_jam }).eq('id', scheduleId)
+          const { error } = await supabase.from('schedule').update({ jam_mulai: existing.jam_mulai, jam_selesai: existing.jam_selesai, durasi_jam: existing.durasi_jam }).eq('id', scheduleId).eq('outlet_id', profile.outlet_id)
           if (error) rollbackErrors.push('jadwal lama: ' + error.message)
         } else if (!existing) {
-          const { error } = await supabase.from('schedule').delete().eq('id', scheduleId)
+          const { error } = await supabase.from('schedule').delete().eq('id', scheduleId).eq('outlet_id', profile.outlet_id)
           if (error) rollbackErrors.push('jadwal baru: ' + error.message)
         }
         if (existing && oldJobdesk?.length) {

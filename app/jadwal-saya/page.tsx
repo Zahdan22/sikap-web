@@ -7,6 +7,30 @@ import { toDateString, getWeekDates, formatDateWithDay } from '@/lib/date-utils'
 import PageHeader from '@/components/PageHeader'
 import Spinner from '@/components/Spinner'
 
+function JobdeskBlocks({ schedule }: { schedule: ScheduleWithJobdesk }) {
+  if (schedule.jobdeskBlocks.length === 0) {
+    return <p className="mt-1 text-xs text-white/80">{schedule.jobdeskLabels.length > 0 ? schedule.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}</p>
+  }
+
+  return <div className="mt-2 flex flex-wrap gap-1.5">
+    {schedule.jobdeskBlocks.map((block) => <span key={`${block.mulaiMenit}-${block.selesaiMenit}-${block.labels.join('-')}`} className="rounded-lg bg-white/15 px-2 py-1 text-[10px] leading-relaxed text-white">
+      <strong>{formatMinuteClock(block.mulaiMenit)}–{formatMinuteClock(block.selesaiMenit)}</strong> · {block.labels.join(', ')}
+    </span>)}
+  </div>
+}
+
+function JobdeskBlocksMuted({ schedule }: { schedule: ScheduleWithJobdesk }) {
+  if (schedule.jobdeskBlocks.length === 0) {
+    return schedule.jobdeskLabels.length > 0 ? <p className="mt-1 text-[10px] text-muted">{schedule.jobdeskLabels.join(', ')}</p> : null
+  }
+
+  return <div className="mt-1.5 flex flex-wrap gap-1">
+    {schedule.jobdeskBlocks.map((block) => <span key={`${block.mulaiMenit}-${block.selesaiMenit}-${block.labels.join('-')}`} className="rounded-md bg-cream-dim px-1.5 py-1 text-[10px] leading-relaxed text-ink">
+      <strong>{formatMinuteClock(block.mulaiMenit)}–{formatMinuteClock(block.selesaiMenit)}</strong> · {block.labels.join(', ')}
+    </span>)}
+  </div>
+}
+
 export default function JadwalPage() {
   const [view, setView] = useState<'kalender' | 'minggu'>('kalender')
   const [userId, setUserId] = useState<string | null>(null)
@@ -154,11 +178,7 @@ export default function JadwalPage() {
                     <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold">{selectedDate}</span>
                   </div>
                   <p className="mt-1 text-lg font-semibold">{mySchedule.jam_mulai} - {mySchedule.jam_selesai}</p>
-                  <p className="mt-1 text-xs text-white/80">
-                    {mySchedule.jobdeskBlocks.length > 0
-                      ? mySchedule.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)}–${formatMinuteClock(block.selesaiMenit)} ${block.labels.join(', ')}`).join(' · ')
-                      : mySchedule.jobdeskLabels.length > 0 ? mySchedule.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}
-                  </p>
+                  <JobdeskBlocks schedule={mySchedule} />
                 </div>
               ) : (
                 <div className="rounded-2xl border border-cream-dim bg-cream-card px-5 py-4 text-center">
@@ -181,7 +201,7 @@ export default function JadwalPage() {
                           <div>
                             <p className="text-sm font-medium text-ink">{s.nama}</p>
                             <p className="text-xs text-muted">{s.jam_mulai} - {s.jam_selesai}</p>
-                            {s.jobdeskBlocks.length > 0 && <p className="mt-1 text-[10px] leading-relaxed text-muted">{s.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)}–${formatMinuteClock(block.selesaiMenit)} ${block.labels.join(', ')}`).join(' · ')}</p>}
+                            <JobdeskBlocksMuted schedule={s} />
                           </div>
                         </div>
                         {s.jobdeskLabels.length > 0 && (
@@ -218,11 +238,7 @@ export default function JadwalPage() {
                   {sch ? (
                     <>
                       <p className="mt-1 text-sm text-brand">{sch.jam_mulai} - {sch.jam_selesai}</p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {sch.jobdeskBlocks.length > 0
-                          ? sch.jobdeskBlocks.map((block) => `${formatMinuteClock(block.mulaiMenit)}–${formatMinuteClock(block.selesaiMenit)} ${block.labels.join(', ')}`).join(' · ')
-                          : sch.jobdeskLabels.length > 0 ? sch.jobdeskLabels.join(', ') : 'Tanpa jobdesk khusus'}
-                      </p>
+                      <JobdeskBlocksMuted schedule={sch} />
                     </>
                   ) : (
                     <p className="mt-1 text-xs text-muted">Libur</p>
