@@ -1,5 +1,3 @@
-export const OVERTIME_HOURLY_RATE = 8_000
-
 export type OvertimeStatus = 'pending' | 'disetujui' | 'ditolak'
 export type OvertimeRequest = {
   id: number
@@ -9,6 +7,7 @@ export type OvertimeRequest = {
   jam_selesai: string
   durasi_menit: number
   jam_dibayar: number
+  hourly_rate_snapshot: number
   nominal: number
   keterangan: string
   status: OvertimeStatus
@@ -29,7 +28,7 @@ export function calculateOvertime(start: string, end: string) {
   const endMinutes = toMinutes(end)
   const minutes = (endMinutes - startMinutes + 1440) % 1440
   const paidHours = Math.floor(minutes / 60)
-  return { minutes, paidHours, amount: paidHours * OVERTIME_HOURLY_RATE, overnight: endMinutes < startMinutes }
+  return { minutes, paidHours, overnight: endMinutes < startMinutes }
 }
 
 export function overtimeDateLabel(date: string) {

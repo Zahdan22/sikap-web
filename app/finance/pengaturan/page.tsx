@@ -54,6 +54,14 @@ export default function FinanceSettingsPage() {
             </svg>
           </SettingLink>
 
+          <SettingLink href="/finance/pengaturan/tarif-lembur" title="Tarif Lembur" description="Atur nominal lembur per jam untuk outlet ini dengan tanggal berlaku.">
+            <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 8v5l3 2" />
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 3V1m0 22v-2" />
+            </svg>
+          </SettingLink>
+
           <SettingLink href="/outlet" title="Informasi Outlet" description="Atur nama dan titik GPS absensi outlet ini. Perubahan lokasi perlu konfirmasi password.">
             <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />

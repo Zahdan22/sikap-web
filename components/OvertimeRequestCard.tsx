@@ -16,6 +16,7 @@ export default function OvertimeRequestCard({ request, showCrew = false, childre
     </div>
     <p className="mt-2 text-sm text-muted">{request.jam_mulai.slice(0, 5)}–{request.jam_selesai.slice(0, 5)}{request.jam_selesai < request.jam_mulai ? ' (hari berikutnya)' : ''}</p>
     <p className="mt-1 text-sm font-semibold text-ink">{request.jam_dibayar} jam · {rupiah.format(request.nominal)}</p>
+    <p className="mt-1 text-xs text-muted">Tarif tersimpan {rupiah.format(request.hourly_rate_snapshot)} per jam</p>
     <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted">{request.keterangan}</p>
     {request.status !== 'pending' && <p className="mt-3 text-xs text-muted">{statusLabels[request.status]} oleh {request.reviewer?.nama || 'manager'}{request.reviewed_at ? ` · ${new Date(request.reviewed_at).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' })}` : ''}</p>}
     {request.catatan_manajer && <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted">Catatan: {request.catatan_manajer}</p>}

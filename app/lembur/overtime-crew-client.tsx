@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import PageHeader from '@/components/PageHeader'
 import OvertimeRequestCard from '@/components/OvertimeRequestCard'
 import { useDialog } from '@/components/ui/DialogProvider'
-import { loadOvertimeRequests, submitOvertime } from '@/app/actions/overtime'
+import { loadOvertimeRateQuote, loadOvertimeRequests, submitOvertime } from '@/app/actions/overtime'
 import { calculateOvertime, overtimeDateLabel, type OvertimeRequest } from '@/lib/overtime'
 
 const rupiah = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
@@ -20,6 +20,9 @@ export default function OvertimeCrewClient() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [rateQuote, setRateQuote] = useState<{ hourlyRate: number; effectiveOn: string } | null>(null)
+  const [rateLoading, setRateLoading] = useState(false)
+  const [rateError, setRateError] = useState('')
   const duration = calculateOvertime(start, end)
 
   const refresh = useCallback(() => loadOvertimeRequests()
@@ -37,6 +40,25 @@ export default function OvertimeCrewClient() {
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [refresh])
+
+  useEffect(() => {
+    let active = true
+    if (!date) return () => { active = false }
+    const timer = window.setTimeout(() => {
+      setRateLoading(true)
+      setRateError('')
+      setRateQuote(null)
+      void loadOvertimeRateQuote(date)
+        .then((result) => {
+          if (!active) return
+          if (!result.success) { setRateError(result.message); return }
+          setRateQuote({ hourlyRate: result.hourlyRate, effectiveOn: result.effectiveOn })
+        })
+        .catch(() => { if (active) setRateError('Tarif lembur belum dapat dimuat.') })
+        .finally(() => { if (active) setRateLoading(false) })
+    }, 0)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [date])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -71,7 +93,9 @@ export default function OvertimeCrewClient() {
         <div aria-live="polite" className={`rounded-xl p-3 text-sm ${duration && duration.minutes < 60 ? 'bg-warning/10 text-warning' : 'bg-brand/5 text-muted'}`}>
           <p>Minimal lembur 1 jam.</p>
           {duration && duration.minutes < 60 && <p className="mt-1 font-semibold">Lembur kurang dari 1 jam.</p>}
-          {duration && duration.minutes >= 60 && <p className="mt-1 font-semibold text-ink">Dihitung {duration.paidHours} jam · {rupiah.format(duration.amount)}</p>}
+          {duration && duration.minutes >= 60 && <p className="mt-1 font-semibold text-ink">Dihitung {duration.paidHours} jam{rateLoading ? ' · Memuat nominal…' : rateQuote ? ` · ${rupiah.format(duration.paidHours * rateQuote.hourlyRate)}` : ''}</p>}
+          {duration && duration.minutes >= 60 && rateQuote && <p className="mt-1 text-xs text-muted">Tarif {rupiah.format(rateQuote.hourlyRate)} per jam, berlaku sejak {overtimeDateLabel(rateQuote.effectiveOn)}.</p>}
+          {rateError && <p className="mt-1 text-xs text-warning">{rateError}</p>}
           {duration?.overnight && <p className="mt-1 text-xs">Jam selesai berada di hari berikutnya.</p>}
         </div>
         <label className="block text-sm text-muted">Keterangan (wajib)

@@ -39,11 +39,30 @@ export async function submitOvertime(tanggal: string, start: string, end: string
   return { success: true as const }
 }
 
+export async function loadOvertimeRateQuote(tanggal: string) {
+  const access = await accessOvertime()
+  if (!access.ok) return { success: false as const, message: access.message }
+  if (access.role !== 'crew') return { success: false as const, message: 'Tarif lembur hanya tersedia untuk pengajuan crew.' }
+  const date = new Date(`${tanggal}T00:00:00Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tanggal) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== tanggal) {
+    return { success: false as const, message: 'Tanggal lembur tidak valid.' }
+  }
+  const { data, error } = await access.supabase.from('overtime_rate_history')
+    .select('hourly_rate, effective_on')
+    .lte('effective_on', tanggal)
+    .order('effective_on', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !data) return { success: false as const, message: error ? overtimeError(error.message) : 'Tarif lembur belum diatur untuk tanggal tersebut.' }
+  return { success: true as const, hourlyRate: Number(data.hourly_rate), effectiveOn: data.effective_on }
+}
+
 export async function loadOvertimeRequests(managerView = false) {
   const access = await accessOvertime()
   if (!access.ok) return { success: false as const, message: access.message }
   if (managerView && !['manager', 'finance'].includes(access.role)) return { success: false as const, message: 'Akses khusus manager.' }
-  const select = 'id, user_id, tanggal, jam_mulai, jam_selesai, durasi_menit, jam_dibayar, nominal, keterangan, status, catatan_manajer, reviewed_by, reviewed_at, created_at, crew:users!user_id(nama, username, status_aktif), reviewer:users!reviewed_by(nama)'
+  const select = 'id, user_id, tanggal, jam_mulai, jam_selesai, durasi_menit, jam_dibayar, hourly_rate_snapshot, nominal, keterangan, status, catatan_manajer, reviewed_by, reviewed_at, created_at, crew:users!user_id(nama, username, status_aktif), reviewer:users!reviewed_by(nama)'
   // Page through both lists so older requests cannot silently disappear.
   const fetchRows = async (pending: boolean) => {
     const rows: OvertimeRequest[] = []
