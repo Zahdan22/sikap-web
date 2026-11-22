@@ -16,7 +16,7 @@ import BackArrow from '@/components/BackArrow'
 
 type Result = Extract<Awaited<ReturnType<typeof loadCrewManagementDetail>>, { success: true }>
 
-const componentTypes: ManualPayrollComponentType[] = ['referral_bonus', 'operational_bonus', 'no_late_reward', 'cash_advance']
+const componentTypes: ManualPayrollComponentType[] = ['referral_bonus', 'operational_bonus', 'no_late_reward', 'leave_pay', 'cash_advance']
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
 
 function jakartaToday() {
@@ -47,7 +47,7 @@ export default function FinanceCrewDetailClient() {
   const [selectedWorkPeriodId, setSelectedWorkPeriodId] = useState<number | null>(null)
   const [statusDraft, setStatusDraft] = useState({ tier: '', plus: '0', effectiveOn: jakartaToday() })
   const [componentDrafts, setComponentDrafts] = useState<Record<ManualPayrollComponentType, string>>({
-    referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
+    referral_bonus: '', operational_bonus: '', no_late_reward: '', leave_pay: '', cash_advance: '',
   })
   const [titleDraft, setTitleDraft] = useState({ id: null as number | null, title: '', startsOn: '', endsOn: '', dailyAmount: '' })
   const [saving, setSaving] = useState<string | null>(null)
@@ -79,7 +79,7 @@ export default function FinanceCrewDetailClient() {
         : '0'
       setStatusDraft({ tier: preferredTier, plus: preferredLevel, effectiveOn: next.payroll?.effective_on || jakartaToday() })
       const values: Record<ManualPayrollComponentType, string> = {
-        referral_bonus: '', operational_bonus: '', no_late_reward: '', cash_advance: '',
+        referral_bonus: '', operational_bonus: '', no_late_reward: '', leave_pay: '', cash_advance: '',
       }
       next.components.forEach((component) => { values[component.componentType] = String(component.amount) })
       setComponentDrafts(values)

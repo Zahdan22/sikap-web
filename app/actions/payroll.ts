@@ -372,18 +372,19 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
   }
 
   const manualComponentsByUser = new Map<string, {
-    referralBonus: number; operationalBonus: number; noLateReward: number; cashAdvance: number; items: ManualComponent[]
+    referralBonus: number; operationalBonus: number; noLateReward: number; cashAdvance: number; leavePay: number; items: ManualComponent[]
   }>()
   for (const component of manualComponents || []) {
     if (!isManualPayrollComponentType(component.component_type)) continue
     const item = manualComponentsByUser.get(component.user_id) || {
-      referralBonus: 0, operationalBonus: 0, noLateReward: 0, cashAdvance: 0, items: [],
+      referralBonus: 0, operationalBonus: 0, noLateReward: 0, cashAdvance: 0, leavePay: 0, items: [],
     }
     const amount = Number(component.amount)
     if (component.component_type === 'referral_bonus') item.referralBonus += amount
     if (component.component_type === 'operational_bonus') item.operationalBonus += amount
     if (component.component_type === 'no_late_reward') item.noLateReward += amount
     if (component.component_type === 'cash_advance') item.cashAdvance += amount
+    if (component.component_type === 'leave_pay') item.leavePay += amount
     item.items.push({ id: Number(component.id), componentType: component.component_type, amount })
     manualComponentsByUser.set(component.user_id, item)
   }
@@ -407,7 +408,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     rows: crew.map((person) => {
       const total = totals.get(person.id)!
       const adjustments = adjustmentsByUser.get(person.id) || { deductions: 0, additions: 0, items: [] }
-      const manual = manualComponentsByUser.get(person.id) || { referralBonus: 0, operationalBonus: 0, noLateReward: 0, cashAdvance: 0, items: [] }
+      const manual = manualComponentsByUser.get(person.id) || { referralBonus: 0, operationalBonus: 0, noLateReward: 0, cashAdvance: 0, leavePay: 0, items: [] }
       const titles = managementTitlesByUser.get(person.id) || { total: 0, items: [] }
       const state = stateByUser.get(person.id)
       const overtimeDetails = overtime.rows.filter((row) => row.user_id === person.id)
@@ -444,6 +445,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         operationalBonus: Math.round(manual.operationalBonus),
         noLateReward: Math.round(manual.noLateReward),
         cashAdvance: Math.round(manual.cashAdvance),
+        leavePay: Math.round(manual.leavePay),
         managementTitlePay: Math.round(titles.total),
         manualComponents: manual.items,
         managementTitles: titles.items,
@@ -451,7 +453,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
         attendanceDeductions: Math.round(total.attendanceDeductions),
         attendancePoints: total.attendancePoints,
         additions: Math.round(adjustments.additions),
-        netPay: Math.round(total.basePay + total.seniorPlusPay + overtimePay + adjustments.additions + manual.referralBonus + manual.operationalBonus + manual.noLateReward + titles.total - adjustments.deductions - total.attendanceDeductions - violationDeductions - manual.cashAdvance),
+        netPay: Math.round(total.basePay + total.seniorPlusPay + overtimePay + adjustments.additions + manual.referralBonus + manual.operationalBonus + manual.noLateReward + manual.leavePay + titles.total - adjustments.deductions - total.attendanceDeductions - violationDeductions - manual.cashAdvance),
         adjustments: adjustments.items,
       }
     }),
@@ -474,6 +476,7 @@ function payrollSlipSummary(row: PayrollRow) {
     referralBonus: row.referralBonus,
     operationalBonus: row.operationalBonus,
     noLateReward: row.noLateReward,
+    leavePay: row.leavePay,
     cashAdvance: row.cashAdvance,
     operationalFine: row.violationDeductions,
     lateFine: row.attendanceDeductions,
@@ -541,7 +544,7 @@ async function loadFinalPayroll(supabase: Awaited<ReturnType<typeof createClient
       violationDeductions: Number(snapshot.violation_deductions ?? 0), violationPoints: Number(snapshot.violation_points ?? 0),
       attendanceDeductions: Number(snapshot.attendance_deductions ?? 0), attendancePoints: Number(snapshot.attendance_points ?? 0),
       referralBonus: Number(saved?.referralBonus ?? 0), operationalBonus: Number(saved?.operationalBonus ?? 0),
-      noLateReward: Number(saved?.noLateReward ?? 0), cashAdvance: Number(saved?.cashAdvance ?? 0),
+      noLateReward: Number(saved?.noLateReward ?? 0), leavePay: Number(saved?.leavePay ?? 0), cashAdvance: Number(saved?.cashAdvance ?? 0),
       managementTitlePay: Number(saved?.managementTitlePay ?? 0),
       manualComponents: saved?.manualComponents || [], managementTitles: saved?.managementTitles || [],
       additions: Number(snapshot.additions ?? 0), deductions: Number(item.deductions), netPay: Number(item.net_pay),
@@ -1302,7 +1305,7 @@ async function resolvePayrollPeriodForWorkPeriod(access: FinanceAccess, workPeri
 
 async function ensureCrewTarget(access: FinanceAccess, userId: string) {
   if (!userId) return { success: false as const, message: 'Crew tidak valid.' }
-  const { data, error } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
+  const { data, error } = await access.supabase.from('users').select('id').eq('id', userId).eq('outlet_id', access.outletId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
   if (error || !data) return payrollFailure(error, 'Crew tidak ditemukan.')
   return { success: true as const }
 }
@@ -1498,50 +1501,95 @@ export async function addPayrollAdjustment(periodId: number, userId: string, typ
   const access = await requireFinance()
   if (!access.ok) return { success: false as const, message: access.message }
   const cleanReason = reason.trim()
-  if (!Number.isInteger(periodId) || periodId <= 0 || !userId || !adjustmentTypes.includes(type as AdjustmentType)) {
+  const cleanAmount = toWholeRupiah(amount)
+  if (!Number.isSafeInteger(periodId) || periodId <= 0 || !userId || !adjustmentTypes.includes(type as AdjustmentType)) {
     return { success: false as const, message: 'Data penyesuaian gaji tidak valid.' }
   }
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000) return { success: false as const, message: 'Nominal harus lebih dari Rp0.' }
-  if (cleanReason.length < 4 || cleanReason.length > 300) return { success: false as const, message: 'Alasan harus 4–300 karakter.' }
-  const { data: period, error: periodError } = await access.supabase.from('payroll_periods').select('id, period_start, period_end, status, attendance_revision').eq('id', periodId).maybeSingle()
-  if (periodError || !period) return { success: false as const, message: periodError?.message || 'Periode payroll tidak ditemukan.' }
+  if (!Number.isSafeInteger(cleanAmount) || cleanAmount <= 0 || cleanAmount > 100_000_000) return { success: false as const, message: 'Nominal harus berupa angka bulat lebih dari Rp0.' }
+  if (cleanReason.length < 4 || cleanReason.length > 300) return { success: false as const, message: 'Keterangan harus 4–300 karakter.' }
+  const { data: period, error: periodError } = await access.supabase.from('payroll_periods').select('id, period_start, period_end, status, attendance_revision').eq('id', periodId).eq('outlet_id', access.outletId).maybeSingle()
+  if (periodError || !period) return payrollFailure(periodError, 'Periode payroll tidak ditemukan.')
   if (period.status !== 'draft') return { success: false as const, message: 'Periode payroll sudah dikunci.' }
-  const { data: targetCrew, error: targetError } = await access.supabase.from('users').select('id').eq('id', userId).eq('role', 'crew').eq('status_aktif', true).maybeSingle()
-  if (targetError || !targetCrew) return { success: false as const, message: targetError?.message || 'Crew tidak ditemukan.' }
-  const currentReport = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' })
-  if (!currentReport.success) return currentReport
-  const targetRow = currentReport.rows.find((row) => row.userId === userId)
-  if (!targetRow) return { success: false as const, message: 'Data payroll crew tidak ditemukan.' }
-  if (type !== 'addition' && amount > targetRow.netPay) return { success: false as const, message: 'Potongan tidak boleh melebihi perkiraan gaji bersih crew.' }
-  if (type === 'addition' && targetRow.netPay + Math.round(amount) < 0) return { success: false as const, message: 'Gaji bersih setelah penyesuaian masih negatif. Periksa nominal denda atau tambahan.' }
+  const targetCrew = await ensureCrewTarget(access, userId)
+  if (!targetCrew.success) return targetCrew
+  const draftPeriod: DraftPayrollPeriod = { id: period.id, period_start: period.period_start, period_end: period.period_end, status: 'draft', attendance_revision: Number(period.attendance_revision || 0) }
+  const contribution = type === 'addition' ? cleanAmount : -cleanAmount
+  const projected = await validateProjectedPayrollNet(access, draftPeriod, userId, contribution)
+  if (!projected.success) return projected
+  const now = new Date().toISOString()
   const { error } = await access.supabase.from('payroll_adjustments').insert({
     payroll_period_id: periodId,
     user_id: userId,
     adjustment_type: type,
-    amount: Math.round(amount),
+    amount: cleanAmount,
     reason: cleanReason,
     recorded_by: access.userId,
+    updated_by: access.userId,
+    updated_at: now,
   })
-  if (error) return { success: false as const, message: error.message }
-  const report = await calculatePayroll(access.supabase, access.outletId, period.period_start, period.period_end, { id: period.id, status: 'draft' })
-  if (!report.success) return report
-  const row = report.rows.find((item) => item.userId === userId)
-  if (row) {
-    const { error: updateError } = await access.supabase.from('payroll_items').upsert({
-      payroll_period_id: periodId,
-      attendance_revision: period.attendance_revision,
-      user_id: userId,
-      scheduled_hours: row.hours,
-      completed_work_days: row.payableDays,
-      base_pay: row.basePay,
-      senior_plus_pay: row.seniorPlusPay,
-      deductions: row.deductions,
-      net_pay: row.netPay,
-      calculation_snapshot: payrollSnapshot(row),
-    }, { onConflict: 'payroll_period_id,user_id' })
-    if (updateError) return { success: false as const, message: `Penyesuaian tercatat, tetapi total belum diperbarui: ${updateError.message}` }
+  if (error) return payrollFailure(error, 'Penyesuaian belum dapat dicatat. Coba lagi beberapa saat.')
+  const synced = await syncDraftPayrollItem(access, draftPeriod, userId)
+  if (!synced.success) return { success: false as const, message: 'Penyesuaian tercatat, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
+  revalidateManualPayrollPaths(userId)
+  return { success: true as const }
+}
+
+export async function updatePayrollAdjustment(periodId: number, userId: string, adjustmentId: number, type: string, amount: number, reason: string) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  const cleanAmount = toWholeRupiah(amount)
+  const cleanReason = reason.trim()
+  if (!Number.isSafeInteger(periodId) || periodId <= 0 || !Number.isSafeInteger(adjustmentId) || adjustmentId <= 0 || !userId || !adjustmentTypes.includes(type as AdjustmentType)) {
+    return { success: false as const, message: 'Data penyesuaian gaji tidak valid.' }
   }
-  revalidatePath('/finance/payroll')
+  if (!Number.isSafeInteger(cleanAmount) || cleanAmount <= 0 || cleanAmount > 100_000_000) return { success: false as const, message: 'Nominal harus berupa angka bulat lebih dari Rp0.' }
+  if (cleanReason.length < 4 || cleanReason.length > 300) return { success: false as const, message: 'Keterangan harus 4–300 karakter.' }
+  const crew = await ensureCrewTarget(access, userId)
+  if (!crew.success) return crew
+  const { data: period, error: periodError } = await access.supabase.from('payroll_periods').select('id, period_start, period_end, status, attendance_revision').eq('id', periodId).eq('outlet_id', access.outletId).maybeSingle()
+  if (periodError || !period) return payrollFailure(periodError, 'Periode payroll tidak ditemukan.')
+  if (period.status !== 'draft') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
+  const { data: existing, error: existingError } = await access.supabase.from('payroll_adjustments')
+    .select('id, adjustment_type, amount').eq('id', adjustmentId).eq('payroll_period_id', periodId).eq('user_id', userId).maybeSingle()
+  if (existingError || !existing) return payrollFailure(existingError, 'Penyesuaian tidak ditemukan.')
+  const draftPeriod: DraftPayrollPeriod = { id: period.id, period_start: period.period_start, period_end: period.period_end, status: 'draft', attendance_revision: Number(period.attendance_revision || 0) }
+  const oldContribution = existing.adjustment_type === 'addition' ? Number(existing.amount) : -Number(existing.amount)
+  const newContribution = type === 'addition' ? cleanAmount : -cleanAmount
+  const projected = await validateProjectedPayrollNet(access, draftPeriod, userId, newContribution - oldContribution)
+  if (!projected.success) return projected
+  const { error } = await access.supabase.from('payroll_adjustments').update({
+    adjustment_type: type, amount: cleanAmount, reason: cleanReason, updated_by: access.userId, updated_at: new Date().toISOString(),
+  }).eq('id', adjustmentId).eq('payroll_period_id', periodId).eq('user_id', userId)
+  if (error) return payrollFailure(error, 'Penyesuaian belum dapat diubah. Coba lagi beberapa saat.')
+  const synced = await syncDraftPayrollItem(access, draftPeriod, userId)
+  if (!synced.success) return { success: false as const, message: 'Penyesuaian sudah diubah, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
+  revalidateManualPayrollPaths(userId)
+  return { success: true as const }
+}
+
+export async function deletePayrollAdjustment(periodId: number, userId: string, adjustmentId: number) {
+  const access = await requireFinance()
+  if (!access.ok) return { success: false as const, message: access.message }
+  if (!Number.isSafeInteger(periodId) || periodId <= 0 || !Number.isSafeInteger(adjustmentId) || adjustmentId <= 0 || !userId) {
+    return { success: false as const, message: 'Data penyesuaian gaji tidak valid.' }
+  }
+  const crew = await ensureCrewTarget(access, userId)
+  if (!crew.success) return crew
+  const { data: period, error: periodError } = await access.supabase.from('payroll_periods').select('id, period_start, period_end, status, attendance_revision').eq('id', periodId).eq('outlet_id', access.outletId).maybeSingle()
+  if (periodError || !period) return payrollFailure(periodError, 'Periode payroll tidak ditemukan.')
+  if (period.status !== 'draft') return { success: false as const, message: 'Payroll periode ini sudah difinalisasi dan terkunci.' }
+  const { data: existing, error: existingError } = await access.supabase.from('payroll_adjustments')
+    .select('id, adjustment_type, amount').eq('id', adjustmentId).eq('payroll_period_id', periodId).eq('user_id', userId).maybeSingle()
+  if (existingError || !existing) return payrollFailure(existingError, 'Penyesuaian tidak ditemukan.')
+  const draftPeriod: DraftPayrollPeriod = { id: period.id, period_start: period.period_start, period_end: period.period_end, status: 'draft', attendance_revision: Number(period.attendance_revision || 0) }
+  const oldContribution = existing.adjustment_type === 'addition' ? Number(existing.amount) : -Number(existing.amount)
+  const projected = await validateProjectedPayrollNet(access, draftPeriod, userId, -oldContribution)
+  if (!projected.success) return projected
+  const { error } = await access.supabase.from('payroll_adjustments').delete().eq('id', adjustmentId).eq('payroll_period_id', periodId).eq('user_id', userId)
+  if (error) return payrollFailure(error, 'Penyesuaian belum dapat dihapus. Coba lagi beberapa saat.')
+  const synced = await syncDraftPayrollItem(access, draftPeriod, userId)
+  if (!synced.success) return { success: false as const, message: 'Penyesuaian sudah dihapus, tetapi rincian payroll belum berhasil diperbarui. Muat ulang halaman lalu periksa draf payroll.' }
+  revalidateManualPayrollPaths(userId)
   return { success: true as const }
 }
 

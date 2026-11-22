@@ -10,7 +10,7 @@ type Detail = Extract<Awaited<ReturnType<typeof loadOwnPayrollSlip>>, { success:
 
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
 const hoursFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 })
-const adjustmentLabels = { sp_deduction: 'Potongan SP', other_deduction: 'Potongan lain', addition: 'Tambahan' }
+const adjustmentLabels = { sp_deduction: 'Potongan SP', other_deduction: 'Potongan gaji', addition: 'Tambahan gaji' }
 
 function dateLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(value + 'T00:00:00Z'))
@@ -91,9 +91,11 @@ export default function PayrollSayaClient() {
             referralBonus={result.summary.referralBonus}
             operationalBonus={result.summary.operationalBonus}
             noLateReward={result.summary.noLateReward}
+            leavePay={result.summary.leavePay}
             cashAdvance={result.summary.cashAdvance}
             operationalFine={result.summary.operationalFine}
             lateFine={result.summary.lateFine}
+            adjustments={result.adjustments.map((item) => ({ id: item.id, adjustmentType: item.adjustment_type, amount: item.amount, reason: item.reason }))}
           />
 
           {result.managementTitles.length > 0 && <section className="rounded-2xl border border-cream-dim bg-cream-card p-4">

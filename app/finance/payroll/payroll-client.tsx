@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { exportRowsToExcel } from '@/lib/export-excel'
-import { addPayrollAdjustment, finalizePayroll, loadPayrollReport, loadPayrollWorkPeriods, savePayrollDraft } from '@/app/actions/payroll'
+import { addPayrollAdjustment, deletePayrollAdjustment, finalizePayroll, loadPayrollReport, loadPayrollWorkPeriods, savePayrollDraft, updatePayrollAdjustment } from '@/app/actions/payroll'
 import PeriodeModal from '@/components/PeriodeModal'
 import { useDialog } from '@/components/ui/DialogProvider'
 import BackArrow from '@/components/BackArrow'
@@ -16,7 +16,7 @@ type PayrollRow = {
   seniorPlusPay: number; deductions: number; attendanceDeductions: number; attendancePoints: number; additions: number; netPay: number; adjustments: Adjustment[]
   overtimePay: number; overtimeHours: number
   violationDeductions: number; violationPoints: number
-  referralBonus: number; operationalBonus: number; noLateReward: number; cashAdvance: number; managementTitlePay: number
+  referralBonus: number; operationalBonus: number; noLateReward: number; leavePay: number; cashAdvance: number; managementTitlePay: number
 }
 type PayrollReport = { periodId: number | null; periodStatus: 'draft' | 'finalized' | null; rows: PayrollRow[] }
 type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
@@ -24,7 +24,7 @@ type WorkPeriod = { id: number; nama: string; tanggal_mulai: string; tanggal_sel
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
 const hoursFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 })
 const adjustmentLabel: Record<Adjustment['adjustment_type'], string> = {
-  sp_deduction: 'Potongan SP', other_deduction: 'Potongan lain', addition: 'Tambahan',
+  sp_deduction: 'Potongan SP', other_deduction: 'Potongan gaji', addition: 'Tambahan gaji',
 }
 
 export default function PayrollClient() {
@@ -42,7 +42,7 @@ export default function PayrollClient() {
   const [saving, setSaving] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showPeriodModal, setShowPeriodModal] = useState(false)
-  const [adjustmentDrafts, setAdjustmentDrafts] = useState<Record<string, { type: Adjustment['adjustment_type']; amount: string; reason: string }>>({})
+  const [adjustmentDrafts, setAdjustmentDrafts] = useState<Record<string, { id?: number; type: Adjustment['adjustment_type']; amount: string; reason: string }>>({})
 
   const refreshPeriods = useCallback(async (preferredId?: number) => {
     const result = await loadPayrollWorkPeriods()
@@ -104,11 +104,12 @@ export default function PayrollClient() {
     referralBonus: sum.referralBonus + row.referralBonus,
     operationalBonus: sum.operationalBonus + row.operationalBonus,
     noLateReward: sum.noLateReward + row.noLateReward,
+    leavePay: sum.leavePay + row.leavePay,
     cashAdvance: sum.cashAdvance + row.cashAdvance,
     managementTitlePay: sum.managementTitlePay + row.managementTitlePay,
     net: sum.net + row.netPay,
     unrated: sum.unrated + row.unratedDays,
-  }), { hours: 0, days: 0, base: 0, bonus: 0, overtime: 0, deductions: 0, points: 0, additions: 0, referralBonus: 0, operationalBonus: 0, noLateReward: 0, cashAdvance: 0, managementTitlePay: 0, net: 0, unrated: 0 }), [report])
+  }), { hours: 0, days: 0, base: 0, bonus: 0, overtime: 0, deductions: 0, points: 0, additions: 0, referralBonus: 0, operationalBonus: 0, noLateReward: 0, leavePay: 0, cashAdvance: 0, managementTitlePay: 0, net: 0, unrated: 0 }), [report])
 
   async function saveDraft() {
     setSaving(true)
@@ -138,13 +139,31 @@ export default function PayrollClient() {
     return `/finance/payroll/${userId}?${params.toString()}`
   }
 
-  async function addAdjustment(row: PayrollRow) {
+  async function saveAdjustment(row: PayrollRow) {
     if (!report?.periodId) return
     const draft = adjustmentDrafts[row.userId] || { type: 'sp_deduction' as const, amount: '', reason: '' }
-    const result = await addPayrollAdjustment(report.periodId, row.userId, draft.type, Number(draft.amount), draft.reason)
-    if (!result.success) { toast('Gagal mencatat penyesuaian: ' + result.message, 'error'); return }
-    toast('Penyesuaian payroll dicatat.', 'success')
-    setAdjustmentDrafts((previous) => ({ ...previous, [row.userId]: { ...draft, amount: '', reason: '' } }))
+    const result = draft.id
+      ? await updatePayrollAdjustment(report.periodId, row.userId, draft.id, draft.type, Number(draft.amount), draft.reason)
+      : await addPayrollAdjustment(report.periodId, row.userId, draft.type, Number(draft.amount), draft.reason)
+    if (!result.success) { toast('Gagal menyimpan penyesuaian: ' + result.message, 'error'); return }
+    toast(draft.id ? 'Penyesuaian payroll diubah.' : 'Penyesuaian payroll dicatat.', 'success')
+    setAdjustmentDrafts((previous) => ({ ...previous, [row.userId]: { type: draft.type, amount: '', reason: '' } }))
+    await load(start, end)
+  }
+
+  async function removeAdjustment(row: PayrollRow, adjustment: Adjustment) {
+    if (!report?.periodId) return
+    const approved = await confirm({
+      title: 'Hapus penyesuaian?',
+      description: 'Nominal ini akan dihapus dari payroll draf crew.',
+      confirmLabel: 'Hapus',
+      danger: true,
+    })
+    if (!approved) return
+    const result = await deletePayrollAdjustment(report.periodId, row.userId, adjustment.id)
+    if (!result.success) { toast('Gagal menghapus penyesuaian: ' + result.message, 'error'); return }
+    toast('Penyesuaian payroll dihapus.', 'success')
+    setAdjustmentDrafts((previous) => previous[row.userId]?.id === adjustment.id ? { ...previous, [row.userId]: { type: 'other_deduction', amount: '', reason: '' } } : previous)
     await load(start, end)
   }
 
@@ -183,6 +202,7 @@ export default function PayrollClient() {
       'Bonus bawa teman': row.referralBonus,
       'Bonus operasional': row.operationalBonus,
       'Reward tidak telat': row.noLateReward,
+      Cuti: row.leavePay,
       Kasbon: row.cashAdvance,
       'Bonus gelar management': row.managementTitlePay,
       Tambahan: row.additions,
@@ -221,7 +241,7 @@ export default function PayrollClient() {
             <div><p className="font-bold text-ink">{idr.format(totals.deductions)}</p><p className="text-xs text-muted">Total potongan</p></div>
             <div><p className="font-bold text-warning">{totals.points}</p><p className="text-xs text-muted">Total poin pelanggaran</p></div>
             <div><p className="font-bold text-ink">{idr.format(totals.overtime)}</p><p className="text-xs text-muted">Bonus lembur</p></div>
-            <div><p className="font-bold text-ink">{idr.format(totals.referralBonus + totals.operationalBonus + totals.noLateReward + totals.managementTitlePay)}</p><p className="text-xs text-muted">Bonus manual & gelar</p></div>
+            <div><p className="font-bold text-ink">{idr.format(totals.referralBonus + totals.operationalBonus + totals.noLateReward + totals.leavePay + totals.managementTitlePay)}</p><p className="text-xs text-muted">Bonus manual, cuti & gelar</p></div>
             <div><p className="font-bold text-brand">{idr.format(totals.net)}</p><p className="text-xs text-muted">Perkiraan gaji bersih</p></div>
           </div>
         </div>
@@ -258,20 +278,21 @@ export default function PayrollClient() {
               <p className="text-muted">Bonus bawa teman <b className="text-success">{idr.format(row.referralBonus)}</b></p>
               <p className="text-muted">Bonus operasional <b className="text-success">{idr.format(row.operationalBonus)}</b></p>
               <p className="text-muted">Reward tidak telat <b className="text-success">{idr.format(row.noLateReward)}</b></p>
+              <p className="text-muted">Cuti <b className="text-success">{idr.format(row.leavePay)}</b></p>
               <p className="text-muted">Kasbon <b className="text-warning">{idr.format(row.cashAdvance)}</b></p>
               <p className="text-muted">Gelar management <b className="text-success">{idr.format(row.managementTitlePay)}</b></p>
               <p className="font-semibold text-brand">Gaji bersih {idr.format(row.netPay)}</p>
             </div>
-            {row.adjustments.length > 0 && <div className="mt-3 space-y-1 border-t border-cream-dim pt-2">{row.adjustments.map((adjustment) => <p key={adjustment.id} className="text-xs text-muted">{adjustmentLabel[adjustment.adjustment_type]} · {idr.format(adjustment.amount)} · {adjustment.reason}</p>)}</div>}
+            {row.adjustments.length > 0 && <div className="mt-3 space-y-2 border-t border-cream-dim pt-2">{row.adjustments.map((adjustment) => <div key={adjustment.id} className="flex items-start justify-between gap-3 text-xs"><p className="min-w-0 text-muted">{adjustmentLabel[adjustment.adjustment_type]} · {idr.format(adjustment.amount)} · {adjustment.reason}</p>{!isLocked && <div className="flex shrink-0 gap-2 font-semibold"><button onClick={() => setAdjustmentDrafts((previous) => ({ ...previous, [row.userId]: { id: adjustment.id, type: adjustment.adjustment_type, amount: String(adjustment.amount), reason: adjustment.reason } }))} className="text-brand">Ubah</button><button onClick={() => void removeAdjustment(row, adjustment)} className="text-warning">Hapus</button></div>}</div>)}</div>}
             {report.periodId && !isLocked && <div className="mt-3 border-t border-cream-dim pt-3">
-              <p className="mb-2 text-xs font-semibold text-ink">Catat SP / penyesuaian</p>
+              <p className="mb-2 text-xs font-semibold text-ink">{draft.id ? 'Ubah tambahan / potongan manual' : 'Tambah tambahan / potongan manual'}</p>
               <div className="grid grid-cols-2 gap-2">
                 <select value={draft.type} onChange={(event) => setAdjustmentDrafts((prev) => ({ ...prev, [row.userId]: { ...draft, type: event.target.value as Adjustment['adjustment_type'] } }))} className="rounded-lg border border-cream-dim bg-white px-2 py-2 text-xs text-ink">
-                  <option value="sp_deduction">Potongan SP</option><option value="other_deduction">Potongan lain</option><option value="addition">Tambahan</option>
+                  <option value="addition">Tambahan gaji</option><option value="other_deduction">Potongan gaji</option><option value="sp_deduction">Potongan SP</option>
                 </select>
                 <input type="number" min="1" step="1" value={draft.amount} onChange={(event) => setAdjustmentDrafts((prev) => ({ ...prev, [row.userId]: { ...draft, amount: event.target.value } }))} placeholder="Nominal rupiah" className="min-w-0 rounded-lg border border-cream-dim bg-white px-2 py-2 text-xs text-ink" />
               </div>
-              <div className="mt-2 flex gap-2"><input maxLength={300} value={draft.reason} onChange={(event) => setAdjustmentDrafts((prev) => ({ ...prev, [row.userId]: { ...draft, reason: event.target.value } }))} placeholder="Alasan / nomor SP" className="min-w-0 flex-1 rounded-lg border border-cream-dim bg-white px-2 py-2 text-xs text-ink" /><button onClick={() => void addAdjustment(row)} className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white">Catat</button></div>
+              <div className="mt-2 flex gap-2"><input maxLength={300} value={draft.reason} onChange={(event) => setAdjustmentDrafts((prev) => ({ ...prev, [row.userId]: { ...draft, reason: event.target.value } }))} placeholder="Keterangan, misalnya ganti uang bensin" className="min-w-0 flex-1 rounded-lg border border-cream-dim bg-white px-2 py-2 text-xs text-ink" /><button onClick={() => void saveAdjustment(row)} className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-white">{draft.id ? 'Simpan' : 'Tambah'}</button>{draft.id && <button onClick={() => setAdjustmentDrafts((previous) => ({ ...previous, [row.userId]: { type: 'other_deduction', amount: '', reason: '' } }))} className="rounded-lg border border-cream-dim px-3 py-2 text-xs font-semibold text-ink">Batal</button>}</div>
             </div>}
           </section>
         })}

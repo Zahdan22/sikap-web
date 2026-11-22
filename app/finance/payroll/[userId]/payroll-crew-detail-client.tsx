@@ -9,7 +9,7 @@ type Detail = Extract<Awaited<ReturnType<typeof loadPayrollCrewDetail>>, { succe
 
 const idr = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
 const hoursFormat = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 })
-const adjustmentLabels = { sp_deduction: 'Potongan SP', other_deduction: 'Potongan lain', addition: 'Tambahan' }
+const adjustmentLabels = { sp_deduction: 'Potongan SP', other_deduction: 'Potongan gaji', addition: 'Tambahan gaji' }
 
 function dateLabel(value: string) {
   return new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`))
@@ -84,9 +84,11 @@ export default function PayrollCrewDetailClient() {
           referralBonus={result.summary.referralBonus}
           operationalBonus={result.summary.operationalBonus}
           noLateReward={result.summary.noLateReward}
+          leavePay={result.summary.leavePay}
           cashAdvance={result.summary.cashAdvance}
           operationalFine={result.summary.operationalFine}
           lateFine={result.summary.lateFine}
+          adjustments={result.adjustments.map((item) => ({ id: item.id, adjustmentType: item.adjustment_type, amount: item.amount, reason: item.reason }))}
         />
         {result.legacySnapshot && <p className="rounded-xl bg-warning/10 p-4 text-xs text-warning">Payroll ini memakai arsip lama. Jam shift dan waktu absensi yang tidak tersimpan ditampilkan sebagai tanda —. Total gaji tetap memakai nilai final yang tersimpan.</p>}
         <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">Rincian per hari</h2>

@@ -3,6 +3,7 @@ export const manualPayrollComponentTypes = [
   'operational_bonus',
   'no_late_reward',
   'cash_advance',
+  'leave_pay',
 ] as const
 
 export type ManualPayrollComponentType = (typeof manualPayrollComponentTypes)[number]
@@ -12,6 +13,7 @@ export const manualPayrollComponentLabels: Record<ManualPayrollComponentType, st
   operational_bonus: 'Bonus operasional',
   no_late_reward: 'Reward tidak telat',
   cash_advance: 'Kasbon',
+  leave_pay: 'Cuti',
 }
 
 export function isManualPayrollComponentType(value: string): value is ManualPayrollComponentType {
