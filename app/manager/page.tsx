@@ -3,6 +3,7 @@ import Link from 'next/link'
 const tools = [
   { href: '/manager/koreksi-absensi', label: 'Kelola Koreksi Absensi', desc: 'Tinjau bukti dan koreksi jam absensi crew' },
   { href: '/manager/pelanggaran', label: 'Form Pelanggaran Crew', desc: 'Kelola laporan, poin, dan denda crew' },
+  { href: '/manager/jatah-makan', label: 'Lihat Jatah Makan', desc: 'Pantau foto dan keterangan makan crew' },
   { href: '/manager/karyawan', label: 'Manajemen Karyawan', desc: 'Tambah & kelola akun crew' },
   { href: '/manager/jadwal', label: 'Kelola Jadwal', desc: 'Grid jadwal mingguan' },
   { href: '/manager/jadwal', label: 'Kelola Jam Kerja', desc: 'Preset opsi shift' },

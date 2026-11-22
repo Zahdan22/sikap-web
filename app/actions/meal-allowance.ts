@@ -52,7 +52,7 @@ type MealAccess = {
   supabase: Awaited<ReturnType<typeof createClient>>
   userId: string
   outletId: string
-  role: 'crew' | 'finance'
+  role: 'crew' | 'manager' | 'finance'
 }
 
 function failure(error: unknown) {
@@ -67,7 +67,7 @@ async function accessMealAllowance(): Promise<MealAccess> {
   if (authError || !user) throw new Error('Sesi login berakhir. Silakan login kembali.')
   const { data: profile, error: profileError } = await supabase
     .from('users').select('role,status_aktif,outlet_id').eq('id', user.id).single()
-  if (profileError || !profile?.status_aktif || !profile.outlet_id || !['crew', 'finance'].includes(profile.role)) {
+  if (profileError || !profile?.status_aktif || !profile.outlet_id || !['crew', 'manager', 'finance'].includes(profile.role)) {
     throw new Error('Akun tidak memiliki akses jatah makan.')
   }
   return { supabase, userId: user.id, outletId: profile.outlet_id, role: profile.role as MealAccess['role'] }
@@ -197,7 +197,7 @@ async function loadRowsForDate(date: string, crew: Crew[], outletId: string) {
 }
 
 function refreshMealAllowance() {
-  for (const path of ['/dashboard', '/jatah-makan', '/finance', '/finance/jatah-makan', '/pelanggaran', '/finance/pelanggaran']) revalidatePath(path)
+  for (const path of ['/dashboard', '/jatah-makan', '/manager', '/manager/jatah-makan', '/finance', '/finance/jatah-makan', '/pelanggaran', '/manager/pelanggaran', '/finance/pelanggaran']) revalidatePath(path)
 }
 
 export async function loadMealAllowanceForCrew(selectedDate?: string) {
@@ -270,6 +270,28 @@ export async function loadMealAllowanceForFinance(selectedDate?: string) {
       await purgeCompletedMealAllowanceData(access.outletId)
     } catch (cleanupError) {
       console.error('[meal allowance cleanup before finance load]', cleanupError)
+    }
+    const [currentPeriod, crewResult] = await Promise.all([
+      activePeriod(today, access.outletId),
+      supabaseAdmin.from('users').select('id,nama,username').eq('outlet_id', access.outletId).eq('role', 'crew').eq('status_aktif', true).order('nama'),
+    ])
+    if (crewResult.error) throw new Error('Daftar crew belum dapat dimuat.')
+    const allCrew = (crewResult.data || []) as Crew[]
+    const visibleDate = selectedDateForPeriod(currentPeriod, selectedDate, today)
+    const rows = visibleDate ? await loadRowsForDate(visibleDate, allCrew, access.outletId) : []
+    return { success: true as const, period: currentPeriod, selectedDate: visibleDate, rows }
+  } catch (error) { return failure(error) }
+}
+
+export async function loadMealAllowanceForManager(selectedDate?: string) {
+  try {
+    const access = await accessMealAllowance()
+    if (access.role !== 'manager') throw new Error('Halaman ini khusus untuk Manager Penjadwalan.')
+    const today = jakartaDate()
+    try {
+      await purgeCompletedMealAllowanceData(access.outletId)
+    } catch (cleanupError) {
+      console.error('[meal allowance cleanup before manager load]', cleanupError)
     }
     const [currentPeriod, crewResult] = await Promise.all([
       activePeriod(today, access.outletId),

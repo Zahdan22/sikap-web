@@ -7,6 +7,12 @@ import { formatDateWithDay } from '@/lib/date-utils'
 
 type Period = { id: number; nama: string; tanggal_mulai: string; tanggal_selesai: string }
 type FinanceMealData = { period: Period | null; selectedDate: string | null; rows: MealAllowanceRow[] }
+type MealAllowanceLoader = typeof loadMealAllowanceForFinance
+
+type FinanceMealAllowanceClientProps = {
+  backHref?: string
+  loadMealAllowance?: MealAllowanceLoader
+}
 
 function description(row: MealAllowanceRow) {
   if (row.status === 'not_taken') return 'Tidak mengambil jatah makan'
@@ -23,7 +29,10 @@ function shiftDate(date: string, amount: number) {
   return next.toISOString().slice(0, 10)
 }
 
-export default function FinanceMealAllowanceClient() {
+export default function FinanceMealAllowanceClient({
+  backHref = '/finance',
+  loadMealAllowance = loadMealAllowanceForFinance,
+}: FinanceMealAllowanceClientProps) {
   const [data, setData] = useState<FinanceMealData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,7 +40,7 @@ export default function FinanceMealAllowanceClient() {
   const load = useCallback(async (selectedDate?: string) => {
     setLoading(true)
     try {
-      const result = await loadMealAllowanceForFinance(selectedDate)
+      const result = await loadMealAllowance(selectedDate)
       if (!result.success) {
         setError(result.message)
         return
@@ -43,7 +52,7 @@ export default function FinanceMealAllowanceClient() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadMealAllowance])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void load() }, 0)
@@ -51,7 +60,7 @@ export default function FinanceMealAllowanceClient() {
   }, [load])
 
   return <div className="min-h-full bg-cream pb-24">
-    <PageHeader title="Jatah Makan Crew" backHref="/finance" rightSlot={<button type="button" aria-label="Muat ulang data jatah makan" title="Muat ulang" onClick={() => void load(data?.selectedDate || undefined)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-xl font-semibold leading-none text-white transition-colors hover:bg-white/10">↻</button>} />
+    <PageHeader title="Jatah Makan Crew" backHref={backHref} rightSlot={<button type="button" aria-label="Muat ulang data jatah makan" title="Muat ulang" onClick={() => void load(data?.selectedDate || undefined)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-xl font-semibold leading-none text-white transition-colors hover:bg-white/10">↻</button>} />
     <main className="space-y-4 px-5 pt-5">
       <p className="rounded-2xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">Pantau foto dan keterangan jatah makan crew. Laporan yang tidak diisi setelah pukul 23.59 tercatat sebagai pelanggaran otomatis hanya jika poin jatah makan sedang aktif untuk tanggal tersebut. Aturan ini tidak memengaruhi payroll.</p>
       {error && <p role="alert" className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{error}</p>}
