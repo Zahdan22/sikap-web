@@ -51,7 +51,11 @@ export async function getTodayStatus(userId: string) {
   }
   const overnightSchedule = schedules.find(row => {
     const attendance = attendances?.find(item => item.schedule_id === row.id)
-    return row.tanggal === yesterday && isOvernightShift(row) && attendance?.jam_masuk_aktual && !attendance.jam_pulang_aktual
+    return row.tanggal === yesterday
+      && isOvernightShift(row)
+      && attendance?.jam_masuk_aktual
+      && !attendance.jam_pulang_aktual
+      && !isCheckOutGraceExpired({ tanggal: row.tanggal, jamMulai: row.jam_mulai, jamSelesai: row.jam_selesai }, now)
   })
   const schedule = overnightSchedule || schedules.find(row => row.tanggal === today) || null
   if (!schedule) return { schedule: null, attendance: null }

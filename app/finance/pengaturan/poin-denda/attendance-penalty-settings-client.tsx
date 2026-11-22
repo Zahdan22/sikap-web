@@ -174,7 +174,7 @@ export default function FinancePenaltyRuleSettingsClient() {
           <ul className="mt-3 space-y-2 text-xs leading-relaxed text-ink">
             <li>• Konsekuensi telat masuk mengikuti rentang aturan aktif di bawah.</li>
             <li>• Tidak absen masuk setelah shift selesai: Kerja Ikhlas, shift tidak dibayar.</li>
-            <li>• Check-out lebih dari 45 menit setelah shift selesai: tercatat telat absen pulang.</li>
+            <li>• Check-out lebih dari 45 menit setelah shift selesai: tercatat tidak absen pulang.</li>
             <li>• Jatah makan harus diisi sebelum 23.59 WIB. Poinnya mengikuti tanggal berlaku di bawah dan tidak memengaruhi payroll.</li>
           </ul>
         </section>

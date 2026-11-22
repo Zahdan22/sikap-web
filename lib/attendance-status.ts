@@ -64,7 +64,7 @@ export function evaluateCheckOut(
 
   if (isCheckOutGraceExpired(shift, checkOutTime)) {
     throw new Error(
-      `Batas check-out pukul ${graceDeadline.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} sudah lewat. Absensi tercatat sebagai telat absen pulang; hubungi manager jika ada kendala.`
+      `Batas check-out pukul ${graceDeadline.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' })} sudah lewat. Absensi tercatat sebagai tidak absen pulang; hubungi manager jika ada kendala.`
     )
   }
 

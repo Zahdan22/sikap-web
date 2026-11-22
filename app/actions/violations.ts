@@ -92,7 +92,7 @@ async function automaticAttendanceViolations(period: { tanggal_mulai: string; ta
       const rule = resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkout' })
       if (rule) rows.push({
         id: `attendance-${schedule.id}-late_checkout`, source: 'attendance', schedule_id: schedule.id, attendance_kind: 'late_checkout', user_id: schedule.user_id,
-        tanggal: schedule.tanggal, kesalahan: attendance.jam_pulang_aktual ? 'Telat absen pulang' : 'Telat absen pulang (>45 menit)',
+        tanggal: schedule.tanggal, kesalahan: attendance.jam_pulang_aktual ? 'Telat absen pulang' : 'Tidak absen pulang',
         poin: pointsByKey.get(attendancePointKey(schedule.id, 'late_checkout')) ?? rule.points,
         denda: rule.payrollEffect === 'deduction' ? rule.fine : 0,
       })

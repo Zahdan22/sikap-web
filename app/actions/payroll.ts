@@ -288,7 +288,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       if ((checkoutGraceExpired && !attendance?.jam_pulang_aktual) || attendance?.status_pulang === 'lewat_batas') {
         const lateCheckoutRule = configuredAttendancePenalty(
           resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkout' }),
-          !attendance?.jam_pulang_aktual ? 'Telat absen pulang (>45 menit)' : 'Telat absen pulang',
+          !attendance?.jam_pulang_aktual ? 'Tidak absen pulang' : 'Telat absen pulang',
         )
         if (lateCheckoutRule) penalties.push(lateCheckoutRule)
       }
@@ -309,7 +309,7 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
       status: !hasCheckIn ? shiftEnded ? 'Kerja Ikhlas · tidak absen masuk' : 'Belum check-in'
         : ikhlas ? 'Kerja Ikhlas · shift tidak dibayar'
         : minutesLate >= 30 ? 'Telat ≥30 menit · potongan berlaku'
-        : !attendance?.jam_pulang_aktual ? checkoutGraceExpired ? 'Telat absen pulang (>45 menit)' : 'Belum check-out'
+        : !attendance?.jam_pulang_aktual ? checkoutGraceExpired ? 'Tidak absen pulang' : 'Belum check-out'
         : !tierEntry ? 'Tarif belum diketahui' : 'Hadir lengkap',
     }
     if (payable) { total.hours += hours; total.payableDays += 1 }
