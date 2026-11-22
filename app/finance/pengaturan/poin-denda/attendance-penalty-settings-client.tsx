@@ -30,6 +30,7 @@ function fixedSop(rule: Rule) {
   if (rule.ruleKind === 'missing_checkin') return 'SOP tetap: tidak absen masuk setelah shift selesai = Kerja Ikhlas, shift tidak dibayar.'
   if (rule.ruleKind === 'late_checkout') return 'SOP tetap: telat check-out hanya tercatat setelah melewati batas 45 menit dari jam selesai shift.'
   if (rule.ruleKind === 'missing_meal') return 'Jadwal berlaku poin jatah makan diatur pada bagian khusus di atas. Aturan ini tidak memengaruhi payroll.'
+  if (rule.payrollEffect === 'unpaid') return 'SOP tetap: keterlambatan pada rentang ini = Kerja Ikhlas, shift tidak dibayar.'
   if (rule.minMinutes !== null && rule.minMinutes >= 30 && rule.appliesTo === 'non_senior_plus') return 'SOP tetap: crew selain status Senior yang telat 30 menit atau lebih = Kerja Ikhlas, shift tidak dibayar.'
   if (rule.minMinutes !== null && rule.minMinutes >= 30) return 'SOP tetap: aturan ini berlaku untuk status Senior dan dapat memiliki potongan sesuai nominal di bawah.'
   return 'SOP waktu tetap: yang dapat diubah hanya poin, nominal denda, dan tanggal berlaku.'
@@ -135,7 +136,7 @@ export default function FinancePenaltyRuleSettingsClient() {
     try {
       const response = await saveMealAllowancePointSettings(
         mealPointEnabled,
-        mealPointEnabled ? mealPointEffectiveFrom : null,
+        mealPointEffectiveFrom,
       )
       if (!response.success) {
         toast(response.message, 'error')
@@ -171,7 +172,7 @@ export default function FinancePenaltyRuleSettingsClient() {
           <h2 className="font-semibold text-ink">Batas waktu SOP</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted">Bagian ini hanya sebagai pengingat agar ketentuan waktu operasional tetap konsisten.</p>
           <ul className="mt-3 space-y-2 text-xs leading-relaxed text-ink">
-            <li>• Telat masuk ≥30 menit (selain status Senior): Kerja Ikhlas, shift tidak dibayar.</li>
+            <li>• Konsekuensi telat masuk mengikuti rentang aturan aktif di bawah.</li>
             <li>• Tidak absen masuk setelah shift selesai: Kerja Ikhlas, shift tidak dibayar.</li>
             <li>• Check-out lebih dari 45 menit setelah shift selesai: tercatat telat absen pulang.</li>
             <li>• Jatah makan harus diisi sebelum 23.59 WIB. Poinnya mengikuti tanggal berlaku di bawah dan tidak memengaruhi payroll.</li>
@@ -190,16 +191,19 @@ export default function FinancePenaltyRuleSettingsClient() {
             <input type="checkbox" checked={mealPointEnabled} onChange={(event) => setMealPointEnabled(event.target.checked)} className="mt-0.5" />
             <span><span className="font-semibold">Terapkan poin untuk jatah makan yang tidak diisi</span><br /><span className="text-xs leading-relaxed text-muted">Jika dinonaktifkan, tidak ada pelanggaran poin jatah makan otomatis pada outlet ini.</span></span>
           </label>
-          {mealPointEnabled && <label className="mt-4 block text-xs text-muted">Poin berlaku mulai
+          <label className="mt-4 block text-xs text-muted">Poin berlaku mulai saat diaktifkan
             <input required type="date" value={mealPointEffectiveFrom} onChange={(event) => setMealPointEffectiveFrom(event.target.value)} className="mt-1 w-full rounded-xl border border-cream-dim bg-white px-3 py-2.5 text-sm text-ink" />
-          </label>}
+          </label>
           <p className="mt-3 text-xs leading-relaxed text-muted">Jika tanggal mulai diubah lebih maju, catatan poin otomatis sebelum tanggal tersebut akan hilang dari Form Pelanggaran. Jumlah poinnya mengikuti aturan “Tidak mengisi jatah makan” di bawah.</p>
           <button disabled={savingMealPointSettings || (mealPointEnabled && !mealPointEffectiveFrom)} type="button" onClick={() => void saveMealPoints()} className="mt-4 w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white disabled:opacity-50">{savingMealPointSettings ? 'Menyimpan…' : 'Simpan pengaturan jatah makan'}</button>
         </section>}
 
         {loading && <p className="py-8 text-center text-sm text-muted">Memuat aturan poin dan denda…</p>}
         {error && <p role="alert" className="rounded-xl bg-warning/10 p-4 text-sm text-warning">{error}</p>}
-        {settings && <section className="space-y-3" aria-label="Aturan poin dan denda otomatis">
+        {settings && settings.rules.length === 0 && <section className="rounded-2xl border border-cream-dim bg-cream-card p-4 text-sm text-muted">
+          Belum ada aturan poin dan denda untuk outlet ini. Aturan perlu disiapkan terlebih dahulu oleh sistem.
+        </section>}
+        {settings && settings.rules.length > 0 && <section className="space-y-3" aria-label="Aturan poin dan denda otomatis">
           {settings.rules.map((rule) => <article key={rule.ruleKey} className="rounded-2xl border border-cream-dim bg-cream-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">

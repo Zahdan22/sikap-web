@@ -262,19 +262,25 @@ async function calculatePayroll(supabase: Awaited<ReturnType<typeof createClient
     if (hasCheckIn) {
       const minutesLate = Number(attendance?.menit_telat || 0)
       if (attendance?.status_masuk === 'telat' || minutesLate > 0) {
-        // The unpaid consequence is a fixed time-based SOP. The configurable
-        // rule only supplies the shown point and nominal deduction.
-        if (minutesLate >= 30 && !supportsSeniorPlus) ikhlas = true
+        const matchedLateRule = resolveAttendancePenaltyRule(
+          penaltyRulesResult.data,
+          schedule.tanggal,
+          { kind: 'late_checkin', minutesLate, supportsSeniorPlus },
+        )
+        // Each outlet owns its own time bands. An unpaid rule makes the shift
+        // unpaid for every audience that matches that outlet's configuration.
+        const lateIsUnpaid = matchedLateRule?.payrollEffect === 'unpaid'
+        if (lateIsUnpaid) ikhlas = true
         const latePenalty = configuredAttendancePenalty(
-          resolveAttendancePenaltyRule(penaltyRulesResult.data, schedule.tanggal, { kind: 'late_checkin', minutesLate, supportsSeniorPlus }),
-          minutesLate >= 30 && !supportsSeniorPlus
-            ? 'Telat ≥30 menit · Kerja Ikhlas, upah shift tidak dibayar'
+          matchedLateRule,
+          lateIsUnpaid
+            ? `Telat ${minutesLate} menit · Kerja Ikhlas, upah shift tidak dibayar`
             : minutesLate >= 30
               ? 'Telat ≥30 menit · potongan Senior'
               : `Telat ${minutesLate} menit`,
         )
         if (latePenalty) {
-          penalties.push(minutesLate >= 30 && !supportsSeniorPlus
+          penalties.push(lateIsUnpaid
             ? { ...latePenalty, amount: 0 }
             : latePenalty)
         }
@@ -1044,7 +1050,9 @@ export async function saveMealAllowancePointSettings(isEnabled: boolean, effecti
     .upsert({
       outlet_id: access.outletId,
       is_enabled: isEnabled,
-      effective_from: isEnabled ? cleanEffectiveFrom : null,
+      // Keep a planned date even while the point is off, so Finance can set
+      // the official rollout date before enabling it.
+      effective_from: validDate(cleanEffectiveFrom) ? cleanEffectiveFrom : null,
       updated_by: access.userId,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'outlet_id' })
