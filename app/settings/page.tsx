@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const { toast, confirm } = useDialog()
   const [nama, setNama] = useState('')
   const [username, setUsername] = useState('')
+  const [backHref, setBackHref] = useState('/dashboard')
   const [savingProfile, setSavingProfile] = useState(false)
 
   const [oldPassword, setOldPassword] = useState('')
@@ -24,8 +25,12 @@ export default function SettingsPage() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data } = await supabase.from('users').select('nama, username').eq('id', user.id).single()
-      if (data) { setNama(data.nama); setUsername(data.username) }
+      const { data } = await supabase.from('users').select('nama, username, role').eq('id', user.id).single()
+      if (data) {
+        setNama(data.nama)
+        setUsername(data.username)
+        setBackHref(data.role === 'owner' ? '/owner' : data.role === 'payroll_staff' ? '/payroll-management' : data.role === 'finance' ? '/finance' : '/dashboard')
+      }
     }
     load()
   }, [])
@@ -79,7 +84,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-cream pb-10">
-      <PageHeader title="Pengaturan" backHref="/dashboard" />
+      <PageHeader title="Pengaturan Profil" backHref={backHref} />
 
       <div className="mt-4 px-5">
         <div className="rounded-2xl border border-cream-dim bg-cream-card p-5">
