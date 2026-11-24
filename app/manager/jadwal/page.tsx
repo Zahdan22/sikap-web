@@ -468,8 +468,8 @@ function SchedulePreviewModal({
 
   function segmentLabel(segment: PreviewSegment) {
     const jobdeskLabel = segment.jobdeskIds
-      .map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.nama)
-      .filter((name): name is string => Boolean(name))
+      .map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan)
+      .filter((singkatan): singkatan is string => Boolean(singkatan))
       .join(' + ')
     return `${jobdeskLabel || 'Tanpa jobdesk'} · ${formatMinuteClock(segment.start)}–${formatMinuteClock(segment.end)}`
   }

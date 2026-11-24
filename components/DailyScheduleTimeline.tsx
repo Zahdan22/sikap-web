@@ -4,6 +4,7 @@ type ScheduleRow = {
   jam_mulai: string
   jam_selesai: string
   jobdeskLabels: string[]
+  jobdeskBlocks?: { mulaiMenit: number; selesaiMenit: number; labels: string[] }[]
 }
 
 type Props = {
@@ -19,7 +20,20 @@ export default function DailyScheduleTimeline({ dateLabel, schedules, loading = 
     const start = Number(startHour) + Number(startMinute) / 60
     let end = Number(endHour) + Number(endMinute) / 60
     if (end <= start) end += 24
-    return { schedule, start, end }
+    const segments = (schedule.jobdeskBlocks || [])
+      .map((block) => ({
+        start: Math.max(start, block.mulaiMenit / 60),
+        end: Math.min(end, block.selesaiMenit / 60),
+        labels: block.labels,
+      }))
+      .filter((block) => block.end > block.start)
+
+    return {
+      schedule,
+      start,
+      end,
+      segments: segments.length ? segments : [{ start, end, labels: schedule.jobdeskLabels }],
+    }
   })
 
   if (loading) {
@@ -57,17 +71,20 @@ export default function DailyScheduleTimeline({ dateLabel, schedules, loading = 
             </div>
           </div>
           <div className="divide-y divide-cream-dim">
-            {shifts.map(({ schedule, start, end }, index) => {
-              const left = (start - startHour) * hourWidth
-              const width = (end - start) * hourWidth
-              const jobdesk = schedule.jobdeskLabels.length ? schedule.jobdeskLabels.join(', ') : 'Tanpa jobdesk'
+            {shifts.map(({ schedule, segments }, index) => {
               return (
                 <div key={schedule.id} className="grid items-center py-1.5" style={{ gridTemplateColumns: `80px ${timelineWidth}px` }}>
                   <span className="truncate pr-2 text-[10px] font-medium text-ink" title={schedule.nama}>{schedule.nama}</span>
                   <div className="relative h-8" style={{ width: `${timelineWidth}px`, backgroundImage: 'linear-gradient(to right, rgba(120, 113, 108, 0.18) 1px, transparent 1px)', backgroundSize: `${hourWidth}px 100%` }}>
-                    <div title={`${schedule.nama}: ${schedule.jam_mulai.slice(0, 5)}–${schedule.jam_selesai.slice(0, 5)} · ${jobdesk}`} className="absolute top-0.5 flex h-7 items-center overflow-hidden rounded-md border border-black/10 px-1.5 text-[9px] font-semibold text-ink" style={{ left: `${left}px`, width: `${width}px`, backgroundColor: palette[index % palette.length] }}>
-                      <span className="truncate">{jobdesk} · {schedule.jam_mulai.slice(0, 5)}–{schedule.jam_selesai.slice(0, 5)}</span>
-                    </div>
+                    {segments.map((segment, segmentIndex) => {
+                      const left = (segment.start - startHour) * hourWidth
+                      const width = (segment.end - segment.start) * hourWidth
+                      const jobdesk = segment.labels.length ? segment.labels.join(', ') : 'Tanpa jobdesk'
+                      const range = `${String(Math.floor(segment.start) % 24).padStart(2, '0')}:${String(Math.round((segment.start % 1) * 60)).padStart(2, '0')}–${String(Math.floor(segment.end) % 24).padStart(2, '0')}:${String(Math.round((segment.end % 1) * 60)).padStart(2, '0')}`
+                      return <div key={`${segment.start}-${segment.end}-${segmentIndex}`} title={`${schedule.nama}: ${jobdesk} · ${range}`} className="absolute top-0.5 flex h-7 items-center overflow-hidden rounded-md border border-black/10 px-1.5 text-[9px] font-semibold text-ink" style={{ left: `${left}px`, width: `${width}px`, backgroundColor: palette[index % palette.length] }}>
+                        <span className="truncate">{jobdesk} · {range}</span>
+                      </div>
+                    })}
                   </div>
                 </div>
               )
