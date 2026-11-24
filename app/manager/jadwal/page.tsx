@@ -466,12 +466,15 @@ function SchedulePreviewModal({
   const timelineColumns = `minmax(120px, 180px) repeat(${hourSlots.length}, minmax(56px, 1fr))`
   const totalMinutes = DAY_END - DAY_START
 
-  function segmentLabel(segment: PreviewSegment) {
-    const jobdeskLabel = segment.jobdeskIds
+  function segmentJobdeskLabel(segment: PreviewSegment) {
+    return segment.jobdeskIds
       .map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.singkatan)
       .filter((singkatan): singkatan is string => Boolean(singkatan))
       .join(' + ')
-    return `${jobdeskLabel || 'Tanpa jobdesk'} · ${formatMinuteClock(segment.start)}–${formatMinuteClock(segment.end)}`
+  }
+
+  function segmentDescription(segment: PreviewSegment) {
+    return `${segmentJobdeskLabel(segment) || 'Tanpa jobdesk'} · ${formatMinuteClock(segment.start)}–${formatMinuteClock(segment.end)}`
   }
 
   return (
@@ -497,11 +500,12 @@ function SchedulePreviewModal({
                   {hourSlots.map((slot) => <span key={slot.start} className="border-r border-cream-dim last:border-r-0" />)}
                 </div>
                 {segments.map((segment) => {
-                  const label = segmentLabel(segment)
+                  const jobdeskLabel = segmentJobdeskLabel(segment) || 'Tanpa jobdesk'
+                  const description = segmentDescription(segment)
                   const left = ((segment.start - DAY_START) / totalMinutes) * 100
                   const width = ((segment.end - segment.start) / totalMinutes) * 100
-                  return <div key={`${segment.start}-${segment.end}-${segment.jobdeskIds.join('-')}`} title={label} className={`absolute top-2 bottom-2 z-10 flex min-w-0 items-center rounded-lg border px-2 text-[10px] font-semibold text-ink shadow-sm ${PREVIEW_BAR_COLORS[index % PREVIEW_BAR_COLORS.length]}`} style={{ left: `${left}%`, width: `${width}%` }}>
-                    <span className="truncate">{label}</span>
+                  return <div key={`${segment.start}-${segment.end}-${segment.jobdeskIds.join('-')}`} title={description} className={`absolute top-2 bottom-2 z-10 flex min-w-0 items-center rounded-lg border px-2 text-[10px] font-semibold text-ink shadow-sm ${PREVIEW_BAR_COLORS[index % PREVIEW_BAR_COLORS.length]}`} style={{ left: `${left}%`, width: `${width}%` }}>
+                    <span className="truncate">{jobdeskLabel}</span>
                   </div>
                 })}
               </div>

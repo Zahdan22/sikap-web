@@ -82,7 +82,7 @@ export default function DailyScheduleTimeline({ dateLabel, schedules, loading = 
                       const jobdesk = segment.labels.length ? segment.labels.join(', ') : 'Tanpa jobdesk'
                       const range = `${String(Math.floor(segment.start) % 24).padStart(2, '0')}:${String(Math.round((segment.start % 1) * 60)).padStart(2, '0')}–${String(Math.floor(segment.end) % 24).padStart(2, '0')}:${String(Math.round((segment.end % 1) * 60)).padStart(2, '0')}`
                       return <div key={`${segment.start}-${segment.end}-${segmentIndex}`} title={`${schedule.nama}: ${jobdesk} · ${range}`} className="absolute top-0.5 flex h-7 items-center overflow-hidden rounded-md border border-black/10 px-1.5 text-[9px] font-semibold text-ink" style={{ left: `${left}px`, width: `${width}px`, backgroundColor: palette[index % palette.length] }}>
-                        <span className="truncate">{jobdesk} · {range}</span>
+                        <span className="truncate">{jobdesk}</span>
                       </div>
                     })}
                   </div>
