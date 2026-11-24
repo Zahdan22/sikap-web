@@ -458,6 +458,7 @@ function SchedulePreviewModal({
   jobdesks: JobdeskOption[]
   onClose: () => void
 }) {
+  const [selectedSegment, setSelectedSegment] = useState<{ crewName: string; jobdesk: string; range: string } | null>(null)
   const scheduledCrews = crews.flatMap((crew, index) => {
     const shift = shiftMinutes(states[crew.id] || EMPTY, shifts)
     if (!shift) return []
@@ -479,7 +480,7 @@ function SchedulePreviewModal({
 
   return (
     <div onClick={onClose} className="fixed inset-0 z-[60] flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6">
-      <section role="dialog" aria-modal="true" aria-labelledby="preview-jadwal-title" onClick={(event) => event.stopPropagation()} className="max-h-[88vh] w-full overflow-hidden rounded-t-3xl bg-cream-card shadow-2xl sm:max-w-6xl sm:rounded-3xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="preview-jadwal-title" onClick={(event) => event.stopPropagation()} className="relative max-h-[88vh] w-full overflow-hidden rounded-t-3xl bg-cream-card shadow-2xl sm:max-w-6xl sm:rounded-3xl">
         <header className="flex items-start justify-between gap-4 border-b border-cream-dim px-5 py-4">
           <div>
             <h2 id="preview-jadwal-title" className="text-base font-bold text-ink">Preview Jadwal Crew</h2>
@@ -502,17 +503,46 @@ function SchedulePreviewModal({
                 {segments.map((segment) => {
                   const jobdeskLabel = segmentJobdeskLabel(segment) || 'Tanpa jobdesk'
                   const description = segmentDescription(segment)
+                  const range = `${formatMinuteClock(segment.start)}–${formatMinuteClock(segment.end)}`
                   const left = ((segment.start - DAY_START) / totalMinutes) * 100
                   const width = ((segment.end - segment.start) / totalMinutes) * 100
-                  return <div key={`${segment.start}-${segment.end}-${segment.jobdeskIds.join('-')}`} title={description} className={`absolute top-2 bottom-2 z-10 flex min-w-0 items-center rounded-lg border px-2 text-[10px] font-semibold text-ink shadow-sm ${PREVIEW_BAR_COLORS[index % PREVIEW_BAR_COLORS.length]}`} style={{ left: `${left}%`, width: `${width}%` }}>
+                  return <button type="button" key={`${segment.start}-${segment.end}-${segment.jobdeskIds.join('-')}`} onClick={() => setSelectedSegment({ crewName: crew.nama, jobdesk: jobdeskLabel, range })} title={description} aria-label={`Lihat detail jobdesk ${crew.nama}, ${description}`} className={`absolute top-2 bottom-2 z-10 flex min-w-0 items-center rounded-lg border px-2 text-left text-[10px] font-semibold text-ink shadow-sm transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-brand/60 ${PREVIEW_BAR_COLORS[index % PREVIEW_BAR_COLORS.length]}`} style={{ left: `${left}%`, width: `${width}%` }}>
                     <span className="truncate">{jobdeskLabel}</span>
-                  </div>
+                  </button>
                 })}
               </div>
             </div>)}
           </div>}
           <p className="mt-3 text-xs text-muted">Geser mendatar untuk melihat seluruh jam. Shift yang melewati tengah malam berlanjut ke hari berikutnya.</p>
         </div>
+        {selectedSegment && <JobdeskPreviewDetail detail={selectedSegment} onClose={() => setSelectedSegment(null)} />}
+      </section>
+    </div>
+  )
+}
+
+function JobdeskPreviewDetail({ detail, onClose }: { detail: { crewName: string; jobdesk: string; range: string }; onClose: () => void }) {
+  return (
+    <div onClick={onClose} className="absolute inset-0 z-20 flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6">
+      <section role="dialog" aria-modal="true" aria-labelledby="preview-jobdesk-detail-title" onClick={(event) => event.stopPropagation()} className="w-full rounded-t-3xl bg-cream-card p-5 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 id="preview-jobdesk-detail-title" className="text-base font-bold text-ink">Detail Jobdesk</h3>
+            <p className="mt-1 text-sm text-muted">{detail.crewName}</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-muted hover:bg-cream" aria-label="Tutup detail jobdesk">×</button>
+        </div>
+        <dl className="mt-5 space-y-3 rounded-2xl border border-cream-dim bg-cream p-4 text-sm">
+          <div>
+            <dt className="text-xs text-muted">Jam tugas</dt>
+            <dd className="mt-1 font-semibold text-ink">{detail.range}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted">Jobdesk</dt>
+            <dd className="mt-1 break-words font-semibold text-ink">{detail.jobdesk}</dd>
+          </div>
+        </dl>
+        <button type="button" onClick={onClose} className="mt-5 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white">Tutup</button>
       </section>
     </div>
   )

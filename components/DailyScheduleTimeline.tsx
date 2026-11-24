@@ -1,3 +1,7 @@
+'use client'
+
+import { useState } from 'react'
+
 type ScheduleRow = {
   id: number
   nama: string
@@ -14,6 +18,7 @@ type Props = {
 }
 
 export default function DailyScheduleTimeline({ dateLabel, schedules, loading = false }: Props) {
+  const [selectedSegment, setSelectedSegment] = useState<{ crewName: string; jobdesk: string; range: string } | null>(null)
   const shifts = schedules.map((schedule) => {
     const [startHour, startMinute = '0'] = schedule.jam_mulai.split(':')
     const [endHour, endMinute = '0'] = schedule.jam_selesai.split(':')
@@ -81,9 +86,9 @@ export default function DailyScheduleTimeline({ dateLabel, schedules, loading = 
                       const width = (segment.end - segment.start) * hourWidth
                       const jobdesk = segment.labels.length ? segment.labels.join(', ') : 'Tanpa jobdesk'
                       const range = `${String(Math.floor(segment.start) % 24).padStart(2, '0')}:${String(Math.round((segment.start % 1) * 60)).padStart(2, '0')}–${String(Math.floor(segment.end) % 24).padStart(2, '0')}:${String(Math.round((segment.end % 1) * 60)).padStart(2, '0')}`
-                      return <div key={`${segment.start}-${segment.end}-${segmentIndex}`} title={`${schedule.nama}: ${jobdesk} · ${range}`} className="absolute top-0.5 flex h-7 items-center overflow-hidden rounded-md border border-black/10 px-1.5 text-[9px] font-semibold text-ink" style={{ left: `${left}px`, width: `${width}px`, backgroundColor: palette[index % palette.length] }}>
+                      return <button type="button" key={`${segment.start}-${segment.end}-${segmentIndex}`} onClick={() => setSelectedSegment({ crewName: schedule.nama, jobdesk, range })} title={`${schedule.nama}: ${jobdesk} · ${range}`} aria-label={`Lihat detail jobdesk ${schedule.nama}, ${jobdesk}, ${range}`} className="absolute top-0.5 flex h-7 items-center overflow-hidden rounded-md border border-black/10 px-1.5 text-left text-[9px] font-semibold text-ink transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-brand/60" style={{ left: `${left}px`, width: `${width}px`, backgroundColor: palette[index % palette.length] }}>
                         <span className="truncate">{jobdesk}</span>
-                      </div>
+                      </button>
                     })}
                   </div>
                 </div>
@@ -93,6 +98,34 @@ export default function DailyScheduleTimeline({ dateLabel, schedules, loading = 
         </div>
       </div>
       <p className="mt-1 text-[10px] text-muted">Geser mendatar untuk melihat seluruh jam. Shift lewat tengah malam berlanjut ke hari berikutnya.</p>
+      {selectedSegment && <JobdeskDetailSheet detail={selectedSegment} onClose={() => setSelectedSegment(null)} />}
     </section>
+  )
+}
+
+function JobdeskDetailSheet({ detail, onClose }: { detail: { crewName: string; jobdesk: string; range: string }; onClose: () => void }) {
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[60] flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6">
+      <section role="dialog" aria-modal="true" aria-labelledby="jobdesk-detail-title" onClick={(event) => event.stopPropagation()} className="w-full rounded-t-3xl bg-cream-card p-5 shadow-2xl sm:max-w-sm sm:rounded-3xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="jobdesk-detail-title" className="text-base font-bold text-ink">Detail Jobdesk</h2>
+            <p className="mt-1 text-sm text-muted">{detail.crewName}</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-muted hover:bg-cream" aria-label="Tutup detail jobdesk">×</button>
+        </div>
+        <dl className="mt-5 space-y-3 rounded-2xl border border-cream-dim bg-cream p-4 text-sm">
+          <div>
+            <dt className="text-xs text-muted">Jam tugas</dt>
+            <dd className="mt-1 font-semibold text-ink">{detail.range}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted">Jobdesk</dt>
+            <dd className="mt-1 break-words font-semibold text-ink">{detail.jobdesk}</dd>
+          </div>
+        </dl>
+        <button type="button" onClick={onClose} className="mt-5 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white">Tutup</button>
+      </section>
+    </div>
   )
 }
