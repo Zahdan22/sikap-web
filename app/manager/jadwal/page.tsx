@@ -23,6 +23,14 @@ const DAY_START = 6 * 60
 const DAY_END = 26 * 60
 const FIXED_SLOT_MINUTES = 120
 const FLEXIBLE_SLOT_MINUTES = 30
+const PREVIEW_BAR_COLORS = [
+  'border-amber-300 bg-amber-200',
+  'border-cyan-300 bg-cyan-200',
+  'border-emerald-300 bg-emerald-200',
+  'border-pink-300 bg-pink-200',
+  'border-violet-300 bg-violet-200',
+  'border-orange-300 bg-orange-200',
+]
 function createSlots(minutes: number) {
   return Array.from({ length: (DAY_END - DAY_START) / minutes }, (_, i) => ({
     start: DAY_START + i * minutes,
@@ -73,6 +81,33 @@ function durationLabel(minutes: number) {
   return `${Math.floor(minutes / 60)} jam ${minutes % 60} menit`
 }
 
+type PreviewSegment = { start: number; end: number; jobdeskIds: number[] }
+
+function getPreviewSegments(state: CrewScheduleState, shift: { start: number; end: number }): PreviewSegment[] {
+  const segments: PreviewSegment[] = []
+  const blocks = blocksForShift(state, shift)
+    .map((block) => ({
+      start: Math.max(shift.start, block.mulaiMenit),
+      end: Math.min(shift.end, block.selesaiMenit),
+      jobdeskIds: block.jobdeskIds,
+    }))
+    .filter((block) => block.end > block.start)
+    .sort((left, right) => left.start - right.start)
+
+  let cursor = shift.start
+  for (const block of blocks) {
+    if (block.start > cursor) segments.push({ start: cursor, end: block.start, jobdeskIds: [] })
+    if (block.end > cursor) segments.push({ start: Math.max(cursor, block.start), end: block.end, jobdeskIds: block.jobdeskIds })
+    cursor = Math.max(cursor, block.end)
+  }
+  if (cursor < shift.end) segments.push({ start: cursor, end: shift.end, jobdeskIds: [] })
+  return segments.length ? segments : [{ start: shift.start, end: shift.end, jobdeskIds: [] }]
+}
+
+function previewHourLabel(minute: number) {
+  return `${String(Math.floor(minute / 60) % 24).padStart(2, '0')}${minute >= 1440 ? '+' : ''}`
+}
+
 export default function JadwalPage() {
   const { toast } = useDialog()
   const [date, setDate] = useState(() => new Date())
@@ -94,6 +129,7 @@ export default function JadwalPage() {
   const [editing, setEditing] = useState<{ crewId: string; slot: { start: number; end: number } } | null>(null)
   const [editingDuration, setEditingDuration] = useState(FIXED_SLOT_MINUTES)
   const [flexibleJobdeskBlocks, setFlexibleJobdeskBlocks] = useState(false)
+  const [showSchedulePreview, setShowSchedulePreview] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [showJamKerjaModal, setShowJamKerjaModal] = useState(false)
   const [showJobdeskModal, setShowJobdeskModal] = useState(false)
@@ -148,6 +184,7 @@ export default function JadwalPage() {
     setLoading(true)
     setOpenedDate(null)
     setEditing(null)
+    setShowSchedulePreview(false)
     setDate(nextDate)
   }
 
@@ -290,6 +327,7 @@ export default function JadwalPage() {
             <button onClick={() => setOpenedDate(dateString)} className="mt-4 rounded-xl bg-brand px-5 py-3 text-sm font-semibold text-white">Edit sekarang</button>
           </div>
         ) : (
+          <>
           <div className="mt-3 overflow-x-auto rounded-2xl border border-cream-dim bg-cream-card">
             <table className="border-separate border-spacing-0 text-left">
               <thead><tr>
@@ -351,8 +389,16 @@ export default function JadwalPage() {
               })}</tbody>
             </table>
           </div>
+          <div className="mt-3 flex justify-end">
+            <button type="button" onClick={() => setShowSchedulePreview(true)} className="rounded-xl border border-brand px-4 py-2.5 text-xs font-semibold text-brand hover:bg-brand/5">
+              Preview Jadwal Crew
+            </button>
+          </div>
+          </>
         )}
       </section>
+
+      {showSchedulePreview && <SchedulePreviewModal dayLabel={dayLabel} crews={crews} states={states} shifts={shifts} jobdesks={jobdesks} onClose={() => setShowSchedulePreview(false)} />}
 
       {editing && <div onClick={() => setEditing(null)} className="fixed inset-0 z-50 flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6">
         <div onClick={(event) => event.stopPropagation()} className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-cream-card p-5 sm:max-w-md sm:rounded-3xl">
@@ -393,6 +439,77 @@ export default function JadwalPage() {
         void refreshJobdeskPresets()
       }} />}
       {showJobdeskPresetModal && <JobdeskPresetModal jobdesks={jobdesks} onClose={() => setShowJobdeskPresetModal(false)} onChanged={() => { void refreshJobdeskPresets() }} />}
+    </div>
+  )
+}
+
+function SchedulePreviewModal({
+  dayLabel,
+  crews,
+  states,
+  shifts,
+  jobdesks,
+  onClose,
+}: {
+  dayLabel: string
+  crews: Crew[]
+  states: Record<string, CrewScheduleState>
+  shifts: JamKerjaOpsi[]
+  jobdesks: JobdeskOption[]
+  onClose: () => void
+}) {
+  const scheduledCrews = crews.flatMap((crew, index) => {
+    const shift = shiftMinutes(states[crew.id] || EMPTY, shifts)
+    if (!shift) return []
+    return [{ crew, index, segments: getPreviewSegments(states[crew.id] || EMPTY, shift) }]
+  })
+  const timelineColumns = `minmax(120px, 180px) repeat(${hourSlots.length}, minmax(56px, 1fr))`
+  const totalMinutes = DAY_END - DAY_START
+
+  function segmentLabel(segment: PreviewSegment) {
+    const jobdeskLabel = segment.jobdeskIds
+      .map((id) => jobdesks.find((jobdesk) => jobdesk.id === id)?.nama)
+      .filter((name): name is string => Boolean(name))
+      .join(' + ')
+    return `${jobdeskLabel || 'Tanpa jobdesk'} · ${formatMinuteClock(segment.start)}–${formatMinuteClock(segment.end)}`
+  }
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[60] flex items-end bg-ink/40 sm:items-center sm:justify-center sm:p-6">
+      <section role="dialog" aria-modal="true" aria-labelledby="preview-jadwal-title" onClick={(event) => event.stopPropagation()} className="max-h-[88vh] w-full overflow-hidden rounded-t-3xl bg-cream-card shadow-2xl sm:max-w-6xl sm:rounded-3xl">
+        <header className="flex items-start justify-between gap-4 border-b border-cream-dim px-5 py-4">
+          <div>
+            <h2 id="preview-jadwal-title" className="text-base font-bold text-ink">Preview Jadwal Crew</h2>
+            <p className="mt-1 text-xs text-muted">{dayLabel} · Perubahan di tabel edit langsung tercermin di sini.</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl text-muted hover:bg-cream" aria-label="Tutup preview jadwal">×</button>
+        </header>
+        <div className="max-h-[calc(88vh-5rem)] overflow-auto p-4">
+          {!scheduledCrews.length ? <p className="rounded-xl border border-cream-dim bg-cream p-4 text-sm text-muted">Belum ada crew yang dijadwalkan bekerja pada hari ini.</p> : <div className="min-w-[1240px] overflow-hidden rounded-xl border border-cream-dim">
+            <div className="grid border-b border-cream-dim bg-cream text-[10px] font-semibold text-muted" style={{ gridTemplateColumns: timelineColumns }}>
+              <div className="sticky left-0 z-20 border-r border-cream-dim bg-cream px-3 py-3 uppercase">Crew</div>
+              {hourSlots.map((slot) => <div key={slot.start} className="border-r border-cream-dim px-1 py-3 text-center last:border-r-0">{previewHourLabel(slot.start)}</div>)}
+            </div>
+            {scheduledCrews.map(({ crew, index, segments }) => <div key={crew.id} className="grid border-b border-cream-dim last:border-b-0" style={{ gridTemplateColumns: timelineColumns }}>
+              <div className="sticky left-0 z-10 flex min-h-20 items-center border-r border-cream-dim bg-cream-card px-3 text-xs font-semibold text-ink">{crew.nama}</div>
+              <div className="relative min-h-20 overflow-hidden" style={{ gridColumn: `span ${hourSlots.length} / span ${hourSlots.length}` }}>
+                <div aria-hidden="true" className="pointer-events-none absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${hourSlots.length}, minmax(0, 1fr))` }}>
+                  {hourSlots.map((slot) => <span key={slot.start} className="border-r border-cream-dim last:border-r-0" />)}
+                </div>
+                {segments.map((segment) => {
+                  const label = segmentLabel(segment)
+                  const left = ((segment.start - DAY_START) / totalMinutes) * 100
+                  const width = ((segment.end - segment.start) / totalMinutes) * 100
+                  return <div key={`${segment.start}-${segment.end}-${segment.jobdeskIds.join('-')}`} title={label} className={`absolute top-2 bottom-2 z-10 flex min-w-0 items-center rounded-lg border px-2 text-[10px] font-semibold text-ink shadow-sm ${PREVIEW_BAR_COLORS[index % PREVIEW_BAR_COLORS.length]}`} style={{ left: `${left}%`, width: `${width}%` }}>
+                    <span className="truncate">{label}</span>
+                  </div>
+                })}
+              </div>
+            </div>)}
+          </div>}
+          <p className="mt-3 text-xs text-muted">Geser mendatar untuk melihat seluruh jam. Shift yang melewati tengah malam berlanjut ke hari berikutnya.</p>
+        </div>
+      </section>
     </div>
   )
 }
