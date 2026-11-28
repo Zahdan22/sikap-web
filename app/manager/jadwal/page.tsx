@@ -69,7 +69,13 @@ function cellJobdeskIds(state: CrewScheduleState, options: JamKerjaOpsi[], slot:
 }
 
 function blocksForShift(state: CrewScheduleState, shift: { start: number; end: number }) {
-  if (state.jobdeskBlocks.length > 0) return normalizeJobdeskBlocks(state.jobdeskBlocks)
+  // Clip to the current shift: blocks left over from a previously selected shift
+  // are invisible in the grid but would otherwise be sent and rejected by the server.
+  if (state.jobdeskBlocks.length > 0) {
+    return normalizeJobdeskBlocks(state.jobdeskBlocks
+      .map((block) => ({ ...block, mulaiMenit: Math.max(shift.start, block.mulaiMenit), selesaiMenit: Math.min(shift.end, block.selesaiMenit) }))
+      .filter((block) => block.selesaiMenit > block.mulaiMenit))
+  }
   return state.jobdeskIds.length > 0
     ? [{ mulaiMenit: shift.start, selesaiMenit: shift.end, jobdeskIds: [...state.jobdeskIds] }]
     : []
